@@ -119,6 +119,8 @@ cto doctor
 
 `cto doctor` sends one real request per provider, shows where each key comes from, checks the hooks in the current repo, shows when the last check ran, and counts how often a check was blocked or let through unchecked. It exits non-zero when something needs attention. Run it whenever you are unsure whether `cto` is protecting you: because `cto` fails open, a broken key looks exactly like a clean pass.
 
+Both `setup` and `doctor` also look at what else is steering the agents, and say so when something could fight cto: other hooks on the same events (in the project and in your user-level settings), lines in `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules` or any installed skill that tell the agent to do what cto blocks (`--no-verify`, skip the tests, commit straight to main, force-push), and a skill installed both globally and in the project. Notes only, never a failure: cto writes its rules into the project and never into your global files, so a global rule that contradicts them is yours to sort out.
+
 Other forms:
 
 ```sh

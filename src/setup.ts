@@ -5,6 +5,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
 import { t, type Lang } from './i18n.js';
 import { guidancePaths, syncGuidance } from './skill.js';
+import { findConflicts } from './conflicts.js';
 
 const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
@@ -220,8 +221,16 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     try { goal = JSON.parse(readFileSync(cfgPath, 'utf8')).sprint_goal ?? ''; } catch { /* keep empty */ }
   }
   if (!String(goal).trim()) lines.push(t(lang, 'setup_sprint'));
+  lines.push(...conflictLines(root, [...chosen], lang));
   lines.push(t(lang, 'setup_done'));
   return { code: 0, lines };
+}
+
+/** Notes about other hooks, contrary guidance and duplicate skills; empty when there is nothing to say. */
+export function conflictLines(root: string, wired: AgentName[], lang: Lang, home?: string): string[] {
+  const found = findConflicts(root, wired, home);
+  if (!found.length) return [];
+  return [t(lang, 'conflicts_head'), ...found.map((c) => `  -- ${t(lang, `conflict_${c.kind}`, { where: c.where, detail: c.detail })}`)];
 }
 
 /** Hook phases a wired agent should have but its config lacks (installed by an older version). */

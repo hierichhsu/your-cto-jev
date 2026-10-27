@@ -1250,3 +1250,33 @@ test('local checks need no key: protected branch, conflict markers and .env bloc
   setup(repo, 'en', { uninstall: true });
   assert.ok(!existsSync(join(repo, '.git', 'hooks', 'pre-push')));
 });
+
+test('conflicts: other hooks on cto events, guidance that undoes a rule, and skills installed twice are reported', async () => {
+  const { findConflicts } = await import('./conflicts.js');
+  const { conflictLines } = await import('./setup.js');
+  const root = tmp();
+  const home = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  mkdirSync(join(home, '.claude', 'skills', 'deploy'), { recursive: true });
+  writeFileSync(join(home, '.claude', 'skills', 'deploy', 'SKILL.md'), '# deploy\nWhen tests are flaky, commit with --no-verify and move on.\n');
+  writeFileSync(join(home, '.claude', 'CLAUDE.md'), '# me\nNever use --no-verify.\n不要 force push。\n');
+  writeFileSync(join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-guard' }] }] } }));
+  mkdirSync(join(root, '.agents', 'skills', 'deploy'), { recursive: true });
+  writeFileSync(join(root, '.agents', 'skills', 'deploy', 'SKILL.md'), '# deploy\n');
+  writeFileSync(join(root, 'AGENTS.md'), 'Commit directly to main, we have no PRs.\nDo not skip tests.\n');
+  setup(root, 'en', { agents: ['claude'] });
+  const settings = join(root, '.claude', 'settings.local.json');
+  const s = JSON.parse(readFileSync(settings, 'utf8'));
+  s.hooks.Stop.push({ hooks: [{ type: 'command', command: 'notify-me' }] });
+  writeFileSync(settings, JSON.stringify(s));
+
+  const found = findConflicts(root, ['claude'], home);
+  const by = (k: string) => found.filter((c) => c.kind === k).map((c) => `${c.where} | ${c.detail}`);
+  assert.deepEqual(by('hook'), ['.claude/settings.local.json | notify-me (Stop)', '~/.claude/settings.json | my-guard (PreToolUse)']);
+  assert.deepEqual(by('guidance'), ['AGENTS.md:1 | Commit directly to main, we have no PRs.', '~/.claude/skills/deploy/SKILL.md:2 | When tests are flaky, commit with --no-verify and move on.']);
+  assert.deepEqual(by('dup_skill'), ['deploy | ~/.claude/skills and .agents/skills']);
+  assert.equal(findConflicts(tmp(), ['claude'], tmp()).length, 0, 'cto\'s own rules block never flags itself');
+  const text = conflictLines(root, ['claude'], 'en', home).join('\n');
+  assert.match(text, /Other things steering the agents here/);
+  assert.match(text, /installed in both/);
+});
