@@ -1186,3 +1186,67 @@ test('lessons: failures are fingerprinted once, the edit before the same command
   assert.deepEqual(s.hooks.SessionStart, [{ hooks: [{ type: 'command', command: 'cto --hook claude-start' }] }]);
   assert.ok(!readFileSync(join(repo, '.gitignore'), 'utf8').includes('lessons'));
 });
+
+test('local checks need no key: protected branch, conflict markers and .env block; big file and lock drift warn; pre-push guards history', async () => {
+  const { localCommitChecks, localPushChecks } = await import('./local.js');
+  const { gitCommit, gitPush } = await import('./hooks.js');
+  const { runCheck } = await import('./check.js');
+  setKeys(false);
+  const root = tmp();
+  const g = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
+  g('init', '-q', '-b', 'main');
+  g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'one');
+  const one = g('rev-parse', 'HEAD');
+  g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'two');
+  const two = g('rev-parse', 'HEAD');
+  writeFileSync(join(root, '.cto.json'), JSON.stringify({ protected_branches: ['main'] }));
+  writeFileSync(join(root, 'package-lock.json'), '{}');
+  const sec = (p: string, body: string) => `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n${body}\n`;
+  const cfg = (await import('./brain.js')).loadConfig(root);
+
+  const kinds = (d: string, branch = 'feature') => localCommitChecks(d, cfg, root, branch).map((f) => `${f.kind}${f.block ? '!' : ''}`);
+  assert.deepEqual(kinds(sec('a.ts', '+ok'), 'main'), ['protected_branch!']);
+  assert.deepEqual(kinds(sec('a.ts', '+<<<<<<< HEAD\n+x\n+=======\n+y\n+>>>>>>> other')), ['conflict_marker!']);
+  assert.deepEqual(kinds(sec('.env', '+DB=x') + sec('.env.example', '+DB=') + sec('.env.local', '+A=1')), ['env_file!', 'env_file!']);
+  assert.deepEqual(kinds(sec('big.txt', '+' + 'x'.repeat(5 * 1024 * 1024 + 1))), ['big_file']);
+  assert.deepEqual(kinds(sec('package.json', '+    "left-pad": "^1.0.0",')), ['lock_drift']);
+  assert.deepEqual(kinds(sec('package.json', '+    "test": "node --test",')), ['lock_drift'], 'a script line looks like a dep line: accepted noise');
+  assert.deepEqual(kinds(sec('package.json', '+    "left-pad": "^1.0.0",') + sec('package-lock.json', '+x')), []);
+  assert.deepEqual(kinds(sec('src/a.ts', '+const x = 1;')), []);
+
+  // git-commit: a local block ends it before Jev; without keys, everything else passes with the warnings shown
+  g('checkout', '-q', '-b', 'feature');
+  let out = await gitCommit(sec('a.ts', '+<<<<<<< HEAD'), { root, lang: 'en' });
+  assert.equal(out.code, 1);
+  assert.match(out.stderr.join('\n'), /conflict markers/);
+  out = await gitCommit(sec('package.json', '+    "left-pad": "^1.0.0",'), { root, lang: 'en' });
+  assert.equal(out.code, 0);
+  assert.match(out.stderr.join('\n'), /package-lock\.json did not/);
+  assert.equal(loadBrain(root).blocked_attempts, 1);
+
+  // cto check shows the same verdicts
+  writeFileSync(join(root, '.env'), 'SECRET=real\n');
+  g('add', '.env');
+  const r = await runCheck(root, 'en');
+  assert.equal(r.code, 1);
+  assert.match(r.lines.join('\n'), /\.env with real values/);
+
+  // pre-push: fast-forward passes; rewriting or deleting a protected branch is blocked; other branches are free
+  const line = (local: string, remote: string, ref = 'refs/heads/main') => `${ref} ${local} ${ref} ${remote}\n`;
+  assert.deepEqual(localPushChecks(line(two, one), cfg, root), []);
+  assert.deepEqual(localPushChecks(line(two, '0'.repeat(40)), cfg, root), [], 'a new remote branch');
+  assert.equal(localPushChecks(line(one, two), cfg, root)[0]?.detail, 'main (force push)');
+  assert.equal(localPushChecks(line('0'.repeat(40), two), cfg, root)[0]?.detail, 'main (delete)');
+  assert.deepEqual(localPushChecks(line(one, two, 'refs/heads/feature'), cfg, root), []);
+  out = gitPush(line(one, two), { root, lang: 'en' });
+  assert.equal(out.code, 1);
+  assert.match(out.stderr.join('\n'), /protected branch/);
+
+  // setup installs and removes the pre-push hook like pre-commit
+  const repo = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  setup(repo, 'en', { agents: [] });
+  assert.match(readFileSync(join(repo, '.git', 'hooks', 'pre-push'), 'utf8'), /cto --hook git-push/);
+  setup(repo, 'en', { uninstall: true });
+  assert.ok(!existsSync(join(repo, '.git', 'hooks', 'pre-push')));
+});

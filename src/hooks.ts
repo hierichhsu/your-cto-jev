@@ -12,6 +12,7 @@ import { chunkDiff, filterDiff, pool } from './diff.js';
 import { personaDict, t, type Lang } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
 import { loadLessons, recordFailure, resolveFromTurn, saveLessons } from './lessons.js';
+import { localCommitChecks, localPushChecks, type LocalFinding } from './local.js';
 import type { JevAnswer, JevQuestion, Signal, TurnAction } from './types.js';
 
 
@@ -199,16 +200,25 @@ export const BLOCKING_COMMIT: Signal[] = ['credential_leak', 'test_tampering'];
 export const WARNING_COMMIT: Signal[] = ['architecture_violation', 'code_complexity'];
 const over = (v: number | undefined, s: Signal, cfg: CtoConfig) => v !== undefined && v > cfg.thresholds[s];
 
+export const localLines = (lang: Lang, findings: LocalFinding[]) => findings.map((f) => t(lang, `local_${f.kind}`, { detail: f.detail }));
+
 export async function gitCommit(rawDiff: string, { root, lang, now }: Env): Promise<HookOutput> {
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
   const out: HookOutput = { code: 0, stderr: [] };
+  // Local checks first: a commit they block never reaches Jev, and they work without any key.
+  const local = localCommitChecks(rawDiff, cfg, root);
+  if (local.some((f) => f.block)) {
+    brain.blocked_attempts++;
+    saveBrain(root, brain);
+    return { code: 1, stderr: localLines(lang, local.filter((f) => f.block)) };
+  }
   const review = await reviewDiff(rawDiff, cfg, brain, lang, now);
-  if (!review) return out;
+  if (!review) return { ...out, stderr: localLines(lang, local) };
   if (review.failed) brain.skipped_attempts++;
   if (Object.keys(review.scores).length) countCheck(brain, now);
 
-  const lines: string[] = [];
+  const lines: string[] = localLines(lang, local);
   for (const s of BLOCKING_COMMIT) {
     if (!over(review.scores[s], s, cfg)) continue;
     out.code = 1;
@@ -219,6 +229,16 @@ export async function gitCommit(rawDiff: string, { root, lang, now }: Env): Prom
   out.stderr = [...review.notices, ...lines];
   saveBrain(root, brain);
   return out;
+}
+
+/** pre-push: protected branches cannot be deleted or force-pushed. Local only. */
+export function gitPush(stdin: string, { root, lang }: Env): HookOutput {
+  const findings = localPushChecks(stdin, loadConfig(root), root);
+  if (!findings.length) return { code: 0, stderr: [] };
+  const brain = loadBrain(root);
+  brain.blocked_attempts++;
+  saveBrain(root, brain);
+  return { code: 1, stderr: localLines(lang, findings) };
 }
 
 /** Bookkeeping for `cto doctor`: how many checks Jev actually answered, and when the last one was. */

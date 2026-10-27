@@ -6,7 +6,7 @@ import { probeProvider, providerOrder, providers } from './api.js';
 import { loadBrain, loadConfig, loadCredentials } from './brain.js';
 import { AGENT_TIMEOUT_MS } from './hooks.js';
 import { t, type Lang } from './i18n.js';
-import { ignoredByGit, missingHooks, wiredAgents } from './setup.js';
+import { GIT_HOOKS, ignoredByGit, missingHooks, wiredAgents } from './setup.js';
 import { guidancePaths, staleGuidance } from './skill.js';
 import { checkUpdate, currentVersion } from './update.js';
 
@@ -70,10 +70,12 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
   } else {
     L.push('', t(lang, 'doc_repo', { root }));
     const hooksDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], { cwd: root, encoding: 'utf8' }).trim();
-    const hookPath = join(hooksDir, 'pre-commit');
-    const hook = existsSync(hookPath) ? readFileSync(hookPath, 'utf8') : '';
-    if (hook.includes('YOUR CTO JEV START')) L.push(`  OK ${t(lang, 'doc_hook_ok', { path: hookPath })}`);
-    else { L.push(`  !! ${t(lang, 'doc_hook_missing')}`); problems.push(t(lang, 'doc_hook_missing')); }
+    for (const [name] of GIT_HOOKS) {
+      const hookPath = join(hooksDir, name);
+      const hook = existsSync(hookPath) ? readFileSync(hookPath, 'utf8') : '';
+      if (hook.includes('YOUR CTO JEV START')) L.push(`  OK ${t(lang, 'doc_hook_ok', { name, path: hookPath })}`);
+      else { L.push(`  !! ${t(lang, 'doc_hook_missing', { name })}`); problems.push(t(lang, 'doc_hook_missing', { name })); }
+    }
 
     const wired = wiredAgents(root);
     L.push(`  ${wired.length ? 'OK' : '--'} ${t(lang, 'doc_agents', { list: wired.map((n) => agents[n].label).join(', ') || t(lang, 'doc_none') })}`);

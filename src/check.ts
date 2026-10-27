@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { loadBrain, loadConfig, saveBrain } from './brain.js';
-import { BLOCKING_COMMIT, DIFF_ARGS, WARNING_COMMIT, reviewDiff } from './hooks.js';
+import { BLOCKING_COMMIT, DIFF_ARGS, WARNING_COMMIT, localLines, reviewDiff } from './hooks.js';
 import { personaDict, t, type Lang } from './i18n.js';
+import { localCommitChecks } from './local.js';
 import type { Signal } from './types.js';
 
 const PINNED = DIFF_ARGS.filter((a) => a !== 'diff' && a !== '--cached');
@@ -32,17 +33,18 @@ export async function runCheck(root: string, lang: Lang): Promise<{ code: number
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
   const { diff, source } = pendingDiff(root);
+  const local = localCommitChecks(diff, cfg, root);
   const review = await reviewDiff(diff, cfg, brain, lang);
   saveBrain(root, brain); // provider cooldowns only; check runs are not counted as blocks
   if (!review) return { code: 0, lines: [t(lang, 'check_nothing')] };
 
   const lines = [t(lang, source === 'staged' ? 'check_head_staged' : 'check_head_working', { files: review.files }), ...review.notices];
+  let code = local.some((f) => f.block) ? 1 : 0;
+  const verdicts: string[] = localLines(lang, local);
   if (!Object.keys(review.scores).length) {
-    lines.push(t(lang, 'check_unchecked'));
-    return { code: 0, lines };
+    lines.push(t(lang, 'check_unchecked'), ...verdicts);
+    return { code, lines };
   }
-  let code = 0;
-  const verdicts: string[] = [];
   const width = Math.max(...[...BLOCKING_COMMIT, ...WARNING_COMMIT].map((s) => s.length));
   for (const s of [...BLOCKING_COMMIT, ...WARNING_COMMIT] as Signal[]) {
     const blocking = BLOCKING_COMMIT.includes(s);

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { applyCredentials, findRoot, loadConfig, loadCredentials, loadPrefs, saveCredentials, savePrefs } from './brain.js';
 import { DEFAULT_ORDER, providerOrder, providers } from './api.js';
-import { agentEdit, agentPost, agentPre, agentReply, agentStop, gitCommit, stagedDiff } from './hooks.js';
+import { agentEdit, agentPost, agentPre, agentReply, agentStop, gitCommit, gitPush, stagedDiff } from './hooks.js';
 import { checkUpdate, currentVersion, runUpdate } from './update.js';
 import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
@@ -42,6 +42,7 @@ async function runHook(name: string): Promise<HookOutput> {
     return gitCommit(diff, { root, lang });
   }
   const raw = await readStdin();
+  if (name === 'git-push') return gitPush(raw, { root: findRoot(), lang });
   const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start)$/.exec(name);
   if (!m) return { code: 0, stderr: [] };
   const agent = agents[m[1] as AgentName];

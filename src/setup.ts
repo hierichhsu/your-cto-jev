@@ -10,6 +10,9 @@ const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
 // Keep the block minimal: all logic (including the git diff call) lives in the package, so npm update upgrades every repo.
 const HOOK_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
+// pre-push gets git's ref lines on stdin; they are passed straight through.
+const PUSH_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nfi\n';
+export const GIT_HOOKS: [string, string][] = [['pre-commit', HOOK_BODY], ['pre-push', PUSH_BODY]];
 const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n';
 const OURS = (cmd?: unknown) => typeof cmd === 'string' && cmd.startsWith('cto --hook ');
 
@@ -129,18 +132,19 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     settings.set(name, { path, json });
   }
 
-  const hookPath = join(hooksDir(root), 'pre-commit');
+  const dir = hooksDir(root);
   const ignorePath = join(root, '.gitignore');
 
   if (opts.uninstall) {
-    if (existsSync(hookPath)) {
+    for (const [name] of GIT_HOOKS) {
+      const hookPath = join(dir, name);
+      if (!existsSync(hookPath)) continue;
       const c = readFileSync(hookPath, 'utf8');
-      if (blockRe.test(c)) {
-        const rest = removeBlock(c);
-        if (!rest.trim() || rest.trim() === '#!/bin/sh') unlinkSync(hookPath);
-        else writeFileSync(hookPath, rest);
-        lines.push(t(lang, 'uninstall_hook', { path: rel(hookPath) }));
-      }
+      if (!blockRe.test(c)) continue;
+      const rest = removeBlock(c);
+      if (!rest.trim() || rest.trim() === '#!/bin/sh') unlinkSync(hookPath);
+      else writeFileSync(hookPath, rest);
+      lines.push(t(lang, 'uninstall_hook', { path: rel(hookPath) }));
     }
     for (const [name, { path, json }] of settings) {
       if (!existsSync(path) || !uninstallHooks(json)) continue;
@@ -161,17 +165,20 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     return { code: 0, lines };
   }
 
-  // 1. git pre-commit: covers every agent and humans alike. Append a marked block, never overwrite.
-  if (existsSync(hookPath)) {
-    const c = readFileSync(hookPath, 'utf8');
-    writeFileSync(hookPath, appendBlock(c, HOOK_BODY));
-    if (hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
-  } else {
-    mkdirSync(dirname(hookPath), { recursive: true });
-    writeFileSync(hookPath, '#!/bin/sh\n' + block(HOOK_BODY));
+  // 1. git pre-commit and pre-push: cover every agent and humans alike. Append a marked block, never overwrite.
+  for (const [name, body] of GIT_HOOKS) {
+    const hookPath = join(dir, name);
+    if (existsSync(hookPath)) {
+      const c = readFileSync(hookPath, 'utf8');
+      writeFileSync(hookPath, appendBlock(c, body));
+      if (hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
+    } else {
+      mkdirSync(dirname(hookPath), { recursive: true });
+      writeFileSync(hookPath, '#!/bin/sh\n' + block(body));
+    }
+    chmodSync(hookPath, 0o755);
+    lines.push(t(lang, 'setup_hook', { name, path: rel(hookPath) }));
   }
-  chmodSync(hookPath, 0o755);
-  lines.push(t(lang, 'setup_hook', { path: rel(hookPath) }));
 
   // 2. Agent hooks: merge, keep everything else. Agents not chosen lose their cto hooks only.
   for (const [name, { path, json }] of settings) {

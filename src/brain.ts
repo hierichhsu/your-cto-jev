@@ -6,6 +6,7 @@ import type { Signal, TurnAction } from './types.js';
 export interface CtoConfig {
   sprint_goal: string;
   test_command: string; // what `cto brief` tells the agent to verify with; detected from the project when empty
+  protected_branches: string[]; // commits on these branches and pushes that delete or rewrite them are blocked locally
   thresholds: Record<Signal, number>;
 }
 
@@ -30,6 +31,7 @@ export interface Brain {
 export const DEFAULT_CONFIG: CtoConfig = {
   sprint_goal: '',
   test_command: '',
+  protected_branches: [],
   thresholds: {
     credential_leak: 0.5,
     destructive_command: 0.7,
@@ -70,6 +72,7 @@ export function loadConfig(root: string): CtoConfig {
   return {
     sprint_goal: typeof raw.sprint_goal === 'string' ? raw.sprint_goal : '',
     test_command: typeof raw.test_command === 'string' ? raw.test_command : '',
+    protected_branches: Array.isArray(raw.protected_branches) ? raw.protected_branches.filter((b: unknown) => typeof b === 'string') : [],
     thresholds: { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) },
   };
 }

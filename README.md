@@ -44,6 +44,19 @@ Jev judges meaning and answers with probabilities, not prose. It costs about $0.
 
 Checking off a plan item is the same claim. Whatever planning tool you use (spec-kit, GSD, Kiro, specOS, a hand-written `TODO.md`), plans end up as markdown checklists, so `cto` reads the uncommitted `- [ ]` to `- [x]` changes in tracked `.md` files and asks whether the turn backs them up. A phase or parent item counts as backed when everything nested under it is checked, or when the turn ran a passing check that covers it. Each tick is judged once. A turn that only ticks boxes, without doing the work, is checked too.
 
+Some checks need no model at all. They run first, before anything is sent anywhere, and they work with no API key:
+
+| Local check | Where | What happens |
+|---|---|---|
+| Commit on a branch listed in `protected_branches` | `git commit` | **Blocks** |
+| Deleting or rewriting history of a protected branch | `git push` (pre-push hook) | **Blocks**, whatever ran the push: agent, human, GUI |
+| Merge conflict markers in added lines | `git commit` | **Blocks** |
+| A `.env` file with values (not `.env.example`) | `git commit` | **Blocks** |
+| A file over 5 MB | `git commit` | Warns |
+| `package.json` dependencies changed, lock file not | `git commit` | Warns |
+
+`protected_branches` is empty by default; set it in `.cto.json` (`["main"]`) and the whole team's agents stop committing to main by accident. A commit a local check blocks never reaches Jev.
+
 Architecture and complexity only warn on purpose. They are subjective, and a gate that blocks too often teaches people to use `git commit --no-verify`, which switches off the secret check too.
 
 When nothing crosses a threshold, `cto` prints nothing at all.
@@ -181,7 +194,7 @@ The lessons are collected without anyone writing them down. Every failed agent c
 
 ## Supported agents
 
-The git pre-commit check is always installed. It protects every agent and every human who commits from that repo.
+The git pre-commit and pre-push checks are always installed. They protect every agent and every human who commits or pushes from that repo.
 
 | Agent | Config written | Command gate | Loop detection | Knows about edits | Done check |
 |---|---|---|---|---|---|
@@ -246,6 +259,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 
 - **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`.
 - **`test_command`**: what `cto brief` tells the agent to verify with, for example `"pnpm test"`. Detected from the project when empty.
+- **`protected_branches`**: for example `["main", "release"]`. Commits on them and pushes that delete or rewrite them are blocked locally, no key needed. Empty by default.
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).
 - **Calibration**: on 32 hand-written diffs, every one scoring above 0.8 for `test_tampering` really weakened the tests, and no legitimate change scored above 0.37. The 0.8 default caught 13 of 16 weakening diffs; the misses were subtle ones such as a meaningless float tolerance or a skip hidden behind an env var. Lower it to 0.5 to catch 15 of 16, at a higher risk of blocking honest commits.
 - `done_unverified` (0.6) and `infinite_loop` (0.6) were calibrated the same way; the measurements are in the design spec.
