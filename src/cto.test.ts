@@ -248,6 +248,13 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.equal(s.hooks.PostToolUseFailure[0].hooks[0].command, 'cto --hook claude-post');
   assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /\.cto-brain\.json/);
   assert.ok(existsSync(join(root, '.cto.json')));
+  // a .gitignore that already has every entry gets no block
+  const already = 'node_modules/\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n';
+  writeFileSync(join(root, '.gitignore'), already);
+  assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
+  assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), already);
+  writeFileSync(join(root, '.gitignore'), 'node_modules/\n');
+  assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
 
   assert.equal(setup(root, 'en', { uninstall: true }).code, 0);
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nnpm run lint\n');
@@ -1131,7 +1138,7 @@ test('lessons: failures are fingerprinted once, the edit before the same command
   const root = tmp();
   execFileSync('git', ['init', '-q'], { cwd: root });
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
-  writeFileSync(join(root, 'PLAN.md'), '- [x] done\n- [ ] add retry\n  - [ ] nested\n');
+  writeFileSync(join(root, 'PLAN.md'), '- [x] done\n- [ ] add retry\n  - [ ] nested\n```text\n- [ ] example in a fence\n```\n');
   execFileSync('git', ['add', 'PLAN.md'], { cwd: root });
   const env = { root, lang: 'en' as const };
   const cx = agents.codex;
@@ -1174,6 +1181,7 @@ test('lessons: failures are fingerprinted once, the edit before the same command
   assert.match(b, /Verify with   npm test/);
   assert.match(b, /PLAN\.md 2 · 2 unchecked/);
   assert.match(b, /- \[ \] add retry/);
+  assert.ok(!b.includes('example in a fence'), 'boxes inside code fences are not plan items');
   assert.match(b, /!! npm test\s+TypeError: x is not a function/);
   assert.match(b, /seen 4x/);
   setKeys(false);

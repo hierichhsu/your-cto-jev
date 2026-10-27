@@ -207,8 +207,14 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   for (const p of skills.removed) lines.push(t(lang, 'uninstall_skill', { path: p }));
 
   // 3. .gitignore block.
-  writeFileSync(ignorePath, appendBlock(existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '', IGNORE_BODY));
-  lines.push(t(lang, 'setup_gitignore'));
+  // Only the entries the file lacks outside our block; a repo that already ignores them all gets no block.
+  const ignoreText = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
+  const have = new Set(removeBlock(ignoreText).split(/\r?\n/).map((l) => l.trim()));
+  const missing = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  if (missing.length) {
+    writeFileSync(ignorePath, appendBlock(ignoreText, missing.join('\n') + '\n'));
+    lines.push(t(lang, 'setup_gitignore'));
+  }
 
   // 4. Shared config, created once and never removed.
   const cfgPath = join(root, '.cto.json');

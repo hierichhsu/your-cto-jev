@@ -35,7 +35,13 @@ export function openPlanItems(root: string): { file: string; items: string[] }[]
     let text = '';
     try { text = readFileSync(join(root, file), 'utf8'); } catch { continue; }
     if (text.length > 200_000) continue;
-    const items = text.split(/\r?\n/).flatMap((l) => { const m = BOX.exec(l); return m && m[2] === ' ' ? [m[3].trim()] : []; });
+    // Boxes inside ``` fences are examples (a README showing a plan), not plan items.
+    let fenced = false;
+    const items = text.split(/\r?\n/).flatMap((l) => {
+      if (/^\s*(```|~~~)/.test(l)) { fenced = !fenced; return []; }
+      const m = fenced ? null : BOX.exec(l);
+      return m && m[2] === ' ' ? [m[3].trim()] : [];
+    });
     if (items.length) out.push({ file, items });
   }
   return out;
