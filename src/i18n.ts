@@ -125,6 +125,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     check_nothing: () => '[cto] 沒有可檢查的改動。',
     check_head_staged: (v) => `[cto] 檢查 staged 的改動（${v.files} 個檔案），跟 commit 時的檢查相同：`,
     check_head_working: (v) => `[cto] 沒有 staged 的改動，改為檢查工作目錄（${v.files} 個檔案，含尚未加入 git 的新檔）：`,
+    check_head_base: (v) => `[cto] 檢查這個分支相對於 ${v.base} 的改動（${v.files} 個檔案）：`,
     check_unchecked: () => '[cto] 無法檢查：沒有可用的 Jev provider。執行 cto doctor 看原因。',
     check_why_tests: () => '未檢查：沒有改到測試相關檔案',
     check_why_goal: () => '未檢查：.cto.json 沒有設定 sprint_goal',
@@ -191,7 +192,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     doc_bad: () => '[cto] 有問題需要處理：',
     update_available: (v) => `[cto] 有新版 ${v.latest}（目前 ${v.current}），執行 cto update 更新`,
     update_done: () => '[cto] 已更新。已設定過的專案不用重跑 cto setup。',
-    usage: () => '用法：cto brief | cto check | cto log | cto report [n] | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
+    usage: () => '用法：cto brief | cto check [--base origin/main] | cto log | cto report [n] | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
   },
   en: {
     reason_402: () => 'out of credits',
@@ -274,6 +275,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     check_nothing: () => '[cto] Nothing to check.',
     check_head_staged: (v) => `[cto] Checking staged changes (${v.files} files), same checks as a commit:`,
     check_head_working: (v) => `[cto] Nothing staged, checking the working tree instead (${v.files} files, including new untracked files):`,
+    check_head_base: (v) => `[cto] Checking what this branch adds on top of ${v.base} (${v.files} files):`,
     check_unchecked: () => '[cto] Could not check: no working Jev provider. Run cto doctor to see why.',
     check_why_tests: () => 'not checked: no test files changed',
     check_why_goal: () => 'not checked: sprint_goal is empty in .cto.json',
@@ -340,7 +342,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     doc_bad: () => '[cto] Needs attention:',
     update_available: (v) => `[cto] Version ${v.latest} is available (you have ${v.current}). Run cto update`,
     update_done: () => '[cto] Updated. Projects already set up do not need cto setup again.',
-    usage: () => 'Usage: cto brief | cto check | cto log | cto report [n] | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
+    usage: () => 'Usage: cto brief | cto check [--base origin/main] | cto log | cto report [n] | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
   },
 };
 

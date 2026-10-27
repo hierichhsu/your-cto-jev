@@ -210,6 +210,21 @@ Claude Code is tested end to end inside the agent. The Cursor, Gemini CLI and Co
 
 Codex only runs project hooks after you trust the project. Teammates who have not installed `cto` are never blocked: the git hook checks for `cto` first, and Claude Code, Cursor and Gemini CLI document a failed hook command (other than exit 2) as non-blocking.
 
+To cover them anyway, run the same check on every pull request. One job, using the reusable workflow in this repo:
+
+```yaml
+name: cto
+on: [pull_request]
+permissions: { contents: read }
+jobs:
+  cto:
+    uses: rainday/your-cto-jev/.github/workflows/cto-check.yml@main
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+It runs `cto check --base origin/<base branch>` on what the branch adds since its merge base, and fails the job when a commit would have been blocked. Without a key it prints "could not check" and passes, the same fail-open as everywhere else.
+
 ## API keys
 
 You need at least one provider. `cto setup` lets you pick which ones to use and in what order:

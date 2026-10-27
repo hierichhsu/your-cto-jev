@@ -13,7 +13,9 @@ const git = (cwd: string, args: string[]) =>
  * What a commit would contain: the staged changes if anything is staged, otherwise every working-tree change,
  * including new files git does not track yet (agents create those often). Read-only: the index is never touched.
  */
-export function pendingDiff(root: string): { diff: string; source: 'staged' | 'working' } {
+export function pendingDiff(root: string, base?: string): { diff: string; source: 'staged' | 'working' | 'base' } {
+  // CI: everything the branch adds on top of base (three-dot: since the merge base), nothing else.
+  if (base) return { diff: git(root, ['diff', `${base}...HEAD`, ...PINNED]), source: 'base' };
   const staged = git(root, DIFF_ARGS);
   if (staged.trim()) return { diff: staged, source: 'staged' };
   let diff = git(root, ['diff', ...PINNED]);
@@ -29,16 +31,17 @@ export function pendingDiff(root: string): { diff: string; source: 'staged' | 'w
 }
 
 /** `cto check`: the commit checks, run now, with every score shown. Exit 1 when a commit would be blocked. */
-export async function runCheck(root: string, lang: Lang): Promise<{ code: number; lines: string[] }> {
+export async function runCheck(root: string, lang: Lang, base?: string): Promise<{ code: number; lines: string[] }> {
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
-  const { diff, source } = pendingDiff(root);
+  const { diff, source } = pendingDiff(root, base);
   const local = localCommitChecks(diff, cfg, root);
   const review = await reviewDiff(diff, cfg, brain, lang, undefined, 'check');
   saveBrain(root, brain); // provider cooldowns and the decision log; check runs are not counted as blocks
   if (!review) return { code: 0, lines: [t(lang, 'check_nothing')] };
 
-  const lines = [t(lang, source === 'staged' ? 'check_head_staged' : 'check_head_working', { files: review.files }), ...review.notices];
+  const head = source === 'staged' ? 'check_head_staged' : source === 'working' ? 'check_head_working' : 'check_head_base';
+  const lines = [t(lang, head, { files: review.files, base: base ?? '' }), ...review.notices];
   let code = local.some((f) => f.block) ? 1 : 0;
   const verdicts: string[] = localLines(lang, local);
   if (!Object.keys(review.scores).length) {

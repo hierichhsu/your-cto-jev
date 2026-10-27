@@ -156,7 +156,7 @@ if (args[0] === '--hook' && args[1]) {
     process.exitCode = 1;
   } else {
     const { runCheck } = await import('./check.js');
-    const r = await runCheck(root, lang);
+    const r = await runCheck(root, lang, flag('--base'));
     console.log(r.lines.join('\n'));
     process.exitCode = r.code;
   }

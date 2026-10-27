@@ -1310,3 +1310,29 @@ test('cto log lists answered decisions with the state Jev saw; cto report turns 
   assert.equal(report(root, 'en', '7').code, 1);
   setKeys(false);
 });
+
+test('cto check --base reviews what a branch adds since the merge base, for CI', async () => {
+  const { pendingDiff, runCheck } = await import('./check.js');
+  setKeys(false);
+  const root = tmp();
+  const g = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: root, encoding: 'utf8' }).trim();
+  g('init', '-q', '-b', 'main');
+  writeFileSync(join(root, 'a.ts'), 'base\n');
+  g('add', '.'); g('commit', '-q', '-m', 'base');
+  g('checkout', '-q', '-b', 'feature');
+  writeFileSync(join(root, 'b.ts'), 'feature\n');
+  g('add', '.'); g('commit', '-q', '-m', 'feature');
+  g('checkout', '-q', 'main');
+  writeFileSync(join(root, 'c.ts'), 'main moved on\n');
+  g('add', '.'); g('commit', '-q', '-m', 'main2');
+  g('checkout', '-q', 'feature');
+  writeFileSync(join(root, 'd.ts'), 'uncommitted\n'); // not part of the branch review
+  const { diff, source } = pendingDiff(root, 'main');
+  assert.equal(source, 'base');
+  assert.match(diff, /b\/b\.ts/);
+  assert.ok(!diff.includes('c.ts'), 'what main did after the branch point is not the branch\'s change');
+  assert.ok(!diff.includes('d.ts'));
+  const r = await runCheck(root, 'en', 'main');
+  assert.match(r.lines[0], /adds on top of main \(1 files\)/);
+  assert.equal(r.code, 0, 'no key: fails open');
+});
