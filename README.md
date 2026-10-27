@@ -218,7 +218,7 @@ on: [pull_request]
 permissions: { contents: read }
 jobs:
   cto:
-    uses: rainday/your-cto-jev/.github/workflows/cto-check.yml@main
+    uses: hierichhsu/your-cto-jev/.github/workflows/cto-check.yml@main
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 ```
@@ -305,7 +305,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 ## Development
 
 ```sh
-git clone https://github.com/rainday/your-cto-jev
+git clone https://github.com/hierichhsu/your-cto-jev
 cd your-cto-jev
 npm install
 npm test

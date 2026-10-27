@@ -14,15 +14,15 @@
     "guardrails",
     "jev"
   ],
-  "author": "rainday",
+  "author": "hierichhsu",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rainday/your-cto-jev.git"
+    "url": "git+https://github.com/hierichhsu/your-cto-jev.git"
   },
-  "homepage": "https://github.com/rainday/your-cto-jev#readme",
+  "homepage": "https://github.com/hierichhsu/your-cto-jev#readme",
   "bugs": {
-    "url": "https://github.com/rainday/your-cto-jev/issues"
+    "url": "https://github.com/hierichhsu/your-cto-jev/issues"
   },
   "type": "module",
   "bin": {

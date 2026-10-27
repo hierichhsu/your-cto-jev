@@ -6,7 +6,7 @@
 #   permissions: { contents: read }
 #   jobs:
 #     cto:
-#       uses: rainday/your-cto-jev/.github/workflows/cto-check.yml@main
+#       uses: hierichhsu/your-cto-jev/.github/workflows/cto-check.yml@main
 #       secrets:
 #         OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 #

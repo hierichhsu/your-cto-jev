@@ -1218,7 +1218,8 @@ test('local checks need no key: protected branch, conflict markers and .env bloc
   assert.deepEqual(kinds(sec('.env', '+DB=x') + sec('.env.example', '+DB=') + sec('.env.local', '+A=1')), ['env_file!', 'env_file!']);
   assert.deepEqual(kinds(sec('big.txt', '+' + 'x'.repeat(5 * 1024 * 1024 + 1))), ['big_file']);
   assert.deepEqual(kinds(sec('package.json', '+    "left-pad": "^1.0.0",')), ['lock_drift']);
-  assert.deepEqual(kinds(sec('package.json', '+    "test": "node --test",')), ['lock_drift'], 'a script line looks like a dep line: accepted noise');
+  assert.deepEqual(kinds(sec('package.json', '+    "test": "node --test",') + sec('package.json', '+    "author": "someone",') + sec('package.json', '+    "url": "git+https://github.com/a/b.git"')), [], 'scripts, author and urls are not dependency lines');
+  assert.deepEqual(kinds(sec('package.json', '+    "a": "workspace:*",') ), ['lock_drift']);
   assert.deepEqual(kinds(sec('package.json', '+    "left-pad": "^1.0.0",') + sec('package-lock.json', '+x')), []);
   assert.deepEqual(kinds(sec('src/a.ts', '+const x = 1;')), []);
 

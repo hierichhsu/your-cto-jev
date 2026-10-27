@@ -13,7 +13,8 @@ export interface LocalFinding { kind: LocalKind; block: boolean; detail: string 
 const BIG_BYTES = 5 * 1024 * 1024;
 const ENV_FILE = /(^|\/)\.env(\.(?!example$|sample$|template$)[^/]*)?$/;
 const LOCKS = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
-const DEP_LINE = /^[+-]\s*"[^"]+":\s*"[^"]*"\s*,?$/m;
+// A dependency line's value is a version range or a spec prefix; author, url and script lines are not.
+const DEP_LINE = /^[+-]\s*"[^"]+":\s*"(?:[\d~^>=<*][^"]*|latest|(?:workspace|npm|file|link):[^"]*)"\s*,?$/m;
 
 const git = (cwd: string, ...args: string[]) => {
   try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; }
