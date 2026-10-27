@@ -7,7 +7,7 @@ import type { Agent, HookOutput, PostInput, PreInput, ReplyInput, StopInput } fr
 import { isCodeFile, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
-import { freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type RecentError } from './brain.js';
+import { DECISIONS_KEPT, DECISION_STATE_CHARS, freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type Decision, type RecentError } from './brain.js';
 import { chunkDiff, filterDiff, pool } from './diff.js';
 import { personaDict, t, type Lang } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
@@ -158,8 +158,18 @@ export interface DiffReview {
   notices: Set<string>;
 }
 
-/** Run the commit checks on a diff. Shared by the git hook and `cto check`. Mutates brain only for provider state. */
-export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number): Promise<DiffReview | null> {
+/** Remember every answered yes/no question (score questions have no right answer to report). Keeps the last 30. */
+export function logDecision(brain: Brain, hook: Decision['hook'], state: string, answers: Record<string, JevAnswer>, cfg: CtoConfig, now?: () => number) {
+  const at = new Date((now ?? Date.now)()).toISOString();
+  for (const [k, a] of Object.entries(answers)) {
+    if (a?.type !== 'noul' || !(k in cfg.thresholds)) continue;
+    const signal = k as Signal;
+    brain.decisions = [...(brain.decisions ?? []), { at, hook, signal, value: a.noul, threshold: cfg.thresholds[signal], state: state.slice(0, DECISION_STATE_CHARS) }].slice(-DECISIONS_KEPT);
+  }
+}
+
+/** Run the commit checks on a diff. Shared by the git hook and `cto check`. Mutates brain for provider state and the decision log. */
+export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number, hook: 'commit' | 'check' = 'commit'): Promise<DiffReview | null> {
   const files = filterDiff(maskDiff(rawDiff));
   if (!files.length) return null;
   const chunks = chunkDiff(files);
@@ -181,6 +191,7 @@ export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, 
   });
 
   const scores: Partial<Record<Signal, number>> = {};
+  results.forEach((r, i) => { if (r.ok) logDecision(brain, hook, chunks[i], r.answers, cfg, now); });
   for (const r of results) {
     if (!r.ok) continue;
     for (const [k, a] of Object.entries(r.answers)) {
@@ -290,7 +301,7 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
   const { sessionId } = input;
   const r = await evaluate({ state, questions, ...(sessionId && { session_id: sessionId }) }, { brain, lang, timeoutMs: AGENT_TIMEOUT_MS, notices, now });
   if (!r.ok) brain.skipped_attempts++;
-  else countCheck(brain, now);
+  else { countCheck(brain, now); logDecision(brain, 'command', state, r.answers, cfg, now); }
   await sessionNotice(brain, sessionId, lang, r, notices);
 
   let out: HookOutput = { code: 0, stderr: [] };
@@ -342,13 +353,15 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   if (!ticked.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) return out;
 
   const cfg = loadConfig(root);
+  const state = turnState(lastMessage, actions, ticked);
   const r = await evaluate(
-    { state: turnState(lastMessage, actions, ticked), questions: { done_unverified: Q.done_unverified }, ...(input.sessionId && { session_id: input.sessionId }) },
+    { state, questions: { done_unverified: Q.done_unverified }, ...(input.sessionId && { session_id: input.sessionId }) },
     { brain, lang, timeoutMs: AGENT_TIMEOUT_MS, notices: new Set(), now },
   );
   if (!r.ok) brain.skipped_attempts++;
   else {
     countCheck(brain, now);
+    logDecision(brain, 'stop', state, r.answers, cfg, now);
     brain.judged_items = [...judged, ...ticked.map(tickedKey)].slice(-300);
   }
   const v = r.ok ? exceeded(r.answers, 'done_unverified', cfg) : undefined;

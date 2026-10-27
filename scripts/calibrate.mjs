@@ -30,7 +30,7 @@ const fill = (s) => s
   .replaceAll('{{OPENAI_KEY}}', 'sk-proj-' + rnd(24))
   .replaceAll('{{DB_URL}}', `postgres://admin:${rnd(12)}@db.internal/prod`);
 
-// One state builder per signal: the same text the hooks send.
+// One state builder per signal: the same text the hooks send. A case from `cto report` carries the exact state instead.
 const STATE = {
   credential_leak: (c) => maskDiff(fill(c.diff)),
   test_tampering: (c) => maskDiff(c.diff),
@@ -58,7 +58,7 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
   } catch { /* no candidates file */ }
   const limit = DEFAULT_CONFIG.thresholds[signal];
   const rows = await pool(cases, 3, async (c) => {
-    const r = await evaluate({ state: STATE[signal](c), questions: { [signal]: Q[signal] } }, { brain, lang: 'en', timeoutMs: 15000, notices: new Set() });
+    const r = await evaluate({ state: c.state ?? STATE[signal](c), questions: { [signal]: Q[signal] } }, { brain, lang: 'en', timeoutMs: 15000, notices: new Set() });
     const a = r.ok ? r.answers[signal] : undefined;
     const score = a?.type === 'noul' ? a.noul : a?.type === 'score' ? a.score : NaN;
     return { id: c.id, set: c.set, expect: c.expect, score, flagged: score > limit };

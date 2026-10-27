@@ -130,6 +130,7 @@ cto setup --uninstall                    # remove every cto hook, rules block an
 cto doctor                               # is it actually working?
 cto brief                                # what an agent should know before it starts here
 cto check                                # preview the commit checks on your current changes
+cto log                                  # recent decisions with scores; cto report [n] flags a wrong one
 ```
 
 `setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. It never touches your shell rc files.
@@ -265,6 +266,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).
 - **Calibration**: on 32 hand-written diffs, every one scoring above 0.8 for `test_tampering` really weakened the tests, and no legitimate change scored above 0.37. The 0.8 default caught 13 of 16 weakening diffs; the misses were subtle ones such as a meaningless float tolerance or a skip hidden behind an env var. Lower it to 0.5 to catch 15 of 16, at a higher risk of blocking honest commits.
 - `done_unverified` (0.6) and `infinite_loop` (0.6) were calibrated the same way; the measurements are in the design spec.
+- **When a call is wrong**: `cto log` lists the last 30 answered questions in this repo with their scores and thresholds. `cto report` (or `cto report <n>`) records that the last (or n-th) one was wrong and writes it, with the exact masked state Jev saw, as a calibration case to `reports/<signal>.jsonl` next to your credentials file. Nothing is sent anywhere; paste the line into `calibration/candidates/` in a PR or an issue and it joins the next measurement. That is how the thresholds get better from real use instead of hand-written diffs.
 - For `destructive_command`, the current question scores `git push --force` about 0.74 (blocked by default), `find -delete` about 0.65 and `git reset --hard` about 0.47 (both let through), and `rm -rf node_modules` about 0.12. Lower the threshold to about 0.45 to block all three; the calibration set is still small, so the default stays at 0.7.
 
 `.cto-brain.json` holds personal runtime state and is gitignored.

@@ -34,8 +34,8 @@ export async function runCheck(root: string, lang: Lang): Promise<{ code: number
   const brain = loadBrain(root);
   const { diff, source } = pendingDiff(root);
   const local = localCommitChecks(diff, cfg, root);
-  const review = await reviewDiff(diff, cfg, brain, lang);
-  saveBrain(root, brain); // provider cooldowns only; check runs are not counted as blocks
+  const review = await reviewDiff(diff, cfg, brain, lang, undefined, 'check');
+  saveBrain(root, brain); // provider cooldowns and the decision log; check runs are not counted as blocks
   if (!review) return { code: 0, lines: [t(lang, 'check_nothing')] };
 
   const lines = [t(lang, source === 'staged' ? 'check_head_staged' : 'check_head_working', { files: review.files }), ...review.notices];

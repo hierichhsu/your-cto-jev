@@ -160,6 +160,17 @@ if (args[0] === '--hook' && args[1]) {
     console.log(r.lines.join('\n'));
     process.exitCode = r.code;
   }
+} else if (args[0] === 'log' || args[0] === 'report') {
+  const root = gitRoot(process.cwd());
+  if (!root) {
+    process.stderr.write(t(lang, 'setup_not_git') + '\n');
+    process.exitCode = 1;
+  } else {
+    const { showLog, report } = await import('./report.js');
+    const r = args[0] === 'log' ? showLog(root, lang) : report(root, lang, args[1]);
+    (r.code ? process.stderr : process.stdout).write(r.lines.join('\n') + '\n');
+    process.exitCode = r.code;
+  }
 } else if (args[0] === 'brief') {
   const root = gitRoot(process.cwd());
   if (!root) {

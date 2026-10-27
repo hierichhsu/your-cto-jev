@@ -79,7 +79,8 @@ then commit. If \`cto\` is not installed on this machine, skip this step.
 
 Read the message, fix the cause, and try again. Never bypass a block: no \`git commit --no-verify\`, no disabling or
 editing hooks, no changing \`.cto.json\` thresholds to get through. If you believe a block is wrong, stop and tell the
-user what was blocked and why you disagree; the user decides.
+user what was blocked and why you disagree; the user decides. The user can record a wrong call with \`cto report\`, which
+turns it into a calibration case; you do not run that yourself.
 
 ## Commands
 

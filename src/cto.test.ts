@@ -1280,3 +1280,33 @@ test('conflicts: other hooks on cto events, guidance that undoes a rule, and ski
   assert.match(text, /Other things steering the agents here/);
   assert.match(text, /installed in both/);
 });
+
+test('cto log lists answered decisions with the state Jev saw; cto report turns one into a calibration case', async () => {
+  const { showLog, report, reportsPath } = await import('./report.js');
+  setKeys();
+  process.env.CTO_PROVIDER = 'openrouter';
+  globalThis.fetch = (async () => new Response(JSON.stringify(answers({ destructive_command: noul(0.92), code_complexity: { type: 'score', score: 1 } })))) as any;
+  const root = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  assert.equal(showLog(root, 'en').lines.join('\n'), '[cto] No check answered by Jev in this repo yet.');
+  assert.equal(report(root, 'en').code, 1);
+
+  const out = await claudePre({ session_id: 's', cwd: root, tool_input: { command: 'rm -rf build' } }, { root, lang: 'en' });
+  assert.equal(out.code, 2);
+  const d = loadBrain(root).decisions!;
+  assert.equal(d.length, 1, 'score questions are not logged, only yes/no ones');
+  assert.deepEqual([d[0].hook, d[0].signal, d[0].value, d[0].threshold, d[0].state], ['command', 'destructive_command', 0.92, 0.7, 'rm -rf build']);
+  const log = showLog(root, 'en').lines.join('\n');
+  assert.match(log, /1 {2}\S+ \S+ {2}command {2}destructive_command +0\.92 +> 0\.7 {2}CROSSED/);
+
+  const r = report(root, 'en');
+  assert.equal(r.code, 0);
+  assert.match(r.lines[0], /false alarm/);
+  const line = readFileSync(reportsPath('destructive_command'), 'utf8').trim().split('\n').at(-1)!;
+  const entry = JSON.parse(line);
+  assert.equal(entry.expect, false, 'reporting a block means the right answer was no');
+  assert.equal(entry.state, 'rm -rf build');
+  assert.equal(entry.set, 'holdout');
+  assert.equal(report(root, 'en', '7').code, 1);
+  setKeys(false);
+});

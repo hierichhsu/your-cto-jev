@@ -11,6 +11,10 @@ export interface CtoConfig {
 }
 
 export interface RecentError { command: string; error: string; at: string; edited_after?: boolean; warned?: boolean }
+/** One answered yes/no question, with the masked state Jev saw, so `cto report` can turn a wrong call into a calibration case. */
+export interface Decision { at: string; hook: 'commit' | 'check' | 'command' | 'stop'; signal: Signal; value: number; threshold: number; state: string }
+export const DECISIONS_KEPT = 30;
+export const DECISION_STATE_CHARS = 12_000;
 export interface Cooldown { until: number; status: string }
 
 export interface Brain {
@@ -26,6 +30,7 @@ export interface Brain {
   last_check_at?: string;
   /** Checklist items the done check already judged ("file:text"), so an uncommitted tick is judged once, not every turn. */
   judged_items?: string[];
+  decisions?: Decision[];
 }
 
 export const DEFAULT_CONFIG: CtoConfig = {
