@@ -113,6 +113,7 @@ cto setup --agents claude,cursor --yes   # non-interactive (scripts, CI); only a
 cto setup --refresh                      # re-write hooks and rules for the agents already set up
 cto setup --uninstall                    # remove every cto hook, rules block and skill again
 cto doctor                               # is it actually working?
+cto brief                                # what an agent should know before it starts here
 cto check                                # preview the commit checks on your current changes
 ```
 
@@ -146,6 +147,37 @@ The rules also tell the agent to run `cto check` before committing, and never to
   code_complexity         2.02   warns above 2  would warn
 [cto] Good to commit.
 ```
+
+## What the agent knows before it starts
+
+Gates say no after the fact. `cto brief` works before: it prints what an agent should know on its first turn in the repo, and Claude Code gets it automatically at session start (a `SessionStart` hook; the rules block tells the other agents to run it).
+
+```text
+[cto] brief · shop · main · 2 files uncommitted
+
+Sprint goal   Ship Stripe billing, no new services
+Verify with   npm test
+
+Open plan items · TODO.md 3 · 3 unchecked
+  - [ ] Add webhook handler
+  - [ ] Retry on 5xx
+  - [ ] Phase 2: docs
+
+Lessons from this repo · 3 of 23 · unresolved and frequent first
+  !! npx tsc          TS2307: Cannot find module './x.js'
+                      seen 2x · last 3h ago · UNRESOLVED
+  !  npm test         TypeError: Cannot read properties of undefined (reading 'map')
+                      seen 3x · last 2d ago · fixed by editing src/turn.ts · verified by npm test
+  -  git push         rejected: non-fast-forward
+                      seen 1x · last 5d ago · fixed by editing src/a.ts · verified by git push
+
+Failures in the last 15 min   none
+Guards   secrets · test tampering · destructive commands · loops · unverified done
+```
+
+The lessons are collected without anyone writing them down. Every failed agent command is fingerprinted (the command's first two words plus its first telling error line, with numbers, quoted names and paths normalised) and counted in `.cto-lessons.jsonl`. When the same command later passes after code edits, the files edited in between are recorded as the fix. The file is masked like everything else cto writes, holds at most 200 lessons, and is one JSON line per lesson so teammates' additions merge without conflicts. Commit it: the whole team's agents then start with the repo's history of what breaks and what fixed it. No Jev call is involved.
+
+`Verify with` comes from `test_command` in `.cto.json`, or is detected from `package.json`, a `Makefile`, pytest, Cargo or Go when it is empty. Open plan items are the unchecked `- [ ]` lines in tracked markdown files, whatever planning tool wrote them.
 
 ## Supported agents
 
@@ -193,6 +225,8 @@ Every check sends text to your chosen provider. `cto` masks it first:
 
 Masking only controls what goes out. Jev still sees labels such as `[REDACTED: STRIPE_KEY]`, which is how it knows a real secret was there.
 
+`.cto-lessons.jsonl` is written locally from the same masked text and never sent anywhere by cto; it leaves your machine only if you commit it.
+
 Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. That writes the masked input to `debug_stdin.json`, which `setup` adds to `.gitignore`.
 
 ## Configuration
@@ -211,6 +245,7 @@ Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. Th
 Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `code_complexity` 2.
 
 - **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`.
+- **`test_command`**: what `cto brief` tells the agent to verify with, for example `"pnpm test"`. Detected from the project when empty.
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).
 - **Calibration**: on 32 hand-written diffs, every one scoring above 0.8 for `test_tampering` really weakened the tests, and no legitimate change scored above 0.37. The 0.8 default caught 13 of 16 weakening diffs; the misses were subtle ones such as a meaningless float tolerance or a skip hidden behind an env var. Lower it to 0.5 to catch 15 of 16, at a higher risk of blocking honest commits.
 - `done_unverified` (0.6) and `infinite_loop` (0.6) were calibrated the same way; the measurements are in the design spec.
@@ -230,6 +265,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 
 - **Git GUIs hide warnings.** VS Code, SourceTree and GitKraken usually hide hook output when the commit succeeds, so the architecture and complexity warnings are invisible there. Blocks still show.
 - **The done check sees edits from edit tools and from common shell commands** (`sed -i`, redirects, `tee`, formatters), but not writes hidden inside scripts such as `node -e`. It also misses a test run that targets the wrong package. Claude Code's turn comes from its transcript; for Cursor, Gemini CLI and Codex, whose transcript formats are not public, cto keeps its own log of commands and edits, and a command counts as successful unless a failure event arrives.
+- **A lesson's fix is the edit between a failure and the next pass of a command with the same first two words.** A fix that was verified by a different command (`npm test` fails, `npx vitest run` passes) is not recorded, and a turn that edits files for other reasons in between credits them to the fix as well.
 - **Loop detection knows about edits, but only through the agent's edit tools.** A first re-run after a code edit is a new attempt, while the same error coming back across repeated fixes still counts as a loop; each loop is blocked once, so the agent can still verify its next fix. A file changed only through a shell command is not seen as an edit, and failures expire after 15 minutes.
 - **Each agent shell command waits for one Jev request.** OpenRouter answered in about 0.3 s in our tests, Cloudflare in about 0.9 s with occasional spikes past 3 s. Agent checks wait up to 5 s before failing open.
 

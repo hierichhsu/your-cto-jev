@@ -28,6 +28,7 @@ export const RULES_BLOCK = `${MD_START}
 
 This repo is guarded by cto: every rule below is checked automatically, and breaking one gets you blocked.
 
+- **Start with \`cto brief\`.** It shows the sprint goal, the command that verifies this repo, open plan items, and how commands failed here before and what fixed them. Skip it only if cto is not installed.
 - **Secrets stay out of code.** Use environment variables, never literal keys, tokens or passwords. (\`credential_leak\` blocks the commit)
 - **Fix the code, not the tests.** Never skip, delete or loosen a test, rewrite an expectation to match wrong output, or lower coverage. (\`test_tampering\` blocks the commit)
 - **Done means verified.** After your last code change, run the relevant tests or build and see them pass before saying done or checking off a plan item; otherwise say what is unverified. (\`done_unverified\` sends you back)
@@ -61,6 +62,13 @@ Each rule below has a check behind it. Following the rules is faster than being 
 | **Stay on the sprint goal.** If \`.cto.json\` sets a \`sprint_goal\`, keep changes inside it and point out anything unrelated. | \`architecture_violation\` warns |
 | **Keep it simple.** Prefer the smallest change that solves the problem. | \`code_complexity\` warns |
 
+## Before you start
+
+Run \`cto brief\`. It prints the sprint goal, the command that verifies this repo, the open plan items, and the lessons
+of this repo: commands that failed before, how often, and the edit that made them pass. When a command you are about
+to run is listed there, read its lesson first. Lessons are collected automatically from every failed command and kept
+in \`.cto-lessons.jsonl\`; add a note to one with care, since the file is shared with the team.
+
 ## Before you commit
 
 Run \`cto check\`. It runs the same commit checks on your staged changes (or, if nothing is staged, on all working-tree
@@ -75,6 +83,7 @@ user what was blocked and why you disagree; the user decides.
 
 ## Commands
 
+- \`cto brief\`: sprint goal, verify command, open plan items, and this repo's lessons. Run it before you start.
 - \`cto check\`: preview the commit checks on your current changes.
 - \`cto doctor\`: show whether cto is working here (keys, hooks, recent checks).
 `;

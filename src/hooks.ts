@@ -11,6 +11,7 @@ import { freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConf
 import { chunkDiff, filterDiff, pool } from './diff.js';
 import { personaDict, t, type Lang } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
+import { loadLessons, recordFailure, resolveFromTurn, saveLessons } from './lessons.js';
 import type { JevAnswer, JevQuestion, Signal, TurnAction } from './types.js';
 
 
@@ -307,8 +308,11 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
     delete brain.turns[input.sessionId];
     saveBrain(root, brain);
   }
-  if (input.stopHookActive) return out;
   const actions = input.transcriptPath ? turnActions(input.transcriptPath, input.cwd) : logged?.actions ?? [];
+  // Lessons learn from every stop, including the one after our own block: that is when the fix usually lands.
+  const lessons = loadLessons(root);
+  if (resolveFromTurn(lessons, actions, root, new Date((now ?? Date.now)())).length) saveLessons(root, lessons);
+  if (input.stopHookActive) return out;
   const lastMessage = input.lastMessage || logged?.reply || '';
   // ponytail: ticks are attributed to the turn that ends after they appear, so a box the user ticked by hand between
   // turns is judged against the agent's turn. Rare; per-turn snapshots of plan files would fix it.
@@ -403,8 +407,11 @@ export function loopFact(command: string, recent: RecentError[]): string {
     (recent.at(-1)!.edited_after ? 'the agent has edited code since the most recent failure.' : 'the agent has not edited any code since the most recent failure.');
 }
 
-export function agentPost(input: PostInput | null, { root }: Env): HookOutput {
+export function agentPost(input: PostInput | null, { root }: Env, agent = 'unknown'): HookOutput {
   if (!input) return { code: 0, stderr: [] };
+  const lessons = loadLessons(root);
+  recordFailure(lessons, input.command, input.error, root, agent);
+  saveLessons(root, lessons);
   const brain = loadBrain(root);
   const turn = input.sessionId ? brain.turns?.[input.sessionId] : undefined;
   const run = turn?.actions.findLast((a) => a.kind === 'run' && a.command === maskSensitiveState(input.command));

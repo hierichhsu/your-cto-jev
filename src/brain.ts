@@ -5,6 +5,7 @@ import type { Signal, TurnAction } from './types.js';
 
 export interface CtoConfig {
   sprint_goal: string;
+  test_command: string; // what `cto brief` tells the agent to verify with; detected from the project when empty
   thresholds: Record<Signal, number>;
 }
 
@@ -28,6 +29,7 @@ export interface Brain {
 
 export const DEFAULT_CONFIG: CtoConfig = {
   sprint_goal: '',
+  test_command: '',
   thresholds: {
     credential_leak: 0.5,
     destructive_command: 0.7,
@@ -67,6 +69,7 @@ export function loadConfig(root: string): CtoConfig {
   const raw = readJson(join(root, '.cto.json')) ?? {};
   return {
     sprint_goal: typeof raw.sprint_goal === 'string' ? raw.sprint_goal : '',
+    test_command: typeof raw.test_command === 'string' ? raw.test_command : '',
     thresholds: { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) },
   };
 }

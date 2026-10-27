@@ -1112,3 +1112,77 @@ test('done check: plan checklist items newly ticked in markdown are claims, judg
   assert.equal(calls, 1);
   setKeys(false);
 });
+
+test('lessons: failures are fingerprinted once, the edit before the same command passes is the fix, brief shows it', async () => {
+  const { commandHead, fingerprint, errorLines, loadLessons, recordFailure, resolveFromTurn, saveLessons } = await import('./lessons.js');
+  const { brief, detectTestCommand } = await import('./brief.js');
+  const { agentPre, agentPost, agentEdit, agentStop } = await import('./hooks.js');
+  assert.equal(commandHead('FOO=1 npm test -- --watch'), 'npm test');
+  assert.equal(commandHead('npx -y tsc'), 'npx'); // a flag is not a verb
+  assert.equal(commandHead('git push origin main'), 'git push');
+  const e1 = errorLines("> build\nTypeError: Cannot read properties of undefined (reading 'map')\n    at D:\\repo\\src\\turn.ts:41:23", 'D:\\repo');
+  assert.equal(e1[0], "TypeError: Cannot read properties of undefined (reading 'map')");
+  assert.equal(e1[1], 'at ./src/turn.ts:41:23');
+  assert.equal(fingerprint('npm test', e1), fingerprint('npm test', ["TypeError: Cannot read properties of undefined (reading 'filter')"]), 'quoted names and numbers do not split a lesson');
+
+  setKeys();
+  process.env.CTO_PROVIDER = 'openrouter';
+  globalThis.fetch = (async () => new Response(JSON.stringify(answers({ destructive_command: noul(0.01), done_unverified: noul(0.1) })))) as any;
+  const root = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  writeFileSync(join(root, 'PLAN.md'), '- [x] done\n- [ ] add retry\n  - [ ] nested\n');
+  execFileSync('git', ['add', 'PLAN.md'], { cwd: root });
+  const env = { root, lang: 'en' as const };
+  const cx = agents.codex;
+  const post = (session: string) => agentPost(cx.parsePost({ session_id: session, cwd: root, tool_input: { command: 'npm test' }, tool_response: { exit_code: 1, output: 'TypeError: x is not a function\n  at a.ts:3' } }), env, 'codex');
+
+  // Turn 1: fails twice, no fix yet -> one lesson, seen 2, unresolved
+  await agentPre(cx, cx.parsePre({ session_id: 'L1', cwd: root, tool_input: { command: 'npm test' } }), env);
+  post('L1');
+  await agentPre(cx, cx.parsePre({ session_id: 'L1', cwd: root, tool_input: { command: 'npm test' } }), env);
+  post('L1');
+  await agentStop(cx, cx.parseStop!({ session_id: 'L1', cwd: root, last_assistant_message: 'Stuck.', stop_hook_active: false }), env);
+  let ls = loadLessons(root);
+  assert.equal(ls.length, 1);
+  assert.equal(ls[0].seen, 2);
+  assert.equal(ls[0].fix, undefined);
+  assert.equal(ls[0].env.agent, 'codex');
+
+  // Turn 2: fails, edit, passes -> the fix is recorded with the edited file
+  await agentPre(cx, cx.parsePre({ session_id: 'L2', cwd: root, tool_input: { command: 'npm test' } }), env);
+  post('L2');
+  agentEdit(['src/a.ts'], env, 'L2');
+  await agentPre(cx, cx.parsePre({ session_id: 'L2', cwd: root, tool_input: { command: 'npm test' } }), env);
+  await agentStop(cx, cx.parseStop!({ session_id: 'L2', cwd: root, last_assistant_message: 'Fixed.', stop_hook_active: false }), env);
+  ls = loadLessons(root);
+  assert.equal(ls.length, 1);
+  assert.equal(ls[0].seen, 3);
+  assert.deepEqual(ls[0].fix?.files, ['src/a.ts']);
+  assert.equal(ls[0].fix?.verified_by, 'npm test');
+  assert.equal(readFileSync(join(root, '.cto-lessons.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1, 'one line per lesson');
+
+  // A pass without an edit in between is not a fix; a new failure forgets the old fix
+  const again = recordFailure(ls, 'npm test', 'TypeError: x is not a function\n  at a.ts:9', root, 'claude');
+  assert.equal(again.fix, undefined);
+  assert.equal(again.seen, 4, 'a different line number is the same lesson');
+  assert.deepEqual(resolveFromTurn(ls, [{ kind: 'run', command: 'npm test', ok: false, tail: 'TypeError: x is not a function' }, { kind: 'run', command: 'npm test', ok: true, tail: '' }], root), []);
+  saveLessons(root, ls);
+
+  assert.equal(detectTestCommand(root), 'npm test');
+  const b = brief(root).join('\n');
+  assert.match(b, /Verify with   npm test/);
+  assert.match(b, /PLAN\.md 2 · 2 unchecked/);
+  assert.match(b, /- \[ \] add retry/);
+  assert.match(b, /!! npm test\s+TypeError: x is not a function/);
+  assert.match(b, /seen 4x/);
+  setKeys(false);
+
+  // Claude Code gets the brief at SessionStart; the hook is installed and the lessons file is not gitignored
+  const repo = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  setup(repo, 'en', { agents: ['claude'] });
+  const s = JSON.parse(readFileSync(join(repo, '.claude', 'settings.local.json'), 'utf8'));
+  assert.deepEqual(s.hooks.SessionStart, [{ hooks: [{ type: 'command', command: 'cto --hook claude-start' }] }]);
+  assert.ok(!readFileSync(join(repo, '.gitignore'), 'utf8').includes('lessons'));
+});

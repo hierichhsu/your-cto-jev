@@ -174,7 +174,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     doc_bad: () => '[cto] 有問題需要處理：',
     update_available: (v) => `[cto] 有新版 ${v.latest}（目前 ${v.current}），執行 cto update 更新`,
     update_done: () => '[cto] 已更新。已設定過的專案不用重跑 cto setup。',
-    usage: () => '用法：cto check | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
+    usage: () => '用法：cto brief | cto check | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
   },
   en: {
     reason_402: () => 'out of credits',
@@ -306,7 +306,7 @@ const messages: Record<Lang, Record<string, Msg>> = {
     doc_bad: () => '[cto] Needs attention:',
     update_available: (v) => `[cto] Version ${v.latest} is available (you have ${v.current}). Run cto update`,
     update_done: () => '[cto] Updated. Projects already set up do not need cto setup again.',
-    usage: () => 'Usage: cto check | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
+    usage: () => 'Usage: cto brief | cto check | cto doctor | cto update | cto --version | cto setup [--refresh] [--agents claude,cursor,gemini,codex] [--yes] [--uninstall] | cto --hook <git-commit|AGENT-pre|AGENT-post>',
   },
 };
 

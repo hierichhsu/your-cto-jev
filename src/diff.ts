@@ -1,6 +1,7 @@
 // Large diff handling (spec section 6): filter noise, then chunk by file.
 
-const EXCLUDE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|\.min\.js$|\.map$/;
+// .cto-lessons.jsonl changes on every agent failure; it is cto's own masked output, not something to review.
+const EXCLUDE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|\.cto-lessons\.jsonl)$|\.min\.js$|\.map$/;
 export const CHUNK_TOKENS = 24_000;
 
 /** ~1 token per CJK char, ~4 chars per token otherwise. */

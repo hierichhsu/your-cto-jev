@@ -75,7 +75,7 @@ export function turnActions(transcriptPath: string, cwd?: string): Action[] {
   return actions;
 }
 
-const BOX = /^(\s*)[-*+] \[([ xX])\]\s+(.*)$/;
+export const BOX = /^(\s*)[-*+] \[([ xX])\]\s+(.*)$/;
 const itemKey = (file: string, text: string) => `${file}:${text.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 60)}`;
 
 /**

@@ -9,7 +9,7 @@ export interface StopInput { sessionId?: string; cwd?: string; transcriptPath?: 
 export interface ReplyInput { sessionId?: string; cwd?: string; text: string }
 
 export type AgentName = 'claude' | 'cursor' | 'gemini' | 'codex';
-export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply'] as const;
+export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start'] as const;
 export type Phase = (typeof PHASES)[number];
 type Spec = { event: string; matcher?: string };
 
@@ -23,6 +23,7 @@ export interface Agent {
   stop?: Spec; // end of turn: the "done?" check
   edit?: Spec; // after a file edit: earlier failures are marked, the turn log gets the edit
   reply?: Spec; // the agent's final text, for agents whose stop event does not carry it (Cursor)
+  start?: Spec; // session start: `cto brief` goes into the agent's context (agents whose hook stdout reaches the model)
   note?: string; // i18n key printed after install
   /** The done check reads this agent's own transcript instead of cto's turn log. */
   transcriptTurns?: boolean;
@@ -74,6 +75,7 @@ export const agents: Record<AgentName, Agent> = {
     post: { event: 'PostToolUseFailure', matcher: 'Bash' },
     stop: { event: 'Stop' },
     edit: { event: 'PostToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit' },
+    start: { event: 'SessionStart' }, // stdout of a SessionStart hook is added to Claude's context
     parseEdit: (i) => { const p = str(i?.tool_input?.file_path) ?? str(i?.tool_input?.notebook_path); return p ? [p] : undefined; },
     parseStop: (i) => ({
       sessionId: str(i?.session_id),

@@ -42,11 +42,15 @@ async function runHook(name: string): Promise<HookOutput> {
     return gitCommit(diff, { root, lang });
   }
   const raw = await readStdin();
-  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply)$/.exec(name);
+  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start)$/.exec(name);
   if (!m) return { code: 0, stderr: [] };
   const agent = agents[m[1] as AgentName];
   let input: any = {};
   try { input = JSON.parse(raw); } catch { /* fail-open below */ }
+  if (m[2] === 'start') {
+    const { brief } = await import('./brief.js');
+    return { code: 0, stdout: brief(findRoot(typeof input?.cwd === 'string' ? input.cwd : process.cwd())).join('\n'), stderr: [] };
+  }
   if (m[2] === 'edit') {
     const cwd = typeof input?.cwd === 'string' ? input.cwd : typeof input?.workspace_roots?.[0] === 'string' ? input.workspace_roots[0] : process.cwd();
     return agentEdit(agent.parseEdit?.(input), { root: findRoot(cwd), lang }, agent.transcriptTurns ? undefined : agent.session(input));
@@ -72,7 +76,7 @@ async function runHook(name: string): Promise<HookOutput> {
   const post = agent.parsePost(input);
   const root = findRoot(post?.cwd ?? input?.cwd ?? process.cwd());
   debug(root, maskSensitiveState(raw));
-  return agentPost(post, { root, lang });
+  return agentPost(post, { root, lang }, m[1]);
 }
 
 const args = process.argv.slice(2);
@@ -154,6 +158,15 @@ if (args[0] === '--hook' && args[1]) {
     const r = await runCheck(root, lang);
     console.log(r.lines.join('\n'));
     process.exitCode = r.code;
+  }
+} else if (args[0] === 'brief') {
+  const root = gitRoot(process.cwd());
+  if (!root) {
+    process.stderr.write(t(lang, 'setup_not_git') + '\n');
+    process.exitCode = 1;
+  } else {
+    const { brief } = await import('./brief.js');
+    console.log(brief(root).join('\n'));
   }
 } else if (args[0] === 'doctor') {
   const r = await doctor(process.cwd(), lang);
