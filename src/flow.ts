@@ -20,10 +20,12 @@ export interface Task {
   after: string[];
   files: string[];
   accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual" means a human confirms
+  priority?: 'P1' | 'P2'; // review findings: P1 must be fixed before the release, P2 may follow it
 }
 
 const ID = /^([A-Z][A-Z0-9]*-\d+(?:\.\d+)*)\b\s*/;
 const TAG = /\s*\((after|files):\s*([^)]*)\)/g;
+const PRIORITY = /\s*\((P[12])\)/;
 const ACCEPT = /^\s*(?:驗收|accept):\s*(.+?)\s*$/i;
 const list = (s: string) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
 
@@ -48,10 +50,14 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
     if (!idm) return;
     const after: string[] = [];
     const files: string[] = [];
-    const text = m[3].slice(idm[0].length).replace(TAG, (_, k, v) => { (k === 'after' ? after : files).push(...list(v)); return ''; }).trim();
+    let priority: Task['priority'];
+    const text = m[3].slice(idm[0].length)
+      .replace(TAG, (_, k, v) => { (k === 'after' ? after : files).push(...list(v)); return ''; })
+      .replace(PRIORITY, (_, p) => { priority = p; return ''; })
+      .trim();
     while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
     const parent = stack[stack.length - 1]?.id;
-    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files };
+    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority && { priority }) };
     if (parent) tasks.find((p) => p.id === parent)?.children.push(t.id);
     tasks.push(t);
     stack.push({ indent, id: t.id });

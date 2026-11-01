@@ -51,7 +51,15 @@ CONCEPT.md、SPEC.md、PRODUCT.md、ARCHITECTURE.md 第一個非標題行固定�
 - `(after: ID[, ID])`：必須先完成的 task。跨 feature 的 `after` 就是 feature 依賴。
 - `(files: path/[, path/])`：這個 task 會改的目錄或檔案。寫到 feature 自己的目錄那層，不寫 `src/`。
 - `驗收:` 一行可執行指令，或 `manual`。`manual` 的 task 由使用者在對話中確認後 CTO 才打勾，打勾時說明是人工驗收。
+- `(P1)` / `(P2)`：review 發現的優先度。P1 發版前必修，P2 可以發版後。brief 的 Ready 先列 P1、再列一般、最後 P2。
 - 碰共用檔（routes 表、types、migration）的工作切成獨立 task，不標可平行。
+
+### 分支與 review
+
+- 工作在 `review` 分支（或合進 review 的 feature 分支）；`main`／`master` 只收 release 的合併。建議 `.cto.json` 設 `protected_branches: ["main"]`。
+- **每一波 commit 之前先 code review**：零上下文 reviewer 讀該波 diff 和 feature 的 SPEC；P1 發現修掉再 commit，P2 發現寫成 `(P2)` task。
+- **release 之前 review 全部**：把 review 分支對 main 的整個 diff（所有還沒發的 commit）一次 review，發現分 P1／P2 進 TASKS.md；P1 全勾、`cto check --base main` 過，才合進 main。
+- REVIEW.md 每筆記：日期、範圍（哪一波或哪次 release）、發現數、對應 task ID 與優先度。
 
 ### INDEX.md（產生）
 
@@ -148,19 +156,23 @@ brief / doctor：
 | 驗證指令 | 驗收 | `detectTestCommand` |
 | 不變的原則 | 漂移檢查 | 問，可空 |
 
-初始化：CTO 掃 repo 先填，每格標 `(from: <檔>)`、`(asked)` 或 `(unknown)`；剩下的一次問完、最多五題、每題附猜測；使用者可 skip。
+初始化：CTO 掃 repo 先填，每格標 `(from: <檔>)`、`(asked)` 或 `(unknown)`；剩下的每輪最多五題、每題附猜測，使用者可 skip；寫完逐標題帶使用者走一遍，問出的新問題下一輪再問，直到使用者說完整。完成的定義是使用者說完整，不是每格有字。
 
 ### Skill：`.agents/skills/cto-flow/SKILL.md`
 
-和現有 `cto` skill 同一層，`cto setup` 選了流程才寫入。內容：
+和現有 `cto` skill 同一層，`cto setup` 選了流程才寫入。七個工作，名字加 `cto-jev` 前綴，避免和別的 skill 的「步驟一」混在一起；使用者在對話裡打這個名字就是在叫它：
 
-1. 開工：讀 `cto brief`。有 Ready task 才派工；沒有就先拆。
-2. 新需求分類：讀 INDEX；落在既有 feature → 只加 task；碰 Constraints → 改 SPEC 回 draft 等簽核；新模組 → 開四個檔；基礎設施 → `platform`。
-3. 派工：能派 sub-agent 就每個 Ready task 一個，只給它那一行 task、該 feature 的 SPEC、依賴 feature 的 Interface；不能派就照 Ready 順序自己做。
-4. 驗收：不信 sub-agent 的回報；自己跑該 task 的 `驗收:` 指令，通過才打勾。`manual` 等使用者確認。
-5. Review：feature 的 task 全勾後，派零上下文 reviewer 讀 CONCEPT、SPEC、diff，寫 REVIEW.md；發現一律轉成新 task。
-6. 整理：開新 feature 前跑 `cto docs`，把建議拿給使用者決定。
-7. 禁止：自己改 Status 成 approved；在 TASKS 以外的地方記狀態；猜 PRODUCT 的欄位。
+| 名字 | 什麼時候 | 做什麼、停在哪 |
+|---|---|---|
+| `cto-jev init` | 第一次，或 brief 顯示 Unknown fields | 掃 repo 填能證明的；每輪最多五題；寫完逐標題帶使用者走，直到使用者說完整；停在 draft 等簽核 |
+| `cto-jev feature` | 比一個 edit 大的需求 | 先跑 `cto-jev docs`；對 INDEX 分類；**先談再寫**，CONCEPT 和 SPEC 各有一張必答清單；寫完逐段過到使用者說完整；停在 draft，不寫 TASKS |
+| `cto-jev tasks` | SPEC approved 後 | 拆父子 task，每個子項有 files、after、驗收；共用檔獨立；`cto index` 後 brief 的 Ready 是第一波 |
+| `cto-jev work` | 使用者說繼續，或 brief 有 Ready | brief → 派工（最窄讀取集）→ `git status` 對範圍 → 自己跑驗收才打勾 → **該波 review，P1 修掉、P2 進 task → commit** |
+| `cto-jev release` | 要把 review 合進 main | review 全部未發的 diff；發現分 P1／P2 進 TASKS；P1 全勾、`cto check --base main` 過才合併；REVIEW.md 記一筆 |
+| `cto-jev docs` | 開 feature 前，或使用者要整理 | `cto docs` 的清單給使用者決定，決定後才動 |
+| `cto-jev decision` | commit 警告 `architecture_undocumented`，或改了服務／儲存／邊界 | 寫 `decisions/NNNN-<slug>.md`，只增不改 |
+
+禁止：自己改 Status 成 approved；在 TASKS 以外的地方記狀態；手改 INDEX；猜 PRODUCT／ARCHITECTURE 的欄位；讀 archive/。
 
 ### 不改的東西
 

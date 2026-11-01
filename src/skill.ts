@@ -98,7 +98,7 @@ turns it into a calibration case; you do not run that yourself.
 // `cto setup` chose the flow; the body mirrors docs/cto_jev/features/cto-flow/SPEC.md.
 export const FLOW_SKILL_TEXT = `---
 name: cto-flow
-description: The development flow of this repo, kept in docs/cto_jev/. Load it for any of these jobs - first-time setup ("set up PRODUCT.md and ARCHITECTURE.md"), a new feature or request bigger than one edit, breaking a spec into tasks, working the plan (dispatch, accept, review), cleaning up old documents, recording a decision - and whenever you are about to plan, dispatch or tick a task.
+description: The development flow of this repo, kept in docs/cto_jev/. Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
 ${SKILL_MARK}
 
@@ -106,11 +106,11 @@ ${SKILL_MARK}
 
 You are the CTO of this repo. You plan, break down, dispatch, accept and review; sub-agents write the code. The plan lives in \`docs/cto_jev/\`; the only state is the checkboxes in TASKS.md. cto checks what you claim: a tick without a passing check is sent back, a commit on a feature without sign-off is blocked.
 
-Six jobs. Each says when it applies, the steps, and where you stop.
+Seven jobs, each named \`cto-jev <job>\`. When the user says the name, do that job and nothing else. Each says when it applies, the steps, and where you stop.
 
-## Job 1: first-time setup
+## cto-jev init
 
-**When:** the user says "set up PRODUCT.md and ARCHITECTURE.md", or \`cto brief\` shows \`Unknown fields\`.
+**When:** the user says "cto-jev init" or "set up PRODUCT.md and ARCHITECTURE.md", or \`cto brief\` shows \`Unknown fields\`.
 
 This is a conversation, not a form. The files are done when the user says so, not when every heading has text.
 
@@ -120,19 +120,19 @@ This is a conversation, not a form. The files are done when the user says so, no
 4. Write both files with the fixed headings below, \`Status: draft\`, and walk the user through them heading by heading: say what you wrote and what it will be used for (non-goals and principles become drift checks). Each answer that opens a new question gets asked in the next round. Keep going until the user has nothing to add or correct.
 5. Repeat the walk-through after every edit the user asks for.
 
-**Stop:** when the user says the files are complete; they set \`Status: approved\`. Do not continue to Job 2 in the same breath unless asked.
+**Stop:** when the user says the files are complete; they set \`Status: approved\`. Do not continue to \`cto-jev feature\` in the same breath unless asked.
 
 PRODUCT.md headings: \`## 一句話\`, \`## 使用者角色\`, \`## 怎麼賺錢\`, \`## 方案與限制\`, \`## 不做的事\`, \`## 設計約束\`.
 ARCHITECTURE.md headings: \`## 技術棧\`, \`## 目錄地圖\`, \`## 外部服務與資料\`, \`## 驗證指令\`, \`## 不變的原則\`.
 Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原則\` feed the drift checks: one rule per line.
 
-## Job 2: a new request
+## cto-jev feature
 
-**When:** the user asks for something bigger than one edit.
+**When:** the user says "cto-jev feature", or asks for something bigger than one edit.
 
-1. Run \`cto docs\` first when it has not run this session; bring its suggestions to the user before opening a feature (Job 5).
+1. Run \`cto-jev docs\` first when it has not run this session; bring its suggestions to the user before opening a feature.
 2. Read \`docs/cto_jev/INDEX.md\` and classify:
-   - Inside an existing feature, within its Constraints: add tasks to its TASKS.md (Job 3). No new docs.
+   - Inside an existing feature, within its Constraints: add tasks to its TASKS.md (\`cto-jev tasks\`). No new docs.
    - Changes a feature's \`## Constraints\` or \`## Interface\`: edit its SPEC.md, set \`Status: draft\`, stop for sign-off.
    - A new module: \`features/<slug>/\` with the four files below.
    - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with the three sections), \`Status: draft\`, before any task on it.
@@ -149,9 +149,9 @@ CONCEPT.md: \`Status:\` line, then \`## 目的\` (one sentence), \`## 動機\`, 
 SPEC.md: \`Status:\` line, then \`## Interface\`, \`## Constraints\`, \`## Internals\`.
 REVIEW.md: created empty with one line saying it is pending.
 
-## Job 3: break a spec into tasks
+## cto-jev tasks
 
-**When:** SPEC.md is \`Status: approved\` and TASKS.md is empty or the request adds work.
+**When:** the user says "cto-jev tasks", or SPEC.md is \`Status: approved\` and TASKS.md is empty or the request adds work.
 
 1. One parent per deliverable, children small enough for one sub-agent and one acceptance command.
 2. Every child gets \`(files:)\` (the directories it changes, never bare \`src/\`), \`(after:)\` for anything that must be ticked first (across features too), and an acceptance line: a runnable command, or \`manual\` when only a human can judge.
@@ -166,32 +166,45 @@ REVIEW.md: created empty with one line saying it is pending.
         驗收: manual
 \`\`\`
 
-IDs: \`<PREFIX>-<n>\`, children \`<n>.<m>\`, prefix uppercase and unique across the repo. A parent has no \`(files:)\` and no acceptance line; it is done when all children (at most 15) are ticked. \`accept:\` is accepted as a synonym for \`驗收:\`.
+IDs: \`<PREFIX>-<n>\`, children \`<n>.<m>\`, prefix uppercase and unique across the repo. A parent has no \`(files:)\` and no acceptance line; it is done when all children (at most 15) are ticked. \`accept:\` is accepted as a synonym for \`驗收:\`. A review finding carries \`(P1)\` (fix before the release) or \`(P2)\` (may follow it); brief lists P1 first and P2 last.
 
-## Job 4: work the plan
+## cto-jev work
 
-**When:** the user says continue, or \`cto brief\` shows Ready tasks.
+**When:** the user says "cto-jev work" or "continue", or \`cto brief\` shows Ready tasks.
 
-1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once.
+Branches: work on \`review\` (or a feature branch merged into it). \`main\` only receives \`cto-jev release\`. Never commit to \`main\` directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there.
+
+1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
 2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
 3. When they return: \`git status\`; revert anything outside the union of their \`(files:)\`. Integrate the shared files yourself. Fix any existing test their change broke.
 4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. \`manual\` waits for the user to confirm in the conversation; say "accepted manually" when you tick it.
-5. When every task of a feature is ticked: dispatch a reviewer with none of your context. It reads CONCEPT.md, SPEC.md and the diff of the feature's \`(files:)\`, and writes REVIEW.md: date, what it reviewed, how many findings, which task ids they became. Every finding becomes a task in TASKS.md; nothing is fixed straight from the review.
-6. Commit per wave; run \`cto check\` first.
+5. **Review before you commit.** Dispatch a reviewer with none of your context: it reads the feature's CONCEPT.md and SPEC.md and the uncommitted diff, and returns findings each marked P1 (wrong, unsafe, breaks a Constraint or the Interface) or P2 (should improve, can wait). Fix every P1 now and re-run acceptance. Write every P2 as a \`(P2)\` task in TASKS.md. Append one entry to REVIEW.md: date, scope (the task ids of the wave), how many P1/P2, which task ids they became.
+6. \`cto check\`, then commit the wave to the review branch.
 
-Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next.
+Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next; review your own diff with fresh eyes against the SPEC before each commit.
 
-## Job 5: clean up documents
+## cto-jev release
 
-**When:** before opening a feature, or when the user asks to tidy the repo.
+**When:** the user says "cto-jev release", or asks to merge review into main / ship / deploy.
+
+1. Everything to be released is on the review branch and every P1 task is ticked. If not, stop and list what is open.
+2. Dispatch a reviewer with none of your context over the whole unreleased diff (\`git diff main...review\`) plus the SPECs of every feature it touches. Findings get P1 or P2 like a wave review, written into TASKS.md.
+3. P1 findings are fixed (through \`cto-jev work\`) before anything else; P2 findings stay as tasks for after the release. Tell the user both lists and let them decide the P2 ones that should move up.
+4. \`cto check --base main\` must pass. Then merge review into main (the user does the merge or the PR; you prepare it). Append one REVIEW.md entry per feature released: date, "release", counts, task ids.
+
+**Stop:** before the merge, with the P1/P2 lists in front of the user.
+
+## cto-jev docs
+
+**When:** the user says "cto-jev docs", before opening a feature, or when the user asks to tidy the repo.
 
 1. \`cto docs\`. It lists markdown outside \`docs/cto_jev/\` that looks like an old plan, grouped as Delete / Merge into a feature / Archive / Needs a look. It changes nothing.
 2. Show the list to the user with one line per file; they decide.
 3. Then act: merge = fold the still-open items into the right TASKS.md or SPEC.md and delete the file; archive = move to \`docs/cto_jev/archive/<YYYYMM>-<name>/\`; delete = \`git rm\`. Never act before the user answers.
 
-## Job 6: record a decision
+## cto-jev decision
 
-**When:** a commit warns \`architecture_undocumented\`, or a change adds or removes a service, store, dependency, layer or boundary, or bends a line in \`## 不變的原則\`.
+**When:** the user says "cto-jev decision", a commit warns \`architecture_undocumented\`, or a change adds or removes a service, store, dependency, layer or boundary, or bends a line in \`## 不變的原則\`.
 
 Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <title>\`, \`## Context\`, \`## Decision\`, \`## Consequences\`. Append-only; a reversal is a new record. Update ARCHITECTURE.md in the same commit when a principle changed.
 
@@ -208,15 +221,15 @@ Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <titl
 \`\`\`
 docs/cto_jev/
   INDEX.md                 generated by cto
-  PRODUCT.md               Job 1; user signs off
-  ARCHITECTURE.md          Job 1; user signs off
-  decisions/NNNN-<slug>.md Job 6; append-only
+  PRODUCT.md               cto-jev init; user signs off
+  ARCHITECTURE.md          cto-jev init; user signs off
+  decisions/NNNN-<slug>.md cto-jev decision; append-only
   features/<slug>/
     CONCEPT.md             why: 目的, 動機, 商業規則, 不做的事
     SPEC.md                how: Interface, Constraints, Internals
-    TASKS.md               the only state
-    REVIEW.md              zero-context review, findings as task ids
-  archive/<YYYYMM>-<name>/ Job 5 moves old documents here; nobody reads them
+    TASKS.md               the only state; review findings carry (P1)/(P2)
+    REVIEW.md              one entry per wave review and per release
+  archive/<YYYYMM>-<name>/ cto-jev docs moves old documents here; nobody reads them
 \`\`\`
 
 Three top-level files, four per feature, \`features/platform/\` always present. Headings must match exactly: \`cto brief\` reports a reworded heading as missing and the checks skip it.

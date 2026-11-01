@@ -246,7 +246,19 @@ Blocked · 1
   CUST-1.3  Shared types              waiting on PERM-9 (missing), CUST-1.2
 ```
 
-The skill tells the agent how to behave: talk the request through with you first (who it is for, the business rules, what is out of scope, what other features may call, how it will be verified), write CONCEPT and SPEC, walk you through them until nothing is missing, then stop and wait for you to set `Status: approved`; give each sub-agent only its task line, its feature's SPEC and the `## Interface` of the features it depends on; never trust a sub-agent's "done", run the task's acceptance command itself before ticking; hand finished features to a reviewer with none of its context, and turn every finding into a task. Changes inside an existing feature only add tasks; only a new module gets a new folder. The first time it runs it scans the repo, fills PRODUCT.md and ARCHITECTURE.md with what it can prove, asks you the rest a few questions at a time, and walks you through the result until you say it is complete. `unknown` is an allowed answer.
+The skill gives the agent seven named jobs, so they cannot be confused with another skill's steps; say the name and it does that job:
+
+| Say | The agent |
+|---|---|
+| `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
+| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, what other features may call, how it will be verified), writes CONCEPT and SPEC, walks you through them, stops for your `Status: approved` |
+| `cto-jev tasks` | breaks an approved SPEC into parent/child tasks with files, dependencies and an acceptance command each |
+| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, P2 findings become tasks, then it commits to the review branch |
+| `cto-jev release` | reviews the whole unreleased diff against the SPECs, files P1/P2 tasks, requires every P1 ticked and `cto check --base main` green, then prepares the merge into main |
+| `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
+| `cto-jev decision` | writes an append-only decision record under `decisions/` |
+
+Work lives on a `review` branch; `main` only receives releases (set `protected_branches: ["main"]` and cto enforces it). Changes inside an existing feature only add tasks; only a new module gets a new folder. The first time it runs it scans the repo, fills PRODUCT.md and ARCHITECTURE.md with what it can prove, asks you the rest a few questions at a time, and walks you through the result until you say it is complete. `unknown` is an allowed answer.
 
 What `cto` adds on top, all without a model call unless noted:
 

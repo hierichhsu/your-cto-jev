@@ -1356,7 +1356,7 @@ test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready
     '  - [ ] CUST-1.2 UI (after: CUST-1.1) (files: src/customers/ui/)',
     '        accept: manual',
     '  - [ ] CUST-1.3 shared types (after: CUST-1.1, PERM-9) (files: src/types.ts)',
-    '- [ ] CUST-2 report (files: src/customers/)',
+    '- [ ] CUST-2 report (P2) (files: src/customers/)',
     '- [ ] no id here',
     '```',
     '- [ ] CUST-99 example inside a fence',
@@ -1376,6 +1376,9 @@ test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready
   assert.deepEqual(byId['CUST-1.3'].after, ['CUST-1.1', 'PERM-9']);
   assert.equal(byId['CUST-2'].parent, undefined);
   assert.equal(byId['CUST-2'].line, 8);
+  assert.equal(byId['CUST-2'].priority, 'P2');
+  assert.equal(byId['CUST-2'].text, 'report', 'the priority tag is stripped from the text');
+  assert.equal(byId['CUST-1.1'].priority, undefined);
 
   const perm = parseTasks('- [x] PERM-2 roles (files: src/auth/)\n', 'permissions', 'p/TASKS.md');
   const { ready, blocked } = openTasks([...perm, ...t]);

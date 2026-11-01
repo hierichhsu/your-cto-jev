@@ -119,10 +119,14 @@ export function flowLines(root: string): string[] {
   const rows = featureIndex(root);
   const tasks = loadTasks(root);
   const ids = new Set(tasks.map((t) => t.id));
-  const { ready, blocked } = openTasks(tasks);
+  const open = openTasks(tasks);
+  const blocked = open.blocked;
+  // Review findings first: P1 before everything, P2 after the ordinary work. Stable, so file order holds within a rank.
+  const rank = (t: Task) => (t.priority === 'P1' ? 0 : t.priority === 'P2' ? 2 : 1);
+  const ready = [...open.ready].sort((a, b) => rank(a) - rank(b));
   const together = parallelTasks(ready);
   const idW = Math.max(8, ...tasks.map((t) => t.id.length));
-  const line = (t: Task, rest: string) => `  ${t.id.padEnd(idW)}  ${col(t.text, 24)}  ${rest}`;
+  const line = (t: Task, rest: string) => `  ${t.id.padEnd(idW)}  ${col((t.priority ? `${t.priority} ` : '') + t.text, 24)}  ${rest}`;
 
   const counts = (['active', 'planned', 'done'] as const).filter((s) => rows.some((r) => r.status === s)).map((s) => `${rows.filter((r) => r.status === s).length} ${s}`);
   const pending = rows.filter((r) => r.signoff.concept !== 'approved' || r.signoff.spec !== 'approved')
