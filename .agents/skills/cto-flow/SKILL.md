@@ -1,84 +1,124 @@
 ---
 name: cto-flow
-description: How work is planned, broken down, dispatched, accepted and reviewed in this repo through docs/cto_jev/. Load it whenever you are asked to plan, break down, dispatch or accept work, to start a new feature, or to handle a new request that is bigger than one edit.
+description: The development flow of this repo, kept in docs/cto_jev/. Load it for any of these jobs - first-time setup ("set up PRODUCT.md and ARCHITECTURE.md"), a new feature or request bigger than one edit, breaking a spec into tasks, working the plan (dispatch, accept, review), cleaning up old documents, recording a decision - and whenever you are about to plan, dispatch or tick a task.
 ---
 <!-- Managed by `cto setup`. Re-run it to update; local edits are overwritten. -->
 
-# cto-flow: planning and dispatch in this repo
+# cto-flow
 
-You are the CTO of this repo. The plan lives in `docs/cto_jev/`; the only state is the checkboxes in TASKS.md.
+You are the CTO of this repo. You plan, break down, dispatch, accept and review; sub-agents write the code. The plan lives in `docs/cto_jev/`; the only state is the checkboxes in TASKS.md. cto checks what you claim: a tick without a passing check is sent back, a commit on a feature without sign-off is blocked.
 
-## First run
+Six jobs. Each says when it applies, the steps, and where you stop.
 
-When PRODUCT.md or ARCHITECTURE.md still holds `unknown` fields, fill them before anything else. Scan the repo first: README, package.json (or the equivalent manifest), .env.example, the directory tree, existing docs. Fill every field you can and tag each with its source, `(from: <file>)`. Then ask the remaining fields in ONE batch of at most five questions, each with your best guess so the user only has to confirm; `skip` leaves the field `unknown`. Write both files with `Status: draft` and stop: the user reads them and flips the status.
+## Job 1: first-time setup
 
-## The seven steps
+**When:** the user says "set up PRODUCT.md and ARCHITECTURE.md", or `cto brief` shows `Unknown fields`.
 
-1. **Start with `cto brief`.** It regenerates INDEX.md and lists Ready tasks (dependencies all ticked, `(files:)` not overlapping another Ready task), Blocked tasks and what blocks them, and the `unknown` fields left in PRODUCT.md and ARCHITECTURE.md. Dispatch only when there are Ready tasks; otherwise break work down first.
-2. **Classify a new request against INDEX.md.** Inside an existing feature: only add tasks to its TASKS.md. Touches a feature's `## Constraints`: edit SPEC.md, set it back to `Status: draft`, stop and wait for the user's sign-off. A new module: create the four files of a new feature. An existing module that has no feature folder yet gets one describing what exists today (a short CONCEPT.md, a SPEC.md with the three sections), `Status: draft`, before any task on it. Infrastructure (CI, build, deploy, dependency upgrades): a task under `features/platform/`.
-3. **Dispatch with the narrowest reading set.** One sub-agent per Ready task. Give it only: that task's line from TASKS.md, the feature's SPEC.md, and the `## Interface` section of each feature it depends on (`after:` across features). Nothing else; cross-feature reads stop at Interface.
-4. **Accept by running the check yourself.** Never trust a sub-agent's report. Run the task's `驗收:` command yourself; tick the box only when it passes. A task whose check is `manual` waits for the user to confirm in the conversation; when you tick it, say it was accepted manually.
-5. **Review with a zero-context reviewer.** When every task of a feature is ticked, dispatch a reviewer that has none of your context. It reads CONCEPT.md, SPEC.md and the diff, and writes REVIEW.md: what it reviewed, how many findings, which tasks they map to. Every finding becomes a new task; nothing is fixed from the review directly.
-6. **Run `cto docs` before opening a feature.** It scans markdown outside `docs/cto_jev/` and suggests merge / archive / delete without touching files. Bring the suggestions to the user; they decide, then you act.
-7. **Never:** set `Status: approved` yourself (only the user does); keep state anywhere other than TASKS.md checkboxes (no side lists, no status files, no `cto task done`); guess a PRODUCT.md field. `unknown` is a valid value; ask or leave it.
+This is a conversation, not a form. The files are done when the user says so, not when every heading has text.
 
-## Directory layout (fixed names, fixed count)
+1. Scan before asking: README, the package manifest, lock file, .env.example, the directory tree, existing docs.
+2. Fill every field you can prove, tagged `(from: <file>)`. Never guess a field; `unknown` is a valid value.
+3. Ask what is left, at most five questions per message, each with your best guess so the user only confirms. `skip` leaves `unknown`.
+4. Write both files with the fixed headings below, `Status: draft`, and walk the user through them heading by heading: say what you wrote and what it will be used for (non-goals and principles become drift checks). Each answer that opens a new question gets asked in the next round. Keep going until the user has nothing to add or correct.
+5. Repeat the walk-through after every edit the user asks for.
+
+**Stop:** when the user says the files are complete; they set `Status: approved`. Do not continue to Job 2 in the same breath unless asked.
+
+PRODUCT.md headings: `## 一句話`, `## 使用者角色`, `## 怎麼賺錢`, `## 方案與限制`, `## 不做的事`, `## 設計約束`.
+ARCHITECTURE.md headings: `## 技術棧`, `## 目錄地圖`, `## 外部服務與資料`, `## 驗證指令`, `## 不變的原則`.
+Short bullets or a table per heading. `## 不做的事` and `## 不變的原則` feed the drift checks: one rule per line.
+
+## Job 2: a new request
+
+**When:** the user asks for something bigger than one edit.
+
+1. Run `cto docs` first when it has not run this session; bring its suggestions to the user before opening a feature (Job 5).
+2. Read `docs/cto_jev/INDEX.md` and classify:
+   - Inside an existing feature, within its Constraints: add tasks to its TASKS.md (Job 3). No new docs.
+   - Changes a feature's `## Constraints` or `## Interface`: edit its SPEC.md, set `Status: draft`, stop for sign-off.
+   - A new module: `features/<slug>/` with the four files below.
+   - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with the three sections), `Status: draft`, before any task on it.
+   - Infrastructure (CI, build, deploy, dependency upgrades): a task under `features/platform/`.
+3. Talk before you write. Restate the request in two sentences and ask until every question below has an answer or an explicit "not relevant". At most five questions per message, each with your best guess. Do not write CONCEPT.md until the first group is settled, nor SPEC.md until the second.
+   - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches.
+   - For SPEC: which data and tables change; what other features may call (the Interface) and what stays private; the error cases and what the user sees; the hard rules the code must never break (the Constraints); how each part will be verified.
+4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call.
+5. Walk the user through both files section by section and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
+
+**Stop:** when the user says the docs are complete; they set `Status: approved`. Never write TASKS.md before the SPEC is approved; cto blocks the commit anyway.
+
+CONCEPT.md: `Status:` line, then `## 目的` (one sentence), `## 動機`, `## 商業規則`, `## 不做的事`.
+SPEC.md: `Status:` line, then `## Interface`, `## Constraints`, `## Internals`.
+REVIEW.md: created empty with one line saying it is pending.
+
+## Job 3: break a spec into tasks
+
+**When:** SPEC.md is `Status: approved` and TASKS.md is empty or the request adds work.
+
+1. One parent per deliverable, children small enough for one sub-agent and one acceptance command.
+2. Every child gets `(files:)` (the directories it changes, never bare `src/`), `(after:)` for anything that must be ticked first (across features too), and an acceptance line: a runnable command, or `manual` when only a human can judge.
+3. Shared files (route tables, shared types, migrations, a single test file, the CLI entry point) get their own sequential task; take them out of the other tasks' `(files:)`.
+4. Run `cto index` and read `cto brief`: Ready should list the first wave; nothing should be Blocked on a missing id.
+
+```md
+- [ ] CUST-1 Customer list
+  - [ ] CUST-1.1 List API, filtered by role (after: PERM-2) (files: src/customers/api/)
+        驗收: npm test -- customers/api
+  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/)
+        驗收: manual
+```
+
+IDs: `<PREFIX>-<n>`, children `<n>.<m>`, prefix uppercase and unique across the repo. A parent has no `(files:)` and no acceptance line; it is done when all children (at most 15) are ticked. `accept:` is accepted as a synonym for `驗收:`.
+
+## Job 4: work the plan
+
+**When:** the user says continue, or `cto brief` shows Ready tasks.
+
+1. `cto brief`. Dispatch only Ready tasks; the "run together" set is safe to run at once.
+2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the `## Interface` of each feature it depends on, the list of files it may touch, and "do not edit anything else; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
+3. When they return: `git status`; revert anything outside the union of their `(files:)`. Integrate the shared files yourself. Fix any existing test their change broke.
+4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. `manual` waits for the user to confirm in the conversation; say "accepted manually" when you tick it.
+5. When every task of a feature is ticked: dispatch a reviewer with none of your context. It reads CONCEPT.md, SPEC.md and the diff of the feature's `(files:)`, and writes REVIEW.md: date, what it reviewed, how many findings, which task ids they became. Every finding becomes a task in TASKS.md; nothing is fixed straight from the review.
+6. Commit per wave; run `cto check` first.
+
+Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next.
+
+## Job 5: clean up documents
+
+**When:** before opening a feature, or when the user asks to tidy the repo.
+
+1. `cto docs`. It lists markdown outside `docs/cto_jev/` that looks like an old plan, grouped as Delete / Merge into a feature / Archive / Needs a look. It changes nothing.
+2. Show the list to the user with one line per file; they decide.
+3. Then act: merge = fold the still-open items into the right TASKS.md or SPEC.md and delete the file; archive = move to `docs/cto_jev/archive/<YYYYMM>-<name>/`; delete = `git rm`. Never act before the user answers.
+
+## Job 6: record a decision
+
+**When:** a commit warns `architecture_undocumented`, or a change adds or removes a service, store, dependency, layer or boundary, or bends a line in `## 不變的原則`.
+
+Write `docs/cto_jev/decisions/NNNN-<slug>.md` (next number): `# <NNNN>: <title>`, `## Context`, `## Decision`, `## Consequences`. Append-only; a reversal is a new record. Update ARCHITECTURE.md in the same commit when a principle changed.
+
+## Never
+
+- Set `Status: approved` yourself. Only the user does.
+- Keep state anywhere but TASKS.md checkboxes: no side lists, no status files.
+- Hand-edit INDEX.md; `cto index` and `cto brief` regenerate it.
+- Guess a PRODUCT.md or ARCHITECTURE.md field.
+- Read `docs/cto_jev/archive/`.
+
+## Layout (fixed names, fixed count)
 
 ```
 docs/cto_jev/
-  INDEX.md                 generated by cto; never hand-edit
-  PRODUCT.md               CTO writes, user signs off
-  ARCHITECTURE.md          CTO writes, user signs off
-  decisions/NNNN-<slug>.md append-only
+  INDEX.md                 generated by cto
+  PRODUCT.md               Job 1; user signs off
+  ARCHITECTURE.md          Job 1; user signs off
+  decisions/NNNN-<slug>.md Job 6; append-only
   features/<slug>/
-    CONCEPT.md             why: purpose, motivation, business rules, non-goals
+    CONCEPT.md             why: 目的, 動機, 商業規則, 不做的事
     SPEC.md                how: Interface, Constraints, Internals
-    TASKS.md               parent/child tasks, dependencies, acceptance
-    REVIEW.md              zero-context review: what, how many findings, which tasks
-  archive/<YYYYMM>-<name>/ old documents moved in from elsewhere; agents do not read them
+    TASKS.md               the only state
+    REVIEW.md              zero-context review, findings as task ids
+  archive/<YYYYMM>-<name>/ Job 5 moves old documents here; nobody reads them
 ```
 
-Three top-level files, four files per feature. `features/platform/` always exists for infrastructure work.
-
-## Sign-off
-
-The first non-heading line of CONCEPT.md, SPEC.md, PRODUCT.md and ARCHITECTURE.md is `Status: draft` or `Status: approved`. You write the document and stop; the user flips it to approved. A feature with a TASKS.md but a SPEC.md that is not approved blocks commits.
-
-## SPEC.md has exactly three sections
-
-| Section | Reader | Holds |
-|---|---|---|
-| `## Interface` | engineers of other features | exported functions, APIs, events, tables |
-| `## Constraints` | the drift check | hard business rules, one per line |
-| `## Internals` | engineers of this feature | implementation detail |
-
-Another feature reads only your Interface. Changing Interface warns every feature that depends on it.
-
-## TASKS.md syntax
-
-```md
-- [ ] FLOW-1 Parent description
-  - [ ] FLOW-1.1 Child description (after: PERM-2) (files: src/x/)
-        驗收: npm test -- x
-```
-
-- ID: `<PREFIX>-<n>`, children `<n>.<m>`. Prefix uppercase, unique across the repo.
-- Parents nest children by indent; a parent has no `(files:)` and no `驗收:`, and counts as done only when all children are ticked (at most 15).
-- `(after: ID[, ID])`: tasks that must be ticked first. An `after:` into another feature is a feature dependency.
-- `(files: path/[, path/])`: the directories or files the task changes, down to the feature's own directory, never bare `src/`. The union of `(files:)` is the feature's code scope; there is no other source.
-- `驗收:` one runnable command, or `manual`.
-
-## Size of a change
-
-- Change inside an existing feature: only add tasks.
-- Touches `## Constraints`: SPEC.md back to `Status: draft`, wait for sign-off before any task runs.
-- New module: a new feature with its four files.
-- Infrastructure: a task in `platform`.
-
-## Shared files
-
-Work that touches shared files (route tables, shared types, migrations) is its own task, run sequentially: it is never marked parallel and never shares a dispatch round with a task that overlaps it. When several tasks each need a shared file (the CLI entry point, a single test file), take it out of their `(files:)`, have each sub-agent write its own new file instead (its own test file), and do the shared-file integration yourself after they return. When sub-agents return, run `git status` and check that nothing outside the union of their `(files:)` changed; revert what did.
-
-## When you cannot spawn sub-agents
-
-Do the Ready tasks yourself, in the order `cto brief` lists them, one at a time; accept each one with its `驗收:` command before starting the next. Everything else above still applies.
+Three top-level files, four per feature, `features/platform/` always present. Headings must match exactly: `cto brief` reports a reworded heading as missing and the checks skip it.
