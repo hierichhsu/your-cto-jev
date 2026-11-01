@@ -165,7 +165,8 @@ export const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQue
 export function adrQuestion(root: string, paths: string[]): JevQuestion | undefined {
   if (!existsSync(join(root, FLOW_DIR, 'features'))) return undefined;
   const code = existsSync(join(root, 'src')) ? (p: string) => p.startsWith('src/') : (p: string) => !/\.mdx?$/i.test(p);
-  if (!paths.some(code) || paths.some((p) => p.startsWith(`${FLOW_DIR}/decisions/`))) return undefined;
+  // A record is NNNN-slug.md; the .gitkeep that setup leaves in decisions/ is not one.
+  if (!paths.some(code) || paths.some((p) => p.startsWith(`${FLOW_DIR}/decisions/`) && /\.md$/i.test(p))) return undefined;
   const principles = clip(section(readOr(join(root, FLOW_DIR, 'ARCHITECTURE.md')), /^##\s*不變的原則\s*$/));
   return {
     type: 'noul',
@@ -240,11 +241,12 @@ export function logDecision(brain: Brain, hook: Decision['hook'], state: string,
 }
 
 /** Run the commit checks on a diff. Shared by the git hook and `cto check`. Mutates brain for provider state and the decision log. */
-export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number, hook: 'commit' | 'check' = 'commit', root?: string): Promise<DiffReview | null> {
+export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number, hook: 'commit' | 'check' = 'commit', root?: string, release = false): Promise<DiffReview | null> {
   const files = filterDiff(maskDiff(rawDiff));
   if (!files.length) return null;
   const chunks = chunkDiff(files);
-  const soft: Record<string, JevQuestion> = { code_complexity: Q.code_complexity };
+  // Complexity is a judgement on one change; a whole branch (`cto check --base`) is docs, tests and many changes at once.
+  const soft: Record<string, JevQuestion> = release ? {} : { code_complexity: Q.code_complexity };
   const paths = root ? diffPaths(files) : [];
   const drift = root ? driftContext(root, paths) : undefined;
   if (drift) soft.architecture_violation = driftQ(drift);

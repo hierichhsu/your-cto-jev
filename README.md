@@ -238,9 +238,9 @@ A task is one checklist line, and everything else is computed from it:
 Features · 2 · 1 active · 1 planned · sign-off pending: billing (spec draft)
 
 Ready · 3 (run together: CUST-1.2, PERM-3)
-  CUST-1.2  List UI                   files src/customers/ui/   accept: manual
-  PERM-3    Role cache                files src/auth/cache/     accept: npm test -- auth
-  CUST-2    Export                    files src/customers/      accept: manual   (overlaps CUST-1.2: run after)
+  CUST-1.2  P1 List UI  files src/customers/ui/  accept: manual
+  PERM-3    Role cache  files src/auth/cache/  accept: npm test -- auth
+  CUST-2    Export  files src/customers/  accept: manual  (overlaps CUST-1.2: run after)
 
 Blocked · 1
   CUST-1.3  Shared types              waiting on PERM-9 (missing), CUST-1.2

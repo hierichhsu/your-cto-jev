@@ -98,13 +98,12 @@ test('flowIssues: missing feature files, (files:) paths not on disk, orphan src 
   });
   assert.deepEqual(flowIssues(root), [
     'features/billing: missing REVIEW.md',
-    'BILL-1.2: files src/billing/hooks/ not found',
     'src/orphan/ belongs to no feature',
     'features/billing/SPEC.md: missing heading ## Constraints',
     'PRODUCT.md: missing heading ## 怎麼賺錢',
-  ]);
+  ], 'a task whose (files:) do not exist yet is not an issue');
   const b = brief(root).join('\n');
-  assert.match(b, /^Flow issues · 5\n  features\/billing: missing REVIEW\.md\n/m);
+  assert.match(b, /^Flow issues · 4\n  features\/billing: missing REVIEW\.md\n/m);
   assert.ok(b.indexOf('Blocked · 1') < b.indexOf('Flow issues ·'), 'after Blocked');
   assert.ok(b.indexOf('Flow issues ·') < b.indexOf('Failures in the last'), 'before the tail');
 });
@@ -123,15 +122,11 @@ test('flowIssues: a clean flow yields nothing, a long list is capped at 12 lines
   assert.ok(!brief(clean).join('\n').includes('Flow issues'));
   assert.deepEqual(flowIssues(repo({ 'README.md': 'no flow\n' })), []);
 
-  const many = repo({
-    [`${F}/a/CONCEPT.md`]: CONCEPT,
-    [`${F}/a/SPEC.md`]: SPEC,
-    [`${F}/a/REVIEW.md`]: '',
-    [`${F}/a/TASKS.md`]: Array.from({ length: 15 }, (_, i) => `- [ ] A-${i + 1} t (files: lib/gone${i}/)`).join('\n') + '\n',
-  });
+  // 15 feature folders holding only a TASKS.md: one "missing" line each.
+  const many = repo(Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`${F}/f${String(i + 1).padStart(2, '0')}/TASKS.md`, ''])));
   const issues = flowIssues(many);
   assert.equal(issues.length, 13);
-  assert.equal(issues[0], 'A-1: files lib/gone0/ not found');
+  assert.equal(issues[0], 'features/f01: missing CONCEPT.md, SPEC.md, REVIEW.md');
   assert.equal(issues[12], '… 3 more');
   assert.match(brief(many).join('\n'), /^Flow issues · 15$/m);
 });

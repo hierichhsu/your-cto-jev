@@ -50,11 +50,6 @@ export function openPlanItems(root: string): { file: string; items: string[] }[]
 }
 
 const overlaps = (a: string[], b: string[]) => a.some((x) => b.some((y) => x.startsWith(y) || y.startsWith(x)));
-/** A fixed-width column in terminal cells (CJK task text takes two per character), truncated with an ellipsis. */
-const col = (s: string, w: number) => {
-  if (displayWidth(s) > w) { let cut = ''; for (const ch of s) { if (displayWidth(cut + ch) > w - 1) break; cut += ch; } s = `${cut}…`; }
-  return s + ' '.repeat(Math.max(0, w - displayWidth(s)));
-};
 const unknownCount = (path: string) => {
   try { return readFileSync(path, 'utf8').split(/\r?\n/).filter((l) => /\(unknown\)|unknown\s*$/.test(l)).length; } catch { return 0; }
 };
@@ -84,10 +79,7 @@ export function flowIssues(root: string): string[] {
     if (missing.length) out.push(`features/${slug}: missing ${missing.join(', ')}`);
   }
   const tasks = loadTasks(root);
-  for (const t of tasks) {
-    const gone = t.files.filter((f) => !existsSync(join(root, f)));
-    if (gone.length) out.push(`${t.id}: files ${gone.join(', ')} not found`);
-  }
+  // No "(files:) not found" check: a task's files do not exist until it is done, and a done task may have deleted them.
   // First-level code directories (under src/ when it exists) that no task's (files:) entry points into.
   const base = existsSync(join(root, 'src')) ? 'src/' : '';
   const owned = tasks.flatMap((t) => t.files.map((f) => `${f.replace(/\\/g, '/')}/`));
@@ -126,7 +118,8 @@ export function flowLines(root: string): string[] {
   const ready = [...open.ready].sort((a, b) => rank(a) - rank(b));
   const together = parallelTasks(ready);
   const idW = Math.max(8, ...tasks.map((t) => t.id.length));
-  const line = (t: Task, rest: string) => `  ${t.id.padEnd(idW)}  ${col((t.priority ? `${t.priority} ` : '') + t.text, 24)}  ${rest}`;
+  // Nothing truncated: the text and the acceptance command are what the agent dispatches and runs.
+  const line = (t: Task, rest: string) => `  ${t.id.padEnd(idW)}  ${(t.priority ? `${t.priority} ` : '') + t.text}  ${rest}`;
 
   const counts = (['active', 'planned', 'done'] as const).filter((s) => rows.some((r) => r.status === s)).map((s) => `${rows.filter((r) => r.status === s).length} ${s}`);
   const pending = rows.filter((r) => r.signoff.concept !== 'approved' || r.signoff.spec !== 'approved')
@@ -134,12 +127,12 @@ export function flowLines(root: string): string[] {
   const L = ['', ['Features', String(rows.length), ...counts, ...(pending.length ? [`sign-off pending: ${pending.join(', ')}`] : [])].join(' · ')];
 
   L.push('', ready.length
-    ? `Ready · ${ready.length} (run together: ${together.map((t) => t.id).join(', ')})`
+    ? `Ready · ${ready.length}${together.length > 1 ? ` (run together: ${together.map((t) => t.id).join(', ')})` : ''}`
     : `Ready · none${tasks.length ? '' : ` · add tasks to ${FLOW_DIR}/features/<slug>/TASKS.md`}`);
   for (const t of ready) {
     const first = together.includes(t) ? undefined : together.find((o) => overlaps(o.files, t.files));
     const note = t.seq ? '  (seq: runs alone)' : first ? `  (overlaps ${first.id}: run after)` : '';
-    L.push(line(t, `files ${col(t.files.join(', ') || '-', 22)}  accept: ${(t.accept ?? '-').slice(0, 16)}${note}`));
+    L.push(line(t, `files ${t.files.join(', ') || '-'}  accept: ${t.accept ?? '-'}${note}`));
   }
   if (blocked.length) {
     L.push('', `Blocked · ${blocked.length}`);

@@ -68,8 +68,11 @@ test('flow_interface: warn when a SPEC diff touches the ## Interface section, na
   assert.deepEqual(kinds(diff('perm', '@@ -5,3 +5,4 @@\n ## Interface\n \n+- new export\n - a\n')), ['flow_interface:perm → cust'], 'heading as context line');
   assert.deepEqual(kinds(diff('perm', '@@ -13,3 +13,4 @@\n ## Internals\n \n+- new export\n - c\n')), [], 'same change under Internals');
   assert.deepEqual(kinds(diff('perm', '@@ -5,3 +5,4 @@\n ## Interface\n \n-- a\n ## Constraints\n+- new rule\n')), ['flow_interface:perm → cust'], 'removal counts; later section does not reset the finding');
-  assert.deepEqual(kinds(diff('perm', '@@ -10,3 +10,4 @@ ## Interface\n - a\n+- new export\n \n')), ['flow_interface:perm → cust'], 'hunk header function context');
-  assert.deepEqual(kinds(diff('perm', '@@ -10,3 +10,4 @@ ## Constraints\n - b\n+- new rule\n \n')), [], 'hunk header names another section');
-  assert.deepEqual(kinds(diff('cust', '@@ -5,3 +5,4 @@\n ## Interface\n \n+- new export\n - a\n')), ['flow_interface:cust → (no dependants)']);
+  // Line 7 is `- a` under Interface; no heading in the hunk and git's header names none for markdown.
+  assert.deepEqual(kinds(diff('perm', '@@ -7,1 +7,2 @@ Status: approved\n - a\n+- new export\n')), ['flow_interface:perm → cust'], 'edit below the heading, heading not in the hunk');
+  assert.deepEqual(kinds(diff('perm', '@@ -11,1 +11,2 @@ Status: approved\n - b\n+- new rule\n')), [], 'same shape under Constraints');
+  assert.deepEqual(kinds(diff('cust', '@@ -5,3 +5,4 @@\n ## Interface\n \n+- new export\n - a\n')), [], 'no feature depends on cust: nobody to warn');
+  const p = `${FLOW_DIR}/features/perm/SPEC.md`;
+  assert.deepEqual(kinds(`diff --git a/${p} b/${p}\nnew file mode 100644\n--- /dev/null\n+++ b/${p}\n@@ -0,0 +1,3 @@\n+## Interface\n+\n+- a\n`), [], 'a new SPEC has no previous Interface');
   assert.match(t('en', 'local_flow_interface', { detail: 'a → b' }), /^\[cto\] a → b: the SPEC's Interface changed/);
 });

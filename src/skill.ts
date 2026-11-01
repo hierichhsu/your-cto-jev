@@ -116,7 +116,7 @@ This is a conversation, not a form. The files are done when the user says so, no
 
 1. Scan before asking: README, the package manifest, lock file, .env.example, the directory tree, existing docs.
 2. Fill every field you can prove, tagged \`(from: <file>)\`. Never guess a field; \`unknown\` is a valid value.
-3. Ask what is left, at most five questions per message, each with your best guess so the user only confirms. \`skip\` leaves \`unknown\`.
+3. Ask what is left, at most five questions per message, each with your best guess so the user only confirms. \`skip\` leaves \`unknown\`. An interview skill the user has installed (a "grill me" style one) may drive these rounds; the headings below, the five-per-round cap and \`unknown\` as a valid answer stay.
 4. Write both files with the fixed headings below, \`Status: draft\`, and walk the user through them heading by heading: say what you wrote and what it will be used for (non-goals and principles become drift checks). Each answer that opens a new question gets asked in the next round. Keep going until the user has nothing to add or correct.
 5. Repeat the walk-through after every edit the user asks for.
 
@@ -137,7 +137,7 @@ Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原�
    - A new module: \`features/<slug>/\` with the four files below.
    - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with the three sections), \`Status: draft\`, before any task on it.
    - Infrastructure (CI, build, deploy, dependency upgrades): a task under \`features/platform/\`.
-3. Talk before you write. Restate the request in two sentences and ask until every question below has an answer or an explicit "not relevant". At most five questions per message, each with your best guess. Do not write CONCEPT.md until the first group is settled, nor SPEC.md until the second.
+3. Talk before you write. Restate the request in two sentences and ask until every question below has an answer or an explicit "not relevant". At most five questions per message, each with your best guess; an installed interview skill may run the rounds, the questions below are what must be answered. Do not write CONCEPT.md until the first group is settled, nor SPEC.md until the second.
    - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches.
    - For SPEC: which data and tables change; what other features may call (the Interface) and what stays private; the error cases and what the user sees; the hard rules the code must never break (the Constraints); how each part will be verified.
 4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call.
@@ -186,9 +186,9 @@ Two more tags, on any task:
 Branches: work on an integration branch (\`review\`, or whatever the repo calls it; see the table under \`cto-jev release\`). The release branch only receives \`cto-jev release\`. Never commit to it directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there.
 
 1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
-2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
-3. When they return: \`git status\`; revert anything outside the union of their \`(files:)\`. Integrate the shared files yourself. Fix any existing test their change broke.
-4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. \`manual\` waits for the user to confirm in the conversation; say "accepted manually" when you tick it.
+2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
+3. When they return: \`git status\`; revert anything outside the union of their \`(files:)\`. Integrate the shared files yourself. Fix any existing test their change broke. A sub-agent's "the SPEC does not say" goes into the SPEC now, not into the code's comments.
+4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. \`manual\` waits for the user to confirm in the conversation; say "accepted manually" when you tick it. Tick the parent when its last child is ticked.
 5. **Review before you commit.** Dispatch a reviewer with none of your context: it reads the feature's CONCEPT.md and SPEC.md and the uncommitted diff, and returns findings each marked P1 (wrong, unsafe, breaks a Constraint or the Interface) or P2 (should improve, can wait). Fix every P1 now and re-run acceptance. Write every P2 as a \`(P2)\` task in TASKS.md. Append one entry to REVIEW.md: date, scope (the task ids of the wave), how many P1/P2, which task ids they became.
 6. \`cto check\`, then commit the wave to the review branch.
 
@@ -237,6 +237,7 @@ Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <titl
 - Hand-edit INDEX.md; \`cto index\` and \`cto brief\` regenerate it.
 - Guess a PRODUCT.md or ARCHITECTURE.md field.
 - Read \`docs/cto_jev/archive/\`.
+- Let a sub-agent commit, or write outside the files its task names.
 
 ## Layout (fixed names, fixed count)
 

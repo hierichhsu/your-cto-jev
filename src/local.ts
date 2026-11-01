@@ -64,28 +64,40 @@ function flowIndex(root: string, touched: Set<string>): LocalFinding[] {
 const SPEC_FILE = new RegExp(`^${FLOW_DIR}/features/([^/]+)/SPEC\\.md$`);
 
 /**
- * Whether a SPEC.md diff section adds or removes a line inside `## Interface`. Any `## ` line in a hunk (added, removed
- * or context) sets the section; before the first one, the hunk header's function context (`@@ ... @@ ## Interface`) decides.
+ * Whether a SPEC.md diff section adds or removes a line inside `## Interface`. The section a changed line belongs to is
+ * read off the new file (`## ` headings by line number), walking each hunk from its `+c` start: git's hunk header never
+ * names a markdown heading, and a one-line edit further than three lines below `## Interface` shows no heading in the hunk.
+ * A removed line sits just before the next new line, so it takes the section of the line above.
  */
-function changesInterface(section: string): boolean {
-  let inside = false;
+function changesInterface(section: string, newText: string): boolean {
+  const headings = newText.split(/\r?\n/).map((l, i) => ({ line: i + 1, name: /^##\s+(.*?)\s*$/.exec(l)?.[1] })).filter((h) => h.name);
+  const sectionAt = (n: number) => headings.filter((h) => h.line <= n).pop()?.name;
+  let n = 0;
   for (const line of section.split('\n')) {
-    if (line.startsWith('@@')) inside = /^@@ .* @@ ## Interface/.test(line);
-    else if (/^[+\- ]## /.test(line)) inside = /^[+\- ]## Interface\s*$/.test(line);
-    else if (inside && /^[+-]/.test(line)) return true;
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line);
+    if (hunk) { n = Number(hunk[1]); continue; }
+    if (!n) continue;
+    if (line.startsWith('+')) { if (sectionAt(n) === 'Interface') return true; n++; }
+    else if (line.startsWith('-')) { if (sectionAt(n - 1) === 'Interface') return true; }
+    else if (line.startsWith(' ') || line === '') n++;
   }
   return false;
 }
 
-/** Warning: a feature's Interface moved, so the features whose `(after:)` points into it must re-check their tasks. Any read error means no finding. */
+/**
+ * Warning: a feature's Interface moved, so the features whose `(after:)` points into it must re-check their tasks.
+ * A new SPEC and a feature nobody depends on have no one to warn. Any read error means no finding.
+ */
 function flowInterface(root: string, rawDiff: string): LocalFinding[] {
   try {
     const out: LocalFinding[] = [];
     for (const section of splitFiles(rawDiff)) {
-      const slug = SPEC_FILE.exec(/^diff --git a\/.+? b\/(.+)$/m.exec(section)?.[1] ?? '')?.[1];
-      if (!slug || !changesInterface(section)) continue;
+      const path = /^diff --git a\/.+? b\/(.+)$/m.exec(section)?.[1] ?? '';
+      const slug = SPEC_FILE.exec(path)?.[1];
+      if (!slug || /^--- \/dev\/null$/m.test(section)) continue;
       const deps = featureIndex(root).filter((r) => r.dependsOn.includes(slug)).map((r) => r.slug);
-      out.push({ kind: 'flow_interface', block: false, detail: `${slug} → ${deps.join(', ') || '(no dependants)'}` });
+      if (!deps.length || !changesInterface(section, readFileSync(join(root, path), 'utf8'))) continue;
+      out.push({ kind: 'flow_interface', block: false, detail: `${slug} → ${deps.join(', ')}` });
     }
     return out;
   } catch { return []; }

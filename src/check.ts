@@ -36,7 +36,7 @@ export async function runCheck(root: string, lang: Lang, base?: string): Promise
   const brain = loadBrain(root);
   const { diff, source } = pendingDiff(root, base);
   const local = localCommitChecks(diff, cfg, root);
-  const review = await reviewDiff(diff, cfg, brain, lang, undefined, 'check', root);
+  const review = await reviewDiff(diff, cfg, brain, lang, undefined, 'check', root, !!base);
   saveBrain(root, brain); // provider cooldowns and the decision log; check runs are not counted as blocks
   if (!review) return { code: 0, lines: [t(lang, 'check_nothing')] };
 
@@ -54,7 +54,7 @@ export async function runCheck(root: string, lang: Lang, base?: string): Promise
     const v = review.scores[s];
     const name = s.padEnd(width);
     if (v === undefined) {
-      const why = s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : s === 'architecture_undocumented' ? 'check_why_adr' : 'check_why_failed';
+      const why = s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : s === 'architecture_undocumented' ? 'check_why_adr' : s === 'code_complexity' && base ? 'check_why_release' : 'check_why_failed';
       lines.push(`  ${name}  ${t(lang, why)}`);
       continue;
     }
