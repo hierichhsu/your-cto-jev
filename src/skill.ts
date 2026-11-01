@@ -23,7 +23,21 @@ export const MEMORY_FILES: { path: string; agents: AgentName[] }[] = [
   { path: 'GEMINI.md', agents: ['gemini'] },
 ];
 
-export const FLOW_SKILL_PATH = '.agents/skills/cto-flow/SKILL.md';
+export const FLOW_SKILL_PATH = '.agents/skills/cto-jev/SKILL.md';
+const LEGACY_FLOW_SKILL = '.agents/skills/cto-flow/SKILL.md'; // 0.9.x name, removed on sync
+// Claude Code reads neither .agents/skills nor (safely) .claude/skills, since Cursor scans .claude/skills too and would
+// list the skill twice. A slash command is Claude-only and only points at the one skill file, so `/cto-jev init` works.
+export const FLOW_COMMAND_PATH = '.claude/commands/cto-jev.md';
+export const FLOW_COMMAND_TEXT = `---
+description: The cto development flow - init, feature, tasks, work, release, docs, decision
+argument-hint: "[init | feature <request> | tasks | work | release | docs | decision]"
+---
+${SKILL_MARK}
+
+Read \`${FLOW_SKILL_PATH}\` in full, then do the job named here: $ARGUMENTS
+
+No job named: run \`cto brief\`, say in two lines where this repo stands in the flow, and name the one job to run next.
+`;
 /** The one extra rule when `cto setup` chose the development flow: the plan lives in docs/cto_jev/. */
 export const FLOW_RULE = `- **Work is planned in \`docs/cto_jev/\`.** Before planning, breaking down, dispatching or accepting work, read \`${FLOW_SKILL_PATH}\`; \`cto brief\` lists what is ready.`;
 
@@ -99,16 +113,16 @@ turns it into a calibration case; you do not run that yourself.
 // The flow skill: how the host agent plans, dispatches and accepts work under docs/cto_jev/. Written only when
 // `cto setup` chose the flow; the body mirrors docs/cto_jev/features/cto-flow/SPEC.md.
 export const FLOW_SKILL_TEXT = `---
-name: cto-flow
-description: The development flow of this repo, kept in docs/cto_jev/. Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
+name: cto-jev
+description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
 ${SKILL_MARK}
 
-# cto-flow
+# cto-jev
 
 You are the CTO of this repo. You plan, break down, dispatch, accept and review; sub-agents write the code. The plan lives in \`docs/cto_jev/\`; the only state is the checkboxes in TASKS.md. cto checks what you claim: a tick without a passing check is sent back, a commit on a feature without sign-off is blocked.
 
-Seven jobs, each named \`cto-jev <job>\`. When the user says the name, do that job and nothing else. Each says when it applies, the steps, and where you stop.
+Seven jobs, each named \`cto-jev <job>\`. When the user says the name (or types \`/cto-jev <job>\`), do that job and nothing else. Each says when it applies, the steps, and where you stop. Invoked with no job: run \`cto brief\`, say in two lines where the repo stands, and name the one job to run next.
 
 ## cto-jev init
 
@@ -313,20 +327,29 @@ export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers:
   return { written, removed };
 }
 
-/** Write or refresh the cto-flow skill when the flow is enabled; remove it (only if cto-marked) when not. */
-export function syncFlowSkill(root: string, enabled: boolean, dry = false): { written: string[]; removed: string[] } {
+/**
+ * Write or refresh the cto-jev skill when the flow is enabled, plus the `/cto-jev` command when Claude Code is one of the
+ * agents; remove each (only if cto-marked) when not. The 0.9.x `cto-flow` skill is always removed.
+ */
+export function syncFlowSkill(root: string, enabled: boolean, dry = false, claude = false): { written: string[]; removed: string[] } {
   const written: string[] = [];
   const removed: string[] = [];
-  const skill = join(root, FLOW_SKILL_PATH);
-  if (enabled) {
-    if (!existsSync(skill) || readFileSync(skill, 'utf8') !== FLOW_SKILL_TEXT) {
-      if (!dry) { mkdirSync(dirname(skill), { recursive: true }); writeFileSync(skill, FLOW_SKILL_TEXT); }
-      written.push(FLOW_SKILL_PATH);
+  const sync = (rel: string, text: string, want: boolean) => {
+    const path = join(root, rel);
+    const current = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+    if (want) {
+      // A file of the same name without the marker is the user's own (e.g. their own /cto-jev command): never overwrite it.
+      if (current === text || (current !== undefined && !current.includes(SKILL_MARK))) return;
+      if (!dry) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
+      written.push(rel);
+    } else if (current?.includes(SKILL_MARK)) {
+      if (!dry) removeFileAndEmptyDirs(root, path);
+      removed.push(rel);
     }
-  } else if (existsSync(skill) && readFileSync(skill, 'utf8').includes(SKILL_MARK)) {
-    if (!dry) removeFileAndEmptyDirs(root, skill);
-    removed.push(FLOW_SKILL_PATH);
-  }
+  };
+  sync(FLOW_SKILL_PATH, FLOW_SKILL_TEXT, enabled);
+  sync(FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, enabled && claude);
+  sync(LEGACY_FLOW_SKILL, '', false);
   return { written, removed };
 }
 

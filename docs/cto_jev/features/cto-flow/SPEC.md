@@ -168,9 +168,9 @@ brief / doctor：
 
 初始化：CTO 掃 repo 先填，每格標 `(from: <檔>)`、`(asked)` 或 `(unknown)`；剩下的每輪最多五題、每題附猜測，使用者可 skip；寫完逐標題帶使用者走一遍，問出的新問題下一輪再問，直到使用者說完整。完成的定義是使用者說完整，不是每格有字。
 
-### Skill：`.agents/skills/cto-flow/SKILL.md`
+### Skill：`.agents/skills/cto-jev/SKILL.md`
 
-和現有 `cto` skill 同一層，`cto setup` 選了流程才寫入。七個工作，名字加 `cto-jev` 前綴，避免和別的 skill 的「步驟一」混在一起；使用者在對話裡打這個名字就是在叫它：
+和現有 `cto` skill 同一層，`cto setup` 選了流程才寫入；0.9.x 的 `.agents/skills/cto-flow/` 在下次 setup 時移除。Claude Code 不讀 `.agents/skills`，而 Cursor 也掃 `.claude/skills`，所以有勾 Claude Code 時另寫 `.claude/commands/cto-jev.md`（只指向這份 skill，`$ARGUMENTS` 是工作名），不放第二份 skill；不帶工作名時跑 `cto brief` 並建議下一個工作。七個工作，名字加 `cto-jev` 前綴，避免和別的 skill 的「步驟一」混在一起；使用者在對話裡打這個名字就是在叫它：
 
 | 名字 | 什麼時候 | 做什麼、停在哪 |
 |---|---|---|

@@ -5,7 +5,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
 import { t, type Lang } from './i18n.js';
 import { loadConfig } from './brain.js';
-import { FLOW_SKILL_PATH, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
+import { FLOW_COMMAND_PATH, FLOW_SKILL_PATH, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
 import { findConflicts } from './conflicts.js';
 import { FLOW_DIR } from './flow.js';
 
@@ -164,7 +164,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
     } else if (uninstallHooks(json)) at(p, 'remove');
   }
   const g = syncGuidance(root, chosen, true, flow, true);
-  const f = syncFlowSkill(root, flow, true);
+  const f = syncFlowSkill(root, flow, true, chosen.has('claude'));
   for (const p of [...g.written, ...f.written]) at(p, 'write');
   for (const p of [...g.removed, ...f.removed]) at(p, 'remove');
   if (flow) for (const p of Object.keys(FLOW_SKELETON)) if (!existsSync(join(root, p))) at(p, 'write');
@@ -267,9 +267,11 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   const savedFlow = loadConfig(root).flow;
   const flow = opts.flow ?? savedFlow;
   const skills = syncGuidance(root, chosen, !!opts.exact, flow);
-  const flowSkill = syncFlowSkill(root, flow);
+  // Not exact: an agent left unpicked keeps its cto wiring, so Claude Code keeps /cto-jev too.
+  const claude = chosen.has('claude') || (!opts.exact && wiredAgents(root).includes('claude'));
+  const flowSkill = syncFlowSkill(root, flow, false, claude);
   for (const p of [...skills.written, ...flowSkill.written]) lines.push(t(lang, 'setup_skill', { path: p }));
-  const hidden = ignoredByGit(root, [...guidancePaths(chosen), ...(flow ? [FLOW_SKILL_PATH] : [])]);
+  const hidden = ignoredByGit(root, [...guidancePaths(chosen), ...(flow ? [FLOW_SKILL_PATH] : []), ...(flow && claude ? [FLOW_COMMAND_PATH] : [])]);
   // Advise git add -f: a .gitignore negation cannot re-include a file whose parent folder is excluded (git rule).
   if (hidden.length) lines.push(t(lang, 'setup_ignored', { list: hidden.join(', '), cmd: `git add -f ${hidden.join(' ')}` }));
   for (const p of [...skills.removed, ...flowSkill.removed]) lines.push(t(lang, 'uninstall_skill', { path: p }));

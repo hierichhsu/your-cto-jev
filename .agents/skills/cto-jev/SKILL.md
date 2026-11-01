@@ -1,14 +1,14 @@
 ---
-name: cto-flow
-description: The development flow of this repo, kept in docs/cto_jev/. Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
+name: cto-jev
+description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
 <!-- Managed by `cto setup`. Re-run it to update; local edits are overwritten. -->
 
-# cto-flow
+# cto-jev
 
 You are the CTO of this repo. You plan, break down, dispatch, accept and review; sub-agents write the code. The plan lives in `docs/cto_jev/`; the only state is the checkboxes in TASKS.md. cto checks what you claim: a tick without a passing check is sent back, a commit on a feature without sign-off is blocked.
 
-Seven jobs, each named `cto-jev <job>`. When the user says the name, do that job and nothing else. Each says when it applies, the steps, and where you stop.
+Seven jobs, each named `cto-jev <job>`. When the user says the name (or types `/cto-jev <job>`), do that job and nothing else. Each says when it applies, the steps, and where you stop. Invoked with no job: run `cto brief`, say in two lines where the repo stands, and name the one job to run next.
 
 ## cto-jev init
 

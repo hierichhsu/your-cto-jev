@@ -130,7 +130,7 @@ Other forms:
 cto setup --agents claude,cursor --yes   # non-interactive (scripts, CI); only adds, never removes
 cto setup --refresh                      # re-write hooks and rules for the agents already set up
 cto setup --uninstall                    # remove every cto hook, rules block and skill again
-cto setup --flow                         # turn on the development flow (docs/cto_jev, cto-flow skill); --no-flow removes the skill and rule
+cto setup --flow                         # turn on the development flow (docs/cto_jev, cto-jev skill, /cto-jev); --no-flow removes the skill and rule
 cto doctor                               # is it actually working?
 cto brief                                # what an agent should know before it starts here
 cto check                                # preview the commit checks on your current changes
@@ -207,7 +207,7 @@ The lessons are collected without anyone writing them down. Every failed agent c
 
 Everything above says no after the fact. The flow is the part before: your agent acts as the CTO of the repo (plans, breaks work down, dispatches, accepts), and `cto` keeps it honest. It is off by default; `cto setup --flow` (or the question at the end of interactive setup) turns it on, and repos that never enable it see no change.
 
-The agent does not get a new tool. It gets a skill (`.agents/skills/cto-flow/SKILL.md`), a fixed place for plans, and a few more checks:
+The agent does not get a new tool. It gets one skill, `cto-jev` (`.agents/skills/cto-jev/SKILL.md`; in Claude Code also the `/cto-jev` command), a fixed place for plans, and a few more checks:
 
 ```text
 docs/cto_jev/
@@ -246,7 +246,7 @@ Blocked · 1
   CUST-1.3  Shared types              waiting on PERM-9 (missing), CUST-1.2
 ```
 
-The skill gives the agent seven named jobs, so they cannot be confused with another skill's steps; say the name and it does that job:
+The skill gives the agent seven named jobs, so they cannot be confused with another skill's steps. In Claude Code type `/cto-jev <job>` (for example `/cto-jev init`); bare `/cto-jev` runs `cto brief` and names the job to run next. In other agents say the name, for example "cto-jev init" (Codex also takes `$cto-jev`):
 
 | Say | The agent |
 |---|---|
@@ -356,7 +356,7 @@ Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. Th
 Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `architecture_undocumented` 0.85, `code_complexity` 2.
 
 - **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`. Under the development flow a commit that falls inside a feature's code scope is judged against that feature's SPEC instead; the goal is the fallback.
-- **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value. `--no-flow` removes the cto-flow skill and its rule but keeps `docs/cto_jev/`; while `docs/cto_jev/features/` exists, the sign-off, index and drift checks keep running. Delete or archive that folder to stop them.
+- **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value. `--no-flow` removes the cto-jev skill, `/cto-jev` and its rule but keeps `docs/cto_jev/`; while `docs/cto_jev/features/` exists, the sign-off, index and drift checks keep running. Delete or archive that folder to stop them.
 - **`test_command`**: what `cto brief` tells the agent to verify with, for example `"pnpm test"`. Detected from the project when empty.
 - **`protected_branches`**: for example `["main", "release"]`. Commits on them and pushes that delete or rewrite them are blocked locally, no key needed. Empty by default.
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).

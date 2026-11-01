@@ -11,7 +11,7 @@ This repo is guarded by cto: every rule below is checked automatically, and brea
 - **Ask before anything irreversible:** deleting data, force-pushing, rewriting history, dropping a database. (`destructive_command` blocks it)
 - **Stay on the sprint goal in `.cto.json` and keep changes simple.** (`architecture_violation` and `code_complexity` warn)
 - **Run `cto check` before committing**, and never bypass a block (`--no-verify`, editing hooks or thresholds). If a block looks wrong, tell the user.
-- **Work is planned in `docs/cto_jev/`.** Before planning, breaking down, dispatching or accepting work, read `.agents/skills/cto-flow/SKILL.md`; `cto brief` lists what is ready.
+- **Work is planned in `docs/cto_jev/`.** Before planning, breaking down, dispatching or accepting work, read `.agents/skills/cto-jev/SKILL.md`; `cto brief` lists what is ready.
 
 Details and how to handle a block: `.agents/skills/cto/SKILL.md`.
 <!-- <<< YOUR CTO JEV END <<< -->

@@ -16,3 +16,9 @@
 - P1: 0
 - P2: 3，當場修掉（小）：SPEC Constraints 只寫 `unknown` 時不再退回 sprint_goal（本次引進的回歸）；`(files:)` 的反斜線與 `./` 沒正規化；`SOURCE` 少了 sh/lua/zig 等副檔名
 - P3: 2，未立 task：Status 取的是檔案裡第一個 `Status:` 行，不一定是開頭那行；（skill 測試缺 `cto index`/`cto docs` 已補）
+
+## 2026-11-02 · skill 改名 cto-jev、Claude Code 的 /cto-jev
+
+- P1: 0
+- P2: 1，當場修掉：同名但沒有 cto 標記的 `.claude/commands/cto-jev.md` 會被覆寫；改成有檔無標記就不寫，並補測試
+- P3: 2：skill description 說每個 agent 都能打 `/cto-jev`（已改成分 agent 寫）；`cto doctor` 不檢查 flow skill 和 `/cto-jev` 是否存在或被 git 忽略（未立 task，0.9.x 就有的缺口）
