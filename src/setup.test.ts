@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { test } from 'node:test';
 import { loadConfig } from './brain.js';
-import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, docsPublisher, setup } from './setup.js';
+import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
+import { FLOW_SKELETON, docsPublisher, planSetup, setup } from './setup.js';
 import { setupUI } from './setupui.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never touch the user's real keys and prefs
@@ -92,7 +92,7 @@ test('setup --flow: a docs site generator config gets a reminder to exclude docs
 });
 
 // ---------- the flow step in the interactive setup, driven by keystrokes through clack ----------
-const KEY = { down: '\x1b[B', enter: '\r', esc: '\x1b' };
+const KEY = { down: '\x1b[B', right: '\x1b[C', space: ' ', enter: '\r', esc: '\x1b' };
 async function drive<T>(run: (io: { input: PassThrough; output: Writable }) => Promise<T>, keys: string[]) {
   const input = new PassThrough();
   let out = '';
@@ -129,4 +129,46 @@ test('setup UI: flow is the last first-run step and an overview item; Esc goes b
   ]);
   assert.ok(off.result);
   assert.equal(off.result.flow, false);
+});
+
+test('planSetup lists exactly what setup then writes; a second plan after setup is empty; unpicking an agent lists removals', () => {
+  const root = repo();
+  const plan = planSetup(root, ['claude'], true, '');
+  const paths = plan.map((f) => `${f.path}:${f.change}`);
+  for (const p of ['.git/hooks/pre-commit:new', '.git/hooks/pre-push:new', '.claude/settings.local.json:new', 'CLAUDE.md:new', '.agents/skills/cto/SKILL.md:new', `${FLOW_SKILL_PATH}:new`, 'docs/cto_jev/PRODUCT.md:new', '.gitignore:new', '.cto.json:new']) {
+    assert.ok(paths.includes(p), `${p} in\n${paths.join('\n')}`);
+  }
+  assert.ok(!paths.some((p) => p.startsWith('AGENTS.md') || p.startsWith('.cursor/')), 'agents not picked are not touched');
+  setup(root, 'en', { agents: ['claude'], exact: true, flow: true });
+  assert.deepEqual(planSetup(root, ['claude'], true, ''), [], 'nothing left to write after setup ran');
+  assert.deepEqual(planSetup(root, [], true, '').map((f) => `${f.path}:${f.change}`).sort(), ['.agents/skills/cto/SKILL.md:remove', '.claude/settings.local.json:remove', 'CLAUDE.md:remove']);
+  assert.deepEqual(planSetup(root, ['claude'], true, 'ship it').map((f) => f.path), ['.cto.json'], 'a new sprint goal only touches .cto.json');
+  writeFileSync(join(root, '.claude/settings.local.json'), '{"hooks":{"PreToolUse":{}}}');
+  assert.ok(planSetup(root, ['claude'], true, '').some((f) => f.path === '.claude/settings.local.json'), 'a settings file setup would refuse: listed, no crash');
+  mkdirSync(join(root, '.claude/skills/cto'), { recursive: true });
+  writeFileSync(join(root, '.claude/skills/cto/SKILL.md'), `${SKILL_MARK}\nold`);
+  assert.ok(planSetup(root, ['claude'], true, '').some((f) => f.path === '.claude/skills/cto/SKILL.md' && f.change === 'remove'), 'legacy skill removal is listed');
+});
+
+test('setup UI: agent list shows what is always installed, each agent\'s files and the picks; the save summary asks before writing', async () => {
+  const initial = { agents: ['claude' as const], providers: [], keys: {}, goal: '' };
+  const plan = () => [{ path: '.claude/settings.local.json', change: 'new' as const }, { path: 'CLAUDE.md', change: 'update' as const }];
+  const r = await drive((io) => setupUI(initial, false, 'en', { ...io, env: {}, detected: ['codex'], plan }), [
+    KEY.enter, // overview -> agents
+    KEY.down, KEY.down, KEY.down, KEY.space, KEY.enter, // tick Codex CLI
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+    KEY.right, KEY.enter, // summary: No -> back to the overview
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // save again
+    KEY.enter, // Yes
+  ]);
+  assert.ok(r.result);
+  assert.deepEqual(r.result.agents, ['claude', 'codex']);
+  assert.match(r.out, /always installed/);
+  assert.match(r.out, /git checks\s+pre-commit, pre-push/);
+  assert.match(r.out, /Claude Code\s+\.claude\/settings\.local\.json, CLAUDE\.md/);
+  assert.match(r.out, /Codex CLI\s+\.codex\/hooks\.json, AGENTS\.md\s+detected/);
+  assert.match(r.out, /Selected: Claude Code, Codex CLI/);
+  assert.match(r.out, /Will write/);
+  assert.match(r.out, /CLAUDE\.md\s+update cto's part/);
+  assert.equal((r.out.match(/Write these files\?/g) ?? []).length >= 2, true, 'asked twice: No went back, Yes saved');
 });

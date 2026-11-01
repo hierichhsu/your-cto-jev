@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
@@ -129,6 +129,54 @@ export const FLOW_SKELETON: Record<string, string> = {
   'docs/cto_jev/features/platform/REVIEW.md': '# platform REVIEW\n\nNot reviewed yet.\n',
   'docs/cto_jev/decisions/.gitkeep': '',
 };
+
+export interface FileChange { path: string; change: 'new' | 'update' | 'remove' }
+
+/**
+ * What an interactive (exact) setup with these choices would write, without writing: the summary shown before "Proceed?".
+ * Same decisions as `setup`: files already current are left out. A settings file setup would refuse (bad JSON) is listed
+ * as an update; setup itself then stops before writing anything.
+ */
+export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean, goal: string): FileChange[] {
+  const out: FileChange[] = [];
+  const at = (p: string, change: 'write' | 'remove', abs = join(root, p)) => out.push({ path: p, change: change === 'remove' ? 'remove' : existsSync(abs) ? 'update' : 'new' });
+  const chosen = new Set(chosenAgents);
+  // git reports the hooks dir with long names; a Windows temp root may be 8.3 (ERICHS~1). Compare real paths.
+  const real = (p: string) => { try { return realpathSync.native(p); } catch { return p; } };
+  const dir = hooksDir(root);
+  for (const [name, body] of GIT_HOOKS) {
+    const p = join(dir, name);
+    const c = existsSync(p) ? readFileSync(p, 'utf8') : '';
+    if (!c || appendBlock(c, body) !== c) at(join(relative(real(root), real(dir)), name).replace(/\\/g, '/'), 'write', p);
+  }
+  for (const name of agentNames) {
+    const p = agents[name].settings;
+    const json = readSettings(join(root, p));
+    // A file setup would refuse (bad JSON or shape) is listed so the user sees it; setup then stops before writing anything.
+    const bad = json === null || !validShape(json, name);
+    if (chosen.has(name)) {
+      if (bad) { at(p, 'write'); continue; }
+      const before = JSON.stringify(json);
+      installAgent(json, name);
+      if (JSON.stringify(json) !== before || !existsSync(join(root, p))) at(p, 'write');
+    } else if (bad) {
+      if (readFileSync(join(root, p), 'utf8').includes('cto --hook ')) at(p, 'remove');
+    } else if (uninstallHooks(json)) at(p, 'remove');
+  }
+  const g = syncGuidance(root, chosen, true, flow, true);
+  const f = syncFlowSkill(root, flow, true);
+  for (const p of [...g.written, ...f.written]) at(p, 'write');
+  for (const p of [...g.removed, ...f.removed]) at(p, 'remove');
+  if (flow) for (const p of Object.keys(FLOW_SKELETON)) if (!existsSync(join(root, p))) at(p, 'write');
+  const ignore = join(root, '.gitignore');
+  const ignoreText = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
+  const have = new Set(removeBlock(ignoreText).split(/\r?\n/).map((l) => l.trim()));
+  const missing = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  if (missing.length && appendBlock(ignoreText, missing.join('\n') + '\n') !== ignoreText) at('.gitignore', 'write');
+  const cfg = loadConfig(root);
+  if (!existsSync(join(root, '.cto.json')) || cfg.flow !== flow || cfg.sprint_goal !== goal) at('.cto.json', 'write');
+  return out;
+}
 
 export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code: number; lines: string[] } {
   const lines: string[] = [];

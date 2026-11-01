@@ -1,11 +1,13 @@
 import { MultiSelectPrompt } from '@clack/core';
-import { S_BAR, S_BAR_END, S_STEP_ACTIVE, S_STEP_CANCEL, S_STEP_SUBMIT, intro, isCancel, log, multiselect, outro, password, select, spinner, text } from '@clack/prompts';
+import { S_BAR, S_BAR_END, S_STEP_ACTIVE, S_STEP_CANCEL, S_STEP_SUBMIT, confirm, intro, isCancel, log, note, outro, password, select, spinner, text } from '@clack/prompts';
 import type { Readable, Writable } from 'node:stream';
 import { styleText } from 'node:util';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { DEFAULT_ORDER, probeProvider, providers } from './api.js';
 import type { Credentials } from './brain.js';
 import { t, type Lang } from './i18n.js';
+import type { FileChange } from './setup.js';
+import { MEMORY_FILES } from './skill.js';
 
 export interface SetupState {
   agents: AgentName[];
@@ -22,6 +24,8 @@ export interface UIOptions {
   probe?: typeof probeProvider;
   detected?: AgentName[];
   env?: NodeJS.ProcessEnv;
+  /** Files a save would write; when given, they are listed and confirmed before setupUI returns. */
+  plan?: (s: SetupState) => FileChange[];
 }
 
 const BACK = Symbol('back');
@@ -47,15 +51,8 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
   let state: SetupState = { ...initial, keys: { ...initial.keys } };
 
   const agentsStep: Step = async (s) => {
-    const r = await multiselect<AgentName>({
-      ...io,
-      showInstructions: false,
-      message: t(lang, 'ui_agents_q'),
-      options: agentNames.map((n) => ({ value: n, label: agents[n].label, ...(detected.includes(n) && { hint: t(lang, 'ui_detected') }) })),
-      initialValues: s.agents,
-      required: false,
-    });
-    return isCancel(r) ? BACK : { ...s, agents: r };
+    const r = await agentPicker(lang, io, s.agents, detected);
+    return typeof r === 'symbol' ? BACK : { ...s, agents: r };
   };
 
   const providersStep: Step = async (s) => {
@@ -199,7 +196,11 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
       ],
     });
     if (isCancel(choice) || choice === 'quit') { outro(t(lang, 'ui_quit'), io); return null; }
-    if (choice === 'save') { outro(t(lang, 'ui_saved'), io); return state; }
+    if (choice === 'save') {
+      if (o.plan && !(await confirmPlan(lang, io, o.plan(state)))) continue; // "No" goes back to the overview
+      outro(t(lang, 'ui_saved'), io);
+      return state;
+    }
     const steps: Record<string, Step[]> = {
       agents: [agentsStep],
       providers: [providersStep, keysStepFor(state.providers)],
@@ -211,6 +212,62 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
     const r = await walk(steps[choice]);
     if (r !== BACK) state = r;
   }
+}
+
+type IO = { input?: Readable; output?: Writable };
+
+/**
+ * Agent checklist. Above it, what is installed whatever you pick (the git hooks and the shared config); next to each
+ * agent, the files it adds; under it, the current picks and the keys. Space toggles, Enter confirms, Esc goes back.
+ */
+async function agentPicker(lang: Lang, io: IO, initial: AgentName[], detected: AgentName[]): Promise<AgentName[] | symbol> {
+  const files = (n: AgentName) => [agents[n].settings, ...MEMORY_FILES.filter((m) => m.agents.includes(n)).map((m) => m.path)].join(', ');
+  const labelW = Math.max(...agentNames.map((n) => displayWidth(agents[n].label)));
+  const filesW = Math.max(...agentNames.map((n) => files(n).length));
+  const rule = (title: string) => `${S_BAR}  ${dim('──')} ${title} ${dim('─'.repeat(Math.max(4, 34 - displayWidth(title))))}`;
+  const p = new MultiSelectPrompt<{ value: AgentName; label: string }>({
+    ...io,
+    options: agentNames.map((n) => ({ value: n, label: agents[n].label })),
+    initialValues: initial,
+    required: false,
+    render() {
+      const head = t(lang, 'ui_agents_q');
+      const picked = (this.value ?? []) as AgentName[];
+      const names = picked.map((n) => agents[n].label).join(', ');
+      if (this.state === 'submit') return `${S_STEP_SUBMIT}  ${head}\n${S_BAR}  ${dim(names || t(lang, 'doc_none'))}\n`;
+      if (this.state === 'cancel') return `${S_STEP_CANCEL}  ${head}\n${S_BAR}\n`;
+      const rows = this.options.map((opt, i) => {
+        const mark = picked.includes(opt.value) ? styleText('green', '●') : dim('○');
+        const tag = detected.includes(opt.value) ? `  ${t(lang, 'ui_detected')}` : '';
+        const line = `${mark} ${pad(opt.label, labelW)}  ${dim(tag ? files(opt.value).padEnd(filesW) : files(opt.value))}${tag}`;
+        return `${S_BAR}  ${i === this.cursor ? styleText('cyan', '› ') : '  '}${line}`;
+      });
+      return [
+        `${S_STEP_ACTIVE}  ${head}`,
+        rule(t(lang, 'ui_always')),
+        `${S_BAR}      • ${pad(t(lang, 'ui_always_git'), labelW)}  ${dim('pre-commit, pre-push')}`, // the folder may be .husky/ or core.hooksPath; the save summary shows it
+        `${S_BAR}      • ${pad(t(lang, 'ui_always_cfg'), labelW)}  ${dim('.cto.json, .gitignore')}`,
+        rule(t(lang, 'ui_choose')),
+        ...rows,
+        S_BAR,
+        `${S_BAR}  ${names ? `${styleText('green', t(lang, 'ui_selected'))} ${names}` : dim(`${t(lang, 'ui_selected')} ${t(lang, 'doc_none')}`)}`,
+        `${S_BAR}  ${dim(t(lang, 'ui_agents_help'))}`,
+        S_BAR_END,
+        '',
+      ].join('\n');
+    },
+  });
+  return p.prompt() as Promise<AgentName[] | symbol>;
+}
+
+/** The files a save will write, then "Proceed?". True to save; false (No or Esc) goes back to the overview. */
+async function confirmPlan(lang: Lang, io: IO, plan: FileChange[]): Promise<boolean> {
+  if (!plan.length) { log.info(t(lang, 'ui_plan_none'), io); return true; }
+  const w = Math.max(...plan.map((f) => f.path.length));
+  const tag = (c: FileChange['change']) => (c === 'new' ? styleText('green', t(lang, 'ui_plan_new')) : c === 'remove' ? styleText('yellow', t(lang, 'ui_plan_remove')) : dim(t(lang, 'ui_plan_update')));
+  note(plan.map((f) => `${f.path.padEnd(w)}  ${tag(f.change)}`).join('\n'), t(lang, 'ui_plan_title'), { ...io, format: (l) => l });
+  const ok = await confirm({ ...io, message: t(lang, 'ui_plan_q'), active: t(lang, 'ui_yes'), inactive: t(lang, 'ui_no') });
+  return ok === true;
 }
 
 /**

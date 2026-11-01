@@ -279,7 +279,8 @@ function removeFileAndEmptyDirs(root: string, path: string) {
  * removeOthers (exact mode or uninstall) take cto's content out of files no chosen agent reads. Only cto-marked
  * content is ever removed or overwritten. With flow, the rules block carries the extra docs/cto_jev/ rule.
  */
-export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers: boolean, flow = false): { written: string[]; removed: string[] } {
+/** `dry`: decide exactly as a real run would, write nothing (the setup summary lists these before asking). */
+export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers: boolean, flow = false, dry = false): { written: string[]; removed: string[] } {
   const written: string[] = [];
   const removed: string[] = [];
   for (const m of MEMORY_FILES) {
@@ -287,42 +288,43 @@ export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers:
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
     if (m.agents.some((a) => chosen.has(a))) {
       const next = appendMd(current, flow);
-      if (next !== current) { writeFileSync(path, next); written.push(m.path); }
+      if (next !== current) { if (!dry) writeFileSync(path, next); written.push(m.path); }
     } else if (removeOthers && mdBlockRe.test(current)) {
       const rest = removeMd(current);
-      if (rest.trim()) writeFileSync(path, rest); else unlinkSync(path);
+      if (!dry) { if (rest.trim()) writeFileSync(path, rest); else unlinkSync(path); }
       removed.push(m.path);
     }
   }
   const skill = join(root, SKILL_PATH);
   if (chosen.size) {
     if (!existsSync(skill) || readFileSync(skill, 'utf8') !== SKILL_TEXT) {
-      mkdirSync(dirname(skill), { recursive: true });
-      writeFileSync(skill, SKILL_TEXT);
+      if (!dry) { mkdirSync(dirname(skill), { recursive: true }); writeFileSync(skill, SKILL_TEXT); }
       written.push(SKILL_PATH);
     }
   } else if (removeOthers && existsSync(skill) && readFileSync(skill, 'utf8').includes(SKILL_MARK)) {
-    removeFileAndEmptyDirs(root, skill);
+    if (!dry) removeFileAndEmptyDirs(root, skill);
     removed.push(SKILL_PATH);
   }
   const legacy = join(root, LEGACY_SKILL);
-  if (existsSync(legacy) && readFileSync(legacy, 'utf8').includes(SKILL_MARK)) removeFileAndEmptyDirs(root, legacy);
+  if (existsSync(legacy) && readFileSync(legacy, 'utf8').includes(SKILL_MARK)) {
+    if (!dry) removeFileAndEmptyDirs(root, legacy);
+    else removed.push(LEGACY_SKILL); // only the plan lists it; a real run removes it silently, as before
+  }
   return { written, removed };
 }
 
 /** Write or refresh the cto-flow skill when the flow is enabled; remove it (only if cto-marked) when not. */
-export function syncFlowSkill(root: string, enabled: boolean): { written: string[]; removed: string[] } {
+export function syncFlowSkill(root: string, enabled: boolean, dry = false): { written: string[]; removed: string[] } {
   const written: string[] = [];
   const removed: string[] = [];
   const skill = join(root, FLOW_SKILL_PATH);
   if (enabled) {
     if (!existsSync(skill) || readFileSync(skill, 'utf8') !== FLOW_SKILL_TEXT) {
-      mkdirSync(dirname(skill), { recursive: true });
-      writeFileSync(skill, FLOW_SKILL_TEXT);
+      if (!dry) { mkdirSync(dirname(skill), { recursive: true }); writeFileSync(skill, FLOW_SKILL_TEXT); }
       written.push(FLOW_SKILL_PATH);
     }
   } else if (existsSync(skill) && readFileSync(skill, 'utf8').includes(SKILL_MARK)) {
-    removeFileAndEmptyDirs(root, skill);
+    if (!dry) removeFileAndEmptyDirs(root, skill);
     removed.push(FLOW_SKILL_PATH);
   }
   return { written, removed };

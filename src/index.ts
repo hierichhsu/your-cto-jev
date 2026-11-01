@@ -11,7 +11,7 @@ import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
 import { detectLang, t } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
-import { detectAgents, gitRoot, setSprintGoal, setup, wiredAgents } from './setup.js';
+import { detectAgents, gitRoot, planSetup, setSprintGoal, setup, wiredAgents } from './setup.js';
 import type { SetupState } from './setupui.js';
 
 async function readStdin(): Promise<string> {
@@ -123,7 +123,7 @@ if (args[0] === '--hook' && args[1]) {
     };
     const firstRun = !wired.length && !providerOrder().length;
     const { setupUI } = await import('./setupui.js'); // clack loads only for interactive setup, never on the hook path
-    const s = await setupUI(initial, firstRun, lang, { detected: detectAgents() });
+    const s = await setupUI(initial, firstRun, lang, { detected: detectAgents(), plan: (st) => planSetup(root, st.agents, st.flow ?? false, st.goal) });
     if (!s) process.exit(0); // quit without saving: nothing was written
     saveCredentials(s.keys);
     savePrefs({ provider_order: s.providers, ...(s.lang && { lang: s.lang }) });

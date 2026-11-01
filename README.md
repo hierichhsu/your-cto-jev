@@ -100,7 +100,7 @@ cto setup
 
 To update later, run `cto update`. Projects you already set up pick up the new version automatically: every hook only calls `cto`, and all the logic lives in the package. `cto` checks npm for a new version at most once a day and mentions it in its once-per-session notice, never on its own.
 
-`cto setup` walks you through five steps with arrow keys: coding agents, Jev providers, API keys, an optional sprint goal, and whether to use the [development flow](#the-development-flow-optional). Esc goes back a step. Providers are ticked in priority order, so the numbers you see are the failover order. Press a number to move the item under the cursor straight to that position:
+`cto setup` walks you through five steps with arrow keys: coding agents, Jev providers, API keys, an optional sprint goal, and whether to use the [development flow](#the-development-flow-optional). Esc goes back a step. The agent list shows what is always installed (the git hooks, `.cto.json`) and the files each agent adds; before anything is written, setup lists every file it will create, update or remove and asks once. Providers are ticked in priority order, so the numbers you see are the failover order. Press a number to move the item under the cursor straight to that position:
 
 ```text
 ◆  Which Jev providers should cto use?
