@@ -2,13 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitFiles } from './diff.js';
-import { danglingAfter, FLOW_DIR, indexStale, loadTasks } from './flow.js';
+import { danglingAfter, featureIndex, FLOW_DIR, indexStale, loadTasks } from './flow.js';
 import type { CtoConfig } from './brain.js';
 
 // Checks that need no model: they run first, work without any API key, and cost nothing.
 // Blocking ones end the commit before Jev is asked; warnings are printed next to Jev's.
 
-export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after';
+export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after' | 'flow_interface';
 export interface LocalFinding { kind: LocalKind; block: boolean; detail: string }
 
 const BIG_BYTES = 5 * 1024 * 1024;
@@ -61,6 +61,36 @@ function flowIndex(root: string, touched: Set<string>): LocalFinding[] {
   } catch { return []; }
 }
 
+const SPEC_FILE = new RegExp(`^${FLOW_DIR}/features/([^/]+)/SPEC\\.md$`);
+
+/**
+ * Whether a SPEC.md diff section adds or removes a line inside `## Interface`. Any `## ` line in a hunk (added, removed
+ * or context) sets the section; before the first one, the hunk header's function context (`@@ ... @@ ## Interface`) decides.
+ */
+function changesInterface(section: string): boolean {
+  let inside = false;
+  for (const line of section.split('\n')) {
+    if (line.startsWith('@@')) inside = /^@@ .* @@ ## Interface/.test(line);
+    else if (/^[+\- ]## /.test(line)) inside = /^[+\- ]## Interface\s*$/.test(line);
+    else if (inside && /^[+-]/.test(line)) return true;
+  }
+  return false;
+}
+
+/** Warning: a feature's Interface moved, so the features whose `(after:)` points into it must re-check their tasks. Any read error means no finding. */
+function flowInterface(root: string, rawDiff: string): LocalFinding[] {
+  try {
+    const out: LocalFinding[] = [];
+    for (const section of splitFiles(rawDiff)) {
+      const slug = SPEC_FILE.exec(/^diff --git a\/.+? b\/(.+)$/m.exec(section)?.[1] ?? '')?.[1];
+      if (!slug || !changesInterface(section)) continue;
+      const deps = featureIndex(root).filter((r) => r.dependsOn.includes(slug)).map((r) => r.slug);
+      out.push({ kind: 'flow_interface', block: false, detail: `${slug} → ${deps.join(', ') || '(no dependants)'}` });
+    }
+    return out;
+  } catch { return []; }
+}
+
 /** Local findings for a diff about to be committed on `branch`. The raw diff: lock files are part of the question here. */
 export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string, branch = currentBranch(root)): LocalFinding[] {
   const out: LocalFinding[] = [];
@@ -81,7 +111,7 @@ export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string,
     const depChange = splitFiles(rawDiff).some((s) => pkgs.some((p) => s.includes(` b/${p}\n`)) && DEP_LINE.test(s));
     if (depChange) out.push({ kind: 'lock_drift', block: false, detail: lockInRepo });
   }
-  out.push(...flowSignoff(root, touched), ...flowIndex(root, touched));
+  out.push(...flowSignoff(root, touched), ...flowIndex(root, touched), ...flowInterface(root, rawDiff));
   return out;
 }
 

@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 const dist = new URL('../dist/', import.meta.url);
 const { applyCredentials, DEFAULT_CONFIG } = await import(new URL('brain.js', dist));
 const { evaluate, providerOrder } = await import(new URL('api.js', dist));
-const { Q, loopState } = await import(new URL('hooks.js', dist));
+const { Q, loopState, driftQ } = await import(new URL('hooks.js', dist));
 const { turnState } = await import(new URL('turn.js', dist));
 const { maskDiff, maskSensitiveState } = await import(new URL('masker.js', dist));
 const { pool } = await import(new URL('diff.js', dist));
@@ -37,7 +37,11 @@ const STATE = {
   destructive_command: (c) => maskSensitiveState(c.command),
   infinite_loop: (c) => loopState(c.command, c.failures.map((f) => ({ ...f, at: new Date().toISOString() }))),
   done_unverified: (c) => turnState(c.message, c.actions, c.ticked),
+  architecture_violation: (c) => maskDiff(c.diff),
 };
+// architecture_violation has no fixed question: each case carries the feature's Constraints and PRODUCT non-goals.
+const QUESTION = { architecture_violation: (c) => driftQ({ feature: c.feature, constraints: c.constraints, nonGoals: c.nonGoals }) };
+const questionFor = (signal, c) => QUESTION[signal]?.(c) ?? Q[signal];
 
 const dir = new URL('../calibration/', import.meta.url);
 const only = arg('--signal');
@@ -47,7 +51,7 @@ console.log(`provider: ${providerOrder()[0]}\n`);
 for (const file of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
   const signal = file.replace(/\.json$/, '');
   if (only && only !== signal) continue;
-  if (!STATE[signal] || !Q[signal]) { console.log(`skip ${file}: no state builder or question`); continue; }
+  if (!STATE[signal] || (!Q[signal] && !QUESTION[signal])) { console.log(`skip ${file}: no state builder or question`); continue; }
   // Labeled candidates harvested from public data (calibration/candidates/<signal>.jsonl) join the set; unlabeled ones are skipped.
   let cases = JSON.parse(readFileSync(new URL(file, dir), 'utf8'));
   try {
@@ -58,7 +62,7 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
   } catch { /* no candidates file */ }
   const limit = DEFAULT_CONFIG.thresholds[signal];
   const rows = await pool(cases, 3, async (c) => {
-    const r = await evaluate({ state: c.state ?? STATE[signal](c), questions: { [signal]: Q[signal] } }, { brain, lang: 'en', timeoutMs: 15000, notices: new Set() });
+    const r = await evaluate({ state: c.state ?? STATE[signal](c), questions: { [signal]: questionFor(signal, c) } }, { brain, lang: 'en', timeoutMs: 15000, notices: new Set() });
     const a = r.ok ? r.answers[signal] : undefined;
     const score = a?.type === 'noul' ? a.noul : a?.type === 'score' ? a.score : NaN;
     return { id: c.id, set: c.set, expect: c.expect, score, flagged: score > limit };

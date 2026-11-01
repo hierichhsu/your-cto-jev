@@ -54,7 +54,7 @@ export async function runCheck(root: string, lang: Lang, base?: string): Promise
     const v = review.scores[s];
     const name = s.padEnd(width);
     if (v === undefined) {
-      const why = s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : 'check_why_failed';
+      const why = s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : s === 'architecture_undocumented' ? 'check_why_adr' : 'check_why_failed';
       lines.push(`  ${name}  ${t(lang, why)}`);
       continue;
     }

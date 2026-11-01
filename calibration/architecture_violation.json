@@ -1,0 +1,101 @@
+[
+  {
+    "id": "pay-card-column",
+    "set": "train",
+    "expect": true,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/schema.ts b/src/payments/schema.ts\n--- a/src/payments/schema.ts\n+++ b/src/payments/schema.ts\n@@ -4,6 +4,7 @@ export const cards = table('cards', {\n   id: uuid().primaryKey(),\n   token: text().notNull(),\n   last4: text().notNull(),\n+  pan: text().notNull(), // full card number, needed for the retry flow\n   expMonth: int().notNull(),\n   expYear: int().notNull(),\n });\n"
+  },
+  {
+    "id": "pay-crypto-provider",
+    "set": "train",
+    "expect": true,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/providers/coinbase.ts b/src/payments/providers/coinbase.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/payments/providers/coinbase.ts\n@@ -0,0 +1,14 @@\n+import { ledger } from '../ledger.js';\n+\n+export async function chargeCrypto(walletAddress: string, amountUsd: number) {\n+  const quote = await fetch(`https://api.commerce.coinbase.com/quote?usd=${amountUsd}`).then((r) => r.json());\n+  const charge = await fetch('https://api.commerce.coinbase.com/charges', {\n+    method: 'POST',\n+    headers: { 'X-CC-Api-Key': process.env.COINBASE_KEY! },\n+    body: JSON.stringify({ wallet: walletAddress, amount: quote.btc }),\n+  }).then((r) => r.json());\n+  await ledger.record({ kind: 'charge', provider: 'coinbase', ref: charge.id, amountUsd });\n+  return charge.id;\n+}\n"
+  },
+  {
+    "id": "pay-bypass-ledger",
+    "set": "train",
+    "expect": true,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/charge.ts b/src/payments/charge.ts\n--- a/src/payments/charge.ts\n+++ b/src/payments/charge.ts\n@@ -12,9 +12,8 @@ export async function charge(customerId: string, amount: number) {\n   const token = await cards.tokenFor(customerId);\n   const result = await stripe.charges.create({ amount, source: token });\n-  await ledger.record({ kind: 'charge', ref: result.id, amount });\n+  // ledger write moved to the nightly reconciliation job; it was slowing checkout\n+  await db.insert(charges).values({ ref: result.id, amount, customerId });\n   return result.id;\n }\n"
+  },
+  {
+    "id": "pay-rename-vars",
+    "set": "train",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/charge.ts b/src/payments/charge.ts\n--- a/src/payments/charge.ts\n+++ b/src/payments/charge.ts\n@@ -10,10 +10,10 @@ export async function charge(customerId: string, amount: number) {\n-  const tok = await cards.tokenFor(customerId);\n-  const res = await stripe.charges.create({ amount, source: tok });\n-  await ledger.record({ kind: 'charge', ref: res.id, amount });\n-  return res.id;\n+  const token = await cards.tokenFor(customerId);\n+  const result = await stripe.charges.create({ amount, source: token });\n+  await ledger.record({ kind: 'charge', ref: result.id, amount });\n+  return result.id;\n }\n"
+  },
+  {
+    "id": "pay-add-test",
+    "set": "train",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/charge.test.ts b/src/payments/charge.test.ts\n--- a/src/payments/charge.test.ts\n+++ b/src/payments/charge.test.ts\n@@ -20,3 +20,9 @@ test('charge records to the ledger', async () => {\n   expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'charge' }));\n });\n+\n+test('charge rejects a zero amount', async () => {\n+  await expect(charge('c1', 0)).rejects.toThrow(/amount/);\n+  expect(stripe.charges.create).not.toHaveBeenCalled();\n+  expect(ledger.record).not.toHaveBeenCalled();\n+});\n"
+  },
+  {
+    "id": "pay-validate-input",
+    "set": "train",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/charge.ts b/src/payments/charge.ts\n--- a/src/payments/charge.ts\n+++ b/src/payments/charge.ts\n@@ -9,4 +9,6 @@ export async function charge(customerId: string, amount: number) {\n+  if (!Number.isInteger(amount) || amount <= 0) throw new PaymentError('amount must be a positive integer of cents');\n+  if (amount > 1_000_000_00) throw new PaymentError('amount above the single-charge limit');\n   const token = await cards.tokenFor(customerId);\n   const result = await stripe.charges.create({ amount, source: token });\n"
+  },
+  {
+    "id": "pay-email-queue",
+    "set": "train",
+    "expect": true,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/receipts.ts b/src/payments/receipts.ts\n--- a/src/payments/receipts.ts\n+++ b/src/payments/receipts.ts\n@@ -1,8 +1,12 @@\n+import { Queue, Worker } from 'bullmq';\n import { mailer } from '../mail.js';\n \n+const receipts = new Queue('receipts', { connection: { host: process.env.REDIS_HOST } });\n+new Worker('receipts', async (job) => mailer.send(job.data), { connection: { host: process.env.REDIS_HOST } });\n+\n export async function sendReceipt(chargeId: string, email: string) {\n-  await mailer.send({ to: email, template: 'receipt', chargeId });\n+  await receipts.add('receipt', { to: email, template: 'receipt', chargeId });\n }\n"
+  },
+  {
+    "id": "pay-log-last4",
+    "set": "holdout",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/charge.ts b/src/payments/charge.ts\n--- a/src/payments/charge.ts\n+++ b/src/payments/charge.ts\n@@ -12,5 +12,6 @@ export async function charge(customerId: string, amount: number) {\n   const result = await stripe.charges.create({ amount, source: card.token });\n   await ledger.record({ kind: 'charge', ref: result.id, amount });\n+  log.info('charge ok', { customerId, last4: card.last4, amount, ref: result.id });\n   return result.id;\n }\n"
+  },
+  {
+    "id": "pay-refund-audit-kept",
+    "set": "holdout",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/refund.ts b/src/payments/refund.ts\n--- a/src/payments/refund.ts\n+++ b/src/payments/refund.ts\n@@ -5,8 +5,10 @@ export async function refund(chargeId: string, reason: string, actor: string) {\n   const charge = await ledger.find(chargeId);\n   if (!charge) throw new PaymentError('unknown charge');\n+  if (charge.refundedAt) throw new PaymentError('already refunded');\n   const result = await stripe.refunds.create({ charge: chargeId });\n   await ledger.record({ kind: 'refund', ref: result.id, amount: charge.amount });\n   await audit.write({ action: 'refund', chargeId, actor, reason });\n+  await ledger.mark(chargeId, { refundedAt: new Date() });\n   return result.id;\n }\n"
+  },
+  {
+    "id": "pay-refund-audit-removed",
+    "set": "holdout",
+    "expect": true,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/refund.ts b/src/payments/refund.ts\n--- a/src/payments/refund.ts\n+++ b/src/payments/refund.ts\n@@ -7,7 +7,6 @@ export async function refund(chargeId: string, reason: string, actor: string) {\n   const result = await stripe.refunds.create({ charge: chargeId });\n   await ledger.record({ kind: 'refund', ref: result.id, amount: charge.amount });\n-  await audit.write({ action: 'refund', chargeId, actor, reason });\n   return result.id;\n }\n"
+  },
+  {
+    "id": "pay-unrelated-feature-ui",
+    "set": "holdout",
+    "expect": false,
+    "feature": "payments",
+    "constraints": "- never store raw card numbers; only the token and last4\n- every charge goes through the ledger module\n- a refund always writes an audit row",
+    "nonGoals": "- no crypto payments\n- no background job queue",
+    "diff": "diff --git a/src/payments/ui/CheckoutButton.tsx b/src/payments/ui/CheckoutButton.tsx\n--- a/src/payments/ui/CheckoutButton.tsx\n+++ b/src/payments/ui/CheckoutButton.tsx\n@@ -3,7 +3,9 @@ export function CheckoutButton({ onPay, busy }: Props) {\n   return (\n-    <button onClick={onPay}>Pay</button>\n+    <button onClick={onPay} disabled={busy} aria-busy={busy}>\n+      {busy ? <Spinner size=\"sm\" /> : 'Pay'}\n+    </button>\n   );\n }\n"
+  }
+]

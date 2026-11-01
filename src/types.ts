@@ -31,6 +31,7 @@ export type Signal =
   | 'destructive_command'
   | 'infinite_loop'
   | 'architecture_violation'
+  | 'architecture_undocumented'
   | 'test_tampering'
   | 'done_unverified'
   | 'code_complexity';

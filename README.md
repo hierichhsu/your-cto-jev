@@ -35,7 +35,8 @@ Jev judges meaning and answers with probabilities, not prose. It costs about $0.
 | `destructive_command` | every agent shell command | **Blocks** the command |
 | `infinite_loop` | agent shell commands, after a recent failure | **Blocks** the command |
 | `done_unverified` | an agent ending a turn that edited code or checked off plan items | **Sends it back to work** until the change is verified or the gap is disclosed |
-| `architecture_violation` | `git commit`, once you set a sprint goal | Warns only |
+| `architecture_violation` | `git commit`, once you set a sprint goal, or when the [development flow](#the-development-flow-optional) maps the commit to a feature's SPEC | Warns only |
+| `architecture_undocumented` | `git commit` under the development flow, when code changes and no decision record is added | Warns only |
 | `code_complexity` | every `git commit` | Warns only |
 
 `test_tampering` catches the classic agent shortcut: making a red test green by skipping it, deleting its assertions, loosening the expectation, or lowering the coverage bar, instead of fixing the code. It lets through real fixes, new or tighter tests, refactors, and tests removed together with their feature.
@@ -54,6 +55,8 @@ Some checks need no model at all. They run first, before anything is sent anywhe
 | A `.env` file with values (not `.env.example`) | `git commit` | **Blocks** |
 | A file over 5 MB | `git commit` | Warns |
 | `package.json` dependencies changed, lock file not | `git commit` | Warns |
+| Development flow: a feature with tasks whose SPEC is not `Status: approved` | `git commit` touching that feature | **Blocks** |
+| Development flow: INDEX.md older than its inputs, an `(after:)` id nobody defines, a SPEC `## Interface` changed | `git commit` | Warns |
 
 `protected_branches` is empty by default; set it in `.cto.json` (`["main"]`) and the whole team's agents stop committing to main by accident. A commit a local check blocks never reaches Jev.
 
@@ -97,7 +100,7 @@ cto setup
 
 To update later, run `cto update`. Projects you already set up pick up the new version automatically: every hook only calls `cto`, and all the logic lives in the package. `cto` checks npm for a new version at most once a day and mentions it in its once-per-session notice, never on its own.
 
-`cto setup` walks you through four steps with arrow keys: coding agents, Jev providers, API keys, and an optional sprint goal. Esc goes back a step. Providers are ticked in priority order, so the numbers you see are the failover order. Press a number to move the item under the cursor straight to that position:
+`cto setup` walks you through five steps with arrow keys: coding agents, Jev providers, API keys, an optional sprint goal, and whether to use the [development flow](#the-development-flow-optional). Esc goes back a step. Providers are ticked in priority order, so the numbers you see are the failover order. Press a number to move the item under the cursor straight to that position:
 
 ```text
 ◆  Which Jev providers should cto use?
@@ -127,10 +130,13 @@ Other forms:
 cto setup --agents claude,cursor --yes   # non-interactive (scripts, CI); only adds, never removes
 cto setup --refresh                      # re-write hooks and rules for the agents already set up
 cto setup --uninstall                    # remove every cto hook, rules block and skill again
+cto setup --flow                         # turn on the development flow (docs/cto_jev, cto-flow skill); --no-flow turns it off
 cto doctor                               # is it actually working?
 cto brief                                # what an agent should know before it starts here
 cto check                                # preview the commit checks on your current changes
 cto log                                  # recent decisions with scores; cto report [n] flags a wrong one
+cto index                                # regenerate docs/cto_jev/INDEX.md (brief does this too)
+cto docs                                 # suggest what to do with old planning markdown; changes nothing
 ```
 
 `setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. It never touches your shell rc files.
@@ -148,8 +154,9 @@ The rules go where agents always look: a short marked block appended to `CLAUDE.
 | Done means verified | `done_unverified` sends the agent back to work |
 | Two strikes, change approach | `infinite_loop` blocks the retry once |
 | Ask before anything irreversible | `destructive_command` blocks the command |
-| Stay on the sprint goal | `architecture_violation` warns |
+| Stay on the sprint goal, or inside the feature's SPEC | `architecture_violation` warns |
 | Keep it simple | `code_complexity` warns |
+| No work without sign-off (flow only) | `flow_signoff` blocks the commit |
 
 The rules also tell the agent to run `cto check` before committing, and never to bypass a block with `--no-verify` or by editing thresholds. Commit these files so the whole team's agents follow the same rules. `cto update` refreshes them (and any new hooks) in the repo you run it from; `cto doctor` flags a repo whose rules or hooks are older than the installed version, and `cto setup --refresh` brings it up to date.
 
@@ -157,10 +164,11 @@ The rules also tell the agent to run `cto check` before committing, and never to
 
 ```text
 [cto] Nothing staged, checking the working tree instead (9 files, including new untracked files):
-  credential_leak         0.03   blocks above 0.5  ok
-  test_tampering          0.03   blocks above 0.8  ok
-  architecture_violation  not checked: no sprint_goal in .cto.json and no feature Constraints for these files
-  code_complexity         2.02   warns above 2  would warn
+  credential_leak            0.03   blocks above 0.5  ok
+  test_tampering             0.03   blocks above 0.8  ok
+  architecture_violation     not checked: no sprint_goal in .cto.json and no feature Constraints for these files
+  architecture_undocumented  not checked: no docs/cto_jev/ flow, or this commit adds a decision record
+  code_complexity            2.02   warns above 2  would warn
 [cto] Good to commit.
 ```
 
@@ -194,6 +202,65 @@ Guards   secrets · test tampering · destructive commands · loops · unverifie
 The lessons are collected without anyone writing them down. Every failed agent command is fingerprinted (the command's first two words plus its first telling error line, with numbers, quoted names and paths normalised) and counted in `.cto-lessons.jsonl`. When the same command later passes after code edits, the files edited in between are recorded as the fix. The file is masked like everything else cto writes, holds at most 200 lessons, and is one JSON line per lesson so teammates' additions merge without conflicts. Commit it: the whole team's agents then start with the repo's history of what breaks and what fixed it. No Jev call is involved.
 
 `Verify with` comes from `test_command` in `.cto.json`, or is detected from `package.json`, a `Makefile`, pytest, Cargo or Go when it is empty. Open plan items are the unchecked `- [ ]` lines in tracked markdown files, whatever planning tool wrote them.
+
+## The development flow (optional)
+
+Everything above says no after the fact. The flow is the part before: your agent acts as the CTO of the repo (plans, breaks work down, dispatches, accepts), and `cto` keeps it honest. It is off by default; `cto setup --flow` (or the question at the end of interactive setup) turns it on, and repos that never enable it see no change.
+
+The agent does not get a new tool. It gets a skill (`.agents/skills/cto-flow/SKILL.md`), a fixed place for plans, and a few more checks:
+
+```text
+docs/cto_jev/
+  INDEX.md                 generated by cto: features, status, code paths, dependencies, sign-off
+  PRODUCT.md               who it is for, how it earns, what it will not do
+  ARCHITECTURE.md          stack, directory map, external services, the principles that do not change
+  decisions/NNNN-<slug>.md decision records, append-only
+  features/<slug>/
+    CONCEPT.md             why: purpose, business rules, non-goals
+    SPEC.md                how: ## Interface (what other features may use), ## Constraints, ## Internals
+    TASKS.md               the only state: a checklist with ids, dependencies and an acceptance command
+    REVIEW.md              what a zero-context reviewer found, and which tasks it became
+```
+
+A task is one checklist line, and everything else is computed from it:
+
+```md
+- [ ] CUST-1 Customer list
+  - [x] CUST-1.1 List API, filtered by role (after: PERM-2) (files: src/customers/api/)
+        accept: npm test -- customers/api
+  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/)
+        accept: manual
+```
+
+`(after:)` says what must be ticked first, across features too; `(files:)` says what the task changes. From that, `cto brief` lists what is ready, what can run at the same time (no overlapping files), what is blocked and on whom:
+
+```text
+Features · 2 · 1 active · 1 planned · sign-off pending: billing (spec draft)
+
+Ready · 3 (run together: CUST-1.2, PERM-3)
+  CUST-1.2  List UI                   files src/customers/ui/   accept: manual
+  PERM-3    Role cache                files src/auth/cache/     accept: npm test -- auth
+  CUST-2    Export                    files src/customers/      accept: manual   (overlaps CUST-1.2: run after)
+
+Blocked · 1
+  CUST-1.3  Shared types              waiting on PERM-9 (missing), CUST-1.2
+```
+
+The skill tells the agent how to behave: write CONCEPT and SPEC, then stop and wait for you to set `Status: approved`; give each sub-agent only its task line, its feature's SPEC and the `## Interface` of the features it depends on; never trust a sub-agent's "done", run the task's acceptance command itself before ticking; hand finished features to a reviewer with none of its context, and turn every finding into a task. Changes inside an existing feature only add tasks; only a new module gets a new folder. The first time it runs it scans the repo, fills PRODUCT.md and ARCHITECTURE.md with what it can prove, and asks you at most five questions for the rest. `unknown` is an allowed answer.
+
+What `cto` adds on top, all without a model call unless noted:
+
+| Check | Where | What happens |
+|---|---|---|
+| A feature has tasks but its SPEC is not approved | `git commit` touching that feature | **Blocks** |
+| `architecture_violation` judged against the feature's `## Constraints` and PRODUCT's non-goals instead of a one-line goal | `git commit` (Jev) | Warns |
+| An architecture change with no new decision record | `git commit` (Jev) | Warns |
+| INDEX.md older than the TASKS it is built from; an `(after:)` id nobody defines; a SPEC's `## Interface` changed | `git commit` | Warns, naming dependants |
+| Missing feature files, dead `(files:)` paths, `src/` directories owned by no feature, missing headings | `cto brief`, `cto doctor` | Listed |
+
+`cto docs` deals with the rest of the repo: it finds markdown outside `docs/cto_jev/` that looks like an old plan (tool output under `.planning/`, `specs/`, `.kiro/`, fully ticked `TODO.md`s, checklists untouched for a month), asks Jev about the ambiguous ones, and prints merge / archive / delete suggestions. It changes nothing; the agent acts only after you decide.
+
+If a docs site generator is configured (`mkdocs.yml`, `docusaurus.config.*`, `_config.yml`, ...), setup reminds you to keep `docs/cto_jev/` out of it: PRODUCT.md holds your pricing and business rules.
 
 ## Supported agents
 
@@ -267,20 +334,23 @@ Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. Th
 ```json
 {
   "sprint_goal": "",
+  "flow": false,
   "thresholds": {
     "destructive_command": 0.45
   }
 }
 ```
 
-Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `code_complexity` 2.
+Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `architecture_undocumented` 0.85, `code_complexity` 2.
 
-- **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`.
+- **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`. Under the development flow a commit that falls inside a feature's code scope is judged against that feature's SPEC instead; the goal is the fallback.
+- **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value.
 - **`test_command`**: what `cto brief` tells the agent to verify with, for example `"pnpm test"`. Detected from the project when empty.
 - **`protected_branches`**: for example `["main", "release"]`. Commits on them and pushes that delete or rewrite them are blocked locally, no key needed. Empty by default.
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).
 - **Calibration**: on 32 hand-written diffs, every one scoring above 0.8 for `test_tampering` really weakened the tests, and no legitimate change scored above 0.37. The 0.8 default caught 13 of 16 weakening diffs; the misses were subtle ones such as a meaningless float tolerance or a skip hidden behind an env var. Lower it to 0.5 to catch 15 of 16, at a higher risk of blocking honest commits.
 - `done_unverified` (0.6) and `infinite_loop` (0.6) were calibrated the same way; the measurements are in the design spec.
+- `architecture_violation` against a SPEC: on 11 hand-written diffs for one feature (three constraints, two non-goals), every violation scored 0.94 or above and every legitimate change 0.30 or below, so the 0.85 default sits in the gap. `architecture_undocumented` shares that default and has no calibration set yet; treat its warnings as hints.
 - **When a call is wrong**: `cto log` lists the last 30 answered questions in this repo with their scores and thresholds. `cto report` (or `cto report <n>`) records that the last (or n-th) one was wrong and writes it, with the exact masked state Jev saw, as a calibration case to `reports/<signal>.jsonl` next to your credentials file. Nothing is sent anywhere; paste the line into `calibration/candidates/` in a PR or an issue and it joins the next measurement. That is how the thresholds get better from real use instead of hand-written diffs.
 - For `destructive_command`, the current question scores `git push --force` about 0.74 (blocked by default), `find -delete` about 0.65 and `git reset --hard` about 0.47 (both let through), and `rm -rf node_modules` about 0.12. Lower the threshold to about 0.45 to block all three; the calibration set is still small, so the default stays at 0.7.
 
@@ -300,6 +370,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 - **The done check sees edits from edit tools and from common shell commands** (`sed -i`, redirects, `tee`, formatters), but not writes hidden inside scripts such as `node -e`. It also misses a test run that targets the wrong package. Claude Code's turn comes from its transcript; for Cursor, Gemini CLI and Codex, whose transcript formats are not public, cto keeps its own log of commands and edits, and a command counts as successful unless a failure event arrives.
 - **A lesson's fix is the edit between a failure and the next pass of a command with the same first two words.** A fix that was verified by a different command (`npm test` fails, `npx vitest run` passes) is not recorded, and a turn that edits files for other reasons in between credits them to the fix as well.
 - **Loop detection knows about edits, but only through the agent's edit tools.** A first re-run after a code edit is a new attempt, while the same error coming back across repeated fixes still counts as a loop; each loop is blocked once, so the agent can still verify its next fix. A file changed only through a shell command is not seen as an edit, and failures expire after 15 minutes.
+- **The development flow reads exact headings and prefixes.** `## Interface`, `## Constraints`, `Status: approved` and the PRODUCT/ARCHITECTURE field headings must match the skeleton as written; a reworded heading is "missing" in `cto brief` and silently skipped by the checks. A commit maps to a feature by `(files:)` prefix, so a task written as `src/` claims everything and `./src/x/` claims nothing. The two Jev questions look at the first diff chunk only.
 - **Each agent shell command waits for one Jev request.** OpenRouter answered in about 0.3 s in our tests, Cloudflare in about 0.9 s with occasional spikes past 3 s. Agent checks wait up to 5 s before failing open.
 
 ## Development

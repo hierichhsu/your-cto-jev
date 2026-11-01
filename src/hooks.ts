@@ -149,7 +149,7 @@ export function driftContext(root: string, files: string[]): DriftContext | unde
   return { feature, constraints: clip(constraints), nonGoals: clip(nonGoals) };
 }
 
-const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQuestion => ({
+export const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQuestion => ({
   type: 'noul',
   instructions:
     `This change belongs to the feature "${feature}". The feature's constraints:\n${constraints}\n` +
@@ -157,6 +157,25 @@ const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQuestion =
     '\nDoes this change clearly violate one of the listed constraints, or do one of the listed non-goals?',
   criteria: { true: 'Violates a listed constraint or does a listed non-goal', false: 'Consistent with or unrelated to them' },
 });
+
+/**
+ * Ask for a decision record when a flow repo changes code under `src/` (any non-markdown file when there is no `src/`)
+ * and the same commit adds nothing under `docs/cto_jev/decisions/`. Undefined when the question does not apply.
+ */
+export function adrQuestion(root: string, paths: string[]): JevQuestion | undefined {
+  if (!existsSync(join(root, FLOW_DIR, 'features'))) return undefined;
+  const code = existsSync(join(root, 'src')) ? (p: string) => p.startsWith('src/') : (p: string) => !/\.mdx?$/i.test(p);
+  if (!paths.some(code) || paths.some((p) => p.startsWith(`${FLOW_DIR}/decisions/`))) return undefined;
+  const principles = clip(section(readOr(join(root, FLOW_DIR, 'ARCHITECTURE.md')), /^##\s*不變的原則\s*$/));
+  return {
+    type: 'noul',
+    instructions:
+      (principles ? `The architecture's standing principles:\n${principles}\n\n` : '') +
+      'Does this change introduce or remove a service, data store, external dependency, layer, module boundary or cross-cutting mechanism, ' +
+      'or break one of the listed principles, i.e. a change that deserves a decision record?',
+    criteria: { true: 'Changes the architecture or breaks a listed principle; a decision record is missing', false: 'Ordinary feature or fix within the existing architecture' },
+  };
+}
 
 const diffPaths = (files: string[]) => files.map((f) => /^diff --git a\/.+? b\/(.+)$/m.exec(f)?.[1]).filter((p): p is string => !!p);
 
@@ -226,9 +245,12 @@ export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, 
   if (!files.length) return null;
   const chunks = chunkDiff(files);
   const soft: Record<string, JevQuestion> = { code_complexity: Q.code_complexity };
-  const drift = root ? driftContext(root, diffPaths(files)) : undefined;
+  const paths = root ? diffPaths(files) : [];
+  const drift = root ? driftContext(root, paths) : undefined;
   if (drift) soft.architecture_violation = driftQ(drift);
   else if (cfg.sprint_goal.trim()) soft.architecture_violation = architectureQ(cfg.sprint_goal.trim());
+  const adr = root ? adrQuestion(root, paths) : undefined;
+  if (adr) soft.architecture_undocumented = adr;
 
   const notices = new Set<string>();
   const asked = new Set<Signal>();
@@ -262,7 +284,7 @@ export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, 
 }
 
 export const BLOCKING_COMMIT: Signal[] = ['credential_leak', 'test_tampering'];
-export const WARNING_COMMIT: Signal[] = ['architecture_violation', 'code_complexity'];
+export const WARNING_COMMIT: Signal[] = ['architecture_violation', 'architecture_undocumented', 'code_complexity'];
 const over = (v: number | undefined, s: Signal, cfg: CtoConfig) => v !== undefined && v > cfg.thresholds[s];
 
 export const localLines = (lang: Lang, findings: LocalFinding[]) => findings.map((f) => t(lang, `local_${f.kind}`, { detail: f.detail }));

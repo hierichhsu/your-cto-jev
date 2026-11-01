@@ -20,6 +20,7 @@ function flowRepo(constraints = '- never store card numbers') {
   writeFileSync(join(dir, 'SPEC.md'), `Status: approved\n\n## Interface\n\n- pay()\n\n## Constraints\n${constraints}\n\n## Internals\n\n- x\n`);
   writeFileSync(join(dir, 'TASKS.md'), '- [ ] PAY-1 charge cards (files: src/pay/)\n');
   writeFileSync(join(root, FLOW_DIR, 'PRODUCT.md'), 'Status: approved\n\n## 目標\n\n- take money\n\n## 不做的事\n\n- no crypto\n');
+  writeFileSync(join(root, FLOW_DIR, 'ARCHITECTURE.md'), 'Status: approved\n\n## 技術棧\n\n- node\n\n## 不變的原則\n\n- one database, no queues\n');
   return root;
 }
 
@@ -54,4 +55,36 @@ test('git-commit: architecture question quotes the feature constraints when the 
   assert.equal(out.code, 0);
   q = sent.questions.architecture_violation.instructions;
   assert.ok(q.includes('ship billing') && !q.includes('card numbers'), q);
+});
+
+test('git-commit: architecture_undocumented asked for code changes in a flow repo with no new decision record', async () => {
+  process.env.OPENROUTER_API_KEY = 'k';
+  process.env.CTO_PROVIDER = 'openrouter';
+  const root = flowRepo();
+  let sent: any;
+  let adr = noul(0.1);
+  globalThis.fetch = (async (_u: string, init: any) => {
+    sent = JSON.parse(init.body);
+    return new Response(JSON.stringify(answers({ credential_leak: noul(0.1), code_complexity: { type: 'score', score: 0.5 }, architecture_undocumented: adr })));
+  }) as any;
+  const diff = (...ps: string[]) => ps.map((p) => `diff --git a/${p} b/${p}\n+++ b/${p}\n+const x = 1\n`).join('');
+
+  await gitCommit(diff('src/a.ts'), { root, lang: 'en' });
+  const q = sent.questions.architecture_undocumented;
+  assert.ok(q && q.instructions.includes('one database, no queues'), 'quotes a principle from ARCHITECTURE.md');
+  assert.ok(sent.state.includes('src/a.ts'), 'state is still the diff');
+
+  await gitCommit(diff('src/a.ts', `${FLOW_DIR}/decisions/0001-x.md`), { root, lang: 'en' });
+  assert.equal(sent.questions.architecture_undocumented, undefined, 'a decision record in the same commit');
+
+  await gitCommit(diff('README.md'), { root, lang: 'en' });
+  assert.equal(sent.questions.architecture_undocumented, undefined, 'markdown only');
+
+  await gitCommit(diff('src/a.ts'), { root: mkdtempSync(join(tmpdir(), 'cto-')), lang: 'en' });
+  assert.equal(sent.questions.architecture_undocumented, undefined, 'no flow folder');
+
+  adr = noul(0.95);
+  const out = await gitCommit(diff('src/a.ts'), { root, lang: 'en' });
+  assert.equal(out.code, 0, 'warning only');
+  assert.ok(out.stderr.some((l) => l.includes('architecture change with no decision record') && l.includes('docs/cto_jev/decisions/NNNN-<slug>.md')), out.stderr.join('\n'));
 });

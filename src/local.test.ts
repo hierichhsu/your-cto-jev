@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig } from './brain.js';
 import { FLOW_DIR, writeIndex } from './flow.js';
+import { t } from './i18n.js';
 import { localCommitChecks } from './local.js';
 
 test('flow_signoff: a touched feature with tasks but no approved SPEC blocks; unrelated, approved or task-less features do not', () => {
@@ -45,4 +46,30 @@ test('flow_index_stale / flow_dangling_after: warn only on commits that touch th
   writeIndex(root);
   assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_dangling_after:PERM-2 → NOPE-1'], 'index regenerated and committed along');
   assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/other/TASKS.md`)), [], 'dangling id lives in a TASKS.md this diff does not touch');
+});
+
+test('flow_interface: warn when a SPEC diff touches the ## Interface section, naming the features that depend on it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cto-'));
+  const feat = (slug: string, tasks: string) => {
+    const dir = join(root, FLOW_DIR, 'features', slug);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SPEC.md'), `# ${slug} SPEC\n\nStatus: approved\n\n## Interface\n\n- a\n\n## Constraints\n\n- b\n\n## Internals\n\n- c\n`);
+    writeFileSync(join(dir, 'TASKS.md'), `# ${slug} TASKS\n\n${tasks}`);
+  };
+  feat('perm', '- [ ] PERM-1 roles (files: src/x/)\n');
+  feat('cust', '- [ ] CUST-1 list (after: PERM-1)\n');
+  writeIndex(root);
+  const diff = (slug: string, hunk: string) => {
+    const p = `${FLOW_DIR}/features/${slug}/SPEC.md`;
+    return `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n${hunk}`;
+  };
+  const kinds = (d: string) => localCommitChecks(d, loadConfig(root), root, 'feature').map((f) => `${f.kind}${f.block ? '!' : ''}:${f.detail}`);
+
+  assert.deepEqual(kinds(diff('perm', '@@ -5,3 +5,4 @@\n ## Interface\n \n+- new export\n - a\n')), ['flow_interface:perm → cust'], 'heading as context line');
+  assert.deepEqual(kinds(diff('perm', '@@ -13,3 +13,4 @@\n ## Internals\n \n+- new export\n - c\n')), [], 'same change under Internals');
+  assert.deepEqual(kinds(diff('perm', '@@ -5,3 +5,4 @@\n ## Interface\n \n-- a\n ## Constraints\n+- new rule\n')), ['flow_interface:perm → cust'], 'removal counts; later section does not reset the finding');
+  assert.deepEqual(kinds(diff('perm', '@@ -10,3 +10,4 @@ ## Interface\n - a\n+- new export\n \n')), ['flow_interface:perm → cust'], 'hunk header function context');
+  assert.deepEqual(kinds(diff('perm', '@@ -10,3 +10,4 @@ ## Constraints\n - b\n+- new rule\n \n')), [], 'hunk header names another section');
+  assert.deepEqual(kinds(diff('cust', '@@ -5,3 +5,4 @@\n ## Interface\n \n+- new export\n - a\n')), ['flow_interface:cust → (no dependants)']);
+  assert.match(t('en', 'local_flow_interface', { detail: 'a → b' }), /^\[cto\] a → b: the SPEC's Interface changed/);
 });

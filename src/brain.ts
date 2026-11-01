@@ -44,6 +44,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
     destructive_command: 0.7,
     infinite_loop: 0.6,
     architecture_violation: 0.85,
+    architecture_undocumented: 0.85,
     test_tampering: 0.8,
     done_unverified: 0.6,
     code_complexity: 2,
