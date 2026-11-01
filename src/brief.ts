@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshErrors, loadBrain, loadConfig } from './brain.js';
-import { FLOW_DIR, featureIndex, loadTasks, openTasks, parallelTasks, writeIndex, type Task } from './flow.js';
+import { FEATURE_FILES, FLOW_DIR, featureIndex, listFeatures, loadTasks, openTasks, parallelTasks, writeIndex, type Task } from './flow.js';
 import { loadLessons, packageManager, rankLessons, type Lesson } from './lessons.js';
 import { displayWidth } from './setupui.js';
 import { BOX } from './turn.js';
@@ -59,6 +59,59 @@ const unknownCount = (path: string) => {
   try { return readFileSync(path, 'utf8').split(/\r?\n/).filter((l) => /\(unknown\)|unknown\s*$/.test(l)).length; } catch { return 0; }
 };
 
+// Fixed headings, as the SPEC's 欄位 tables name them (docs/cto_jev/features/cto-flow/SPEC.md).
+const HEADINGS: [string, string[]][] = [
+  ['PRODUCT.md', ['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束']],
+  ['ARCHITECTURE.md', ['技術棧', '目錄地圖', '外部服務與資料', '驗證指令', '不變的原則']],
+];
+const NOT_CODE = new Set(['node_modules', 'dist', 'build', 'docs', 'test', 'tests', '__tests__', 'coverage']);
+const ISSUE_CAP = 12;
+
+/** Consistency problems in the flow docs, one per line, in English. Empty when the repo does not use the flow or all is well. */
+export function flowIssues(root: string): string[] {
+  if (!existsSync(join(root, FLOW_DIR, 'features'))) return [];
+  const out: string[] = [];
+  // `file` is relative to docs/cto_jev; a missing file is reported by the feature-file check, not here.
+  const headings = (file: string, names: string[]) => {
+    let text: string;
+    try { text = readFileSync(join(root, FLOW_DIR, file), 'utf8'); } catch { return; }
+    const miss = names.filter((h) => !new RegExp(`^##\\s*${h}\\s*$`, 'm').test(text));
+    if (miss.length) out.push(`${file}: missing heading ${miss.map((h) => `## ${h}`).join(', ')}`);
+  };
+  const features = listFeatures(root);
+  for (const slug of features) {
+    const missing = FEATURE_FILES.filter((f) => !existsSync(join(root, FLOW_DIR, 'features', slug, f)));
+    if (missing.length) out.push(`features/${slug}: missing ${missing.join(', ')}`);
+  }
+  const tasks = loadTasks(root);
+  for (const t of tasks) {
+    const gone = t.files.filter((f) => !existsSync(join(root, f)));
+    if (gone.length) out.push(`${t.id}: files ${gone.join(', ')} not found`);
+  }
+  // First-level code directories (under src/ when it exists) that no task's (files:) entry points into.
+  const base = existsSync(join(root, 'src')) ? 'src/' : '';
+  const owned = tasks.flatMap((t) => t.files.map((f) => `${f.replace(/\\/g, '/')}/`));
+  const orphans = readdirSync(join(root, base), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !NOT_CODE.has(d.name))
+    .map((d) => `${base}${d.name}/`)
+    .filter((dir) => !owned.some((f) => f.startsWith(dir)))
+    .sort();
+  if (orphans.length > 3) out.push(`${orphans.join(', ')} belong to no feature`);
+  else for (const dir of orphans) out.push(`${dir} belongs to no feature`);
+  for (const slug of features) {
+    headings(`features/${slug}/SPEC.md`, ['Interface', 'Constraints', 'Internals']);
+    headings(`features/${slug}/CONCEPT.md`, ['目的']);
+  }
+  for (const [file, names] of HEADINGS) headings(file, names);
+  return out.length > ISSUE_CAP ? [...out.slice(0, ISSUE_CAP), `… ${out.length - ISSUE_CAP} more`] : out;
+}
+
+/** How many issues a (possibly capped) flowIssues list stands for. */
+export function issueTotal(issues: string[]): number {
+  const more = /^… (\d+) more$/.exec(issues[issues.length - 1] ?? '');
+  return more ? ISSUE_CAP + Number(more[1]) : issues.length;
+}
+
 /** The development flow (docs/cto_jev/features): Ready and Blocked tasks, pending sign-offs, unknown fields. Empty when the repo does not use it. */
 export function flowLines(root: string): string[] {
   if (!existsSync(join(root, FLOW_DIR, 'features'))) return [];
@@ -88,6 +141,8 @@ export function flowLines(root: string): string[] {
     for (const b of blocked.slice(0, 8)) L.push(line(b.task, `waiting on ${b.waitingOn.map((id) => (ids.has(id) ? id : `${id} (missing)`)).join(', ')}`));
     if (blocked.length > 8) L.push(`  … ${blocked.length - 8} more`);
   }
+  const issues = flowIssues(root);
+  if (issues.length) L.push('', `Flow issues · ${issueTotal(issues)}`, ...issues.map((i) => `  ${i}`));
   const unknown = ['PRODUCT.md', 'ARCHITECTURE.md'].map((f) => [f, unknownCount(join(root, FLOW_DIR, f))] as const).filter(([, n]) => n > 0);
   if (unknown.length) L.push('', `Unknown fields · ${unknown.map(([f, n]) => `${f} ${n}`).join(' · ')}`);
   return L;

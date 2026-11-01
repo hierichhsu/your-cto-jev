@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { agents } from './agents.js';
 import { probeProvider, providerOrder, providers } from './api.js';
 import { loadBrain, loadConfig, loadCredentials } from './brain.js';
+import { flowIssues, issueTotal } from './brief.js';
 import { AGENT_TIMEOUT_MS } from './hooks.js';
 import { t, type Lang } from './i18n.js';
 import { GIT_HOOKS, conflictLines, ignoredByGit, missingHooks, wiredAgents } from './setup.js';
@@ -91,6 +92,8 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
     const cfg = loadConfig(root);
     L.push(`  -- ${t(lang, cfg.sprint_goal.trim() ? 'doc_goal_set' : 'doc_goal_empty')}`);
     L.push(...conflictLines(root, wired, lang).map((l) => `  ${l}`));
+    const issues = flowIssues(root); // a note, not a problem: the docs are the user's, cto only points at them
+    if (issues.length) L.push(`  -- ${t(lang, 'doc_flow_issues', { n: issueTotal(issues), first: issues[0] })}`);
 
     const brain = loadBrain(root);
     L.push(`  -- ${t(lang, 'doc_stats', { blocked: brain.blocked_attempts, skipped: brain.skipped_attempts })}`);

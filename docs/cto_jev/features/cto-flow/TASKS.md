@@ -5,7 +5,7 @@
         驗收: npm test
   - [x] FLOW-1.2 setup 多一個「啟用開發流程」選項，選了才寫 cto-flow skill 和 docs/cto_jev/ 骨架 (after: FLOW-1.1) (files: src/setup.ts, src/setupui.ts)
         驗收: npm test
-  - [ ] FLOW-1.3 setup 偵測 mkdocs.yml、docusaurus.config.* 時提醒排除 docs/cto_jev/ (after: FLOW-1.2) (files: src/setup.ts)
+  - [x] FLOW-1.3 setup 偵測 mkdocs.yml、docusaurus.config.* 時提醒排除 docs/cto_jev/ (after: FLOW-1.2) (files: src/setup.ts)
         驗收: npm test
 
 - [ ] FLOW-2 INDEX 與 brief
@@ -15,19 +15,19 @@
         驗收: npm test
   - [x] FLOW-2.3 brief 列 Ready、Blocked、unknown 欄位數，並重新產生 INDEX (after: FLOW-2.2) (files: src/brief.ts)
         驗收: npm test
-  - [ ] FLOW-2.4 brief / doctor 的一致性檢查：缺檔、files 路徑不存在、src 目錄沒歸屬、固定標題缺失 (after: FLOW-2.2) (files: src/doctor.ts, src/brief.ts)
+  - [x] FLOW-2.4 brief / doctor 的一致性檢查：缺檔、files 路徑不存在、src 目錄沒歸屬、固定標題缺失 (after: FLOW-2.2) (files: src/doctor.ts, src/brief.ts)
         驗收: npm test
 
 - [ ] FLOW-3 pre-commit 規則檢查
   - [x] FLOW-3.1 TASKS 存在但 SPEC 未 approved → 擋 (after: FLOW-2.1) (files: src/local.ts)
         驗收: npm test
-  - [ ] FLOW-3.2 INDEX 過期警告、after 指到不存在 ID 警告 (after: FLOW-2.2) (files: src/local.ts)
+  - [x] FLOW-3.2 INDEX 過期警告、after 指到不存在 ID 警告 (after: FLOW-2.2) (files: src/local.ts)
         驗收: npm test
   - [ ] FLOW-3.3 Interface 段被改 → 警告並列出依賴它的 feature (after: FLOW-2.2) (files: src/local.ts)
         驗收: npm test
 
 - [ ] FLOW-4 Jev 漂移檢查
-  - [ ] FLOW-4.1 diff 路徑對 INDEX 找 feature；architecture_violation 改用該 feature Constraints + PRODUCT 不做的事 (after: FLOW-2.2) (files: src/hooks.ts)
+  - [x] FLOW-4.1 diff 路徑對 INDEX 找 feature；architecture_violation 改用該 feature Constraints + PRODUCT 不做的事 (after: FLOW-2.2) (files: src/hooks.ts)
         驗收: npm test
   - [ ] FLOW-4.2 新題：改架構卻沒新增 decisions/ (after: FLOW-4.1) (files: src/hooks.ts, src/i18n.ts)
         驗收: npm test

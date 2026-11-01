@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { brief } from './brief.js';
+import { brief, flowIssues } from './brief.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read the user's real keys and prefs
 
@@ -74,4 +74,64 @@ test('brief without docs/cto_jev/features has no flow section; an empty flow ask
   assert.match(empty, /^Features · 1 · 1 planned · sign-off pending: billing \(concept draft, spec missing\)$/m);
   assert.match(empty, /^Ready · none · add tasks to docs\/cto_jev\/features\/<slug>\/TASKS\.md$/m);
   assert.ok(!empty.includes('Blocked'));
+});
+
+const F = 'docs/cto_jev/features';
+const SPEC = 'Status: approved\n## Interface\n## Constraints\n## Internals\n';
+const CONCEPT = 'Status: approved\n## 目的\nWhy\n';
+const PRODUCT = ['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'].map((h) => `## ${h}\nx\n`).join('');
+
+test('flowIssues: missing feature files, (files:) paths not on disk, orphan src dirs, missing headings; brief places the section after Blocked', () => {
+  const root = repo({
+    'src/billing/index.ts': '',
+    'src/orphan/index.ts': '',
+    'src/index.ts': '',
+    'docs/cto_jev/PRODUCT.md': PRODUCT.replace('## 怎麼賺錢\nx\n', ''),
+    [`${F}/billing/CONCEPT.md`]: CONCEPT,
+    [`${F}/billing/SPEC.md`]: SPEC.replace('## Constraints\n', ''),
+    [`${F}/billing/TASKS.md`]: [
+      '- [ ] BILL-1 Invoices',
+      '  - [ ] BILL-1.1 Schema (files: src/billing/)',
+      '  - [ ] BILL-1.2 Webhook (after: BILL-1.1) (files: src/billing/hooks/, src/billing/)',
+      '',
+    ].join('\n'),
+  });
+  assert.deepEqual(flowIssues(root), [
+    'features/billing: missing REVIEW.md',
+    'BILL-1.2: files src/billing/hooks/ not found',
+    'src/orphan/ belongs to no feature',
+    'features/billing/SPEC.md: missing heading ## Constraints',
+    'PRODUCT.md: missing heading ## 怎麼賺錢',
+  ]);
+  const b = brief(root).join('\n');
+  assert.match(b, /^Flow issues · 5\n  features\/billing: missing REVIEW\.md\n/m);
+  assert.ok(b.indexOf('Blocked · 1') < b.indexOf('Flow issues ·'), 'after Blocked');
+  assert.ok(b.indexOf('Flow issues ·') < b.indexOf('Failures in the last'), 'before the tail');
+});
+
+test('flowIssues: a clean flow yields nothing, a long list is capped at 12 lines', () => {
+  const clean = repo({
+    'src/billing/index.ts': '',
+    'src/index.ts': '',
+    'docs/cto_jev/PRODUCT.md': PRODUCT,
+    [`${F}/billing/CONCEPT.md`]: CONCEPT,
+    [`${F}/billing/SPEC.md`]: SPEC,
+    [`${F}/billing/TASKS.md`]: '- [ ] BILL-1 Invoices (files: src/billing/)\n',
+    [`${F}/billing/REVIEW.md`]: '',
+  });
+  assert.deepEqual(flowIssues(clean), []);
+  assert.ok(!brief(clean).join('\n').includes('Flow issues'));
+  assert.deepEqual(flowIssues(repo({ 'README.md': 'no flow\n' })), []);
+
+  const many = repo({
+    [`${F}/a/CONCEPT.md`]: CONCEPT,
+    [`${F}/a/SPEC.md`]: SPEC,
+    [`${F}/a/REVIEW.md`]: '',
+    [`${F}/a/TASKS.md`]: Array.from({ length: 15 }, (_, i) => `- [ ] A-${i + 1} t (files: lib/gone${i}/)`).join('\n') + '\n',
+  });
+  const issues = flowIssues(many);
+  assert.equal(issues.length, 13);
+  assert.equal(issues[0], 'A-1: files lib/gone0/ not found');
+  assert.equal(issues[12], '… 3 more');
+  assert.match(brief(many).join('\n'), /^Flow issues · 15$/m);
 });

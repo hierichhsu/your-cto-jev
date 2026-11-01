@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { test } from 'node:test';
 import { loadConfig } from './brain.js';
 import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, setup } from './setup.js';
+import { FLOW_SKELETON, docsPublisher, setup } from './setup.js';
 import { setupUI } from './setupui.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never touch the user's real keys and prefs
@@ -65,6 +65,21 @@ test('setup --flow: skeleton, skill and rule; idempotent; never overwrites docs;
   assert.ok(!existsSync(join(root, 'CLAUDE.md')));
   assert.ok(!existsSync(join(root, '.claude')));
   assert.ok(existsSync(join(root, 'docs/cto_jev/PRODUCT.md')));
+});
+
+test('setup --flow: a docs site generator config gets a reminder to exclude docs/cto_jev/ from publishing', () => {
+  const root = repo();
+  const run = (flow: boolean) => setup(root, 'en', { agents: ['claude'], flow }).lines.length;
+  assert.equal(docsPublisher(root), undefined);
+  run(true); // first run creates files; the counts below compare steady-state re-runs only
+  const bare = run(true);
+  writeFileSync(join(root, 'mkdocs.yml'), 'site_name: x\n');
+  assert.equal(docsPublisher(root), 'mkdocs.yml');
+  assert.equal(run(true), bare + 1, 'flow on + publisher: exactly one reminder line, on every run');
+  run(false); // turning off removes the flow skill (extra lines once); the next off run is steady state
+  const off = run(false);
+  unlinkSync(join(root, 'mkdocs.yml'));
+  assert.equal(run(false), off, 'flow off: no reminder even with the file');
 });
 
 // ---------- the flow step in the interactive setup, driven by keystrokes through clack ----------

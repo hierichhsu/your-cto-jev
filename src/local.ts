@@ -2,13 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitFiles } from './diff.js';
-import { FLOW_DIR, loadTasks } from './flow.js';
+import { danglingAfter, FLOW_DIR, indexStale, loadTasks } from './flow.js';
 import type { CtoConfig } from './brain.js';
 
 // Checks that need no model: they run first, work without any API key, and cost nothing.
 // Blocking ones end the commit before Jev is asked; warnings are printed next to Jev's.
 
-export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff';
+export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after';
 export interface LocalFinding { kind: LocalKind; block: boolean; detail: string }
 
 const BIG_BYTES = 5 * 1024 * 1024;
@@ -43,6 +43,24 @@ function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
   } catch { return []; }
 }
 
+// The files INDEX.md is computed from: a commit that changes none of them is not nagged about an index that drifted earlier.
+const INDEX_INPUT = new RegExp(`^${FLOW_DIR}/features/[^/]+/(TASKS|CONCEPT|SPEC)\\.md$`);
+
+/**
+ * Warnings: INDEX.md not regenerated after its inputs changed, and `(after:)` ids nobody defines in a TASKS.md this
+ * diff touches (at most 5). Any read error means no finding.
+ */
+function flowIndex(root: string, touched: Set<string>): LocalFinding[] {
+  try {
+    const out: LocalFinding[] = [];
+    if ([...touched].some((f) => INDEX_INPUT.test(f)) && indexStale(root)) out.push({ kind: 'flow_index_stale', block: false, detail: `${FLOW_DIR}/INDEX.md` });
+    const tasks = loadTasks(root);
+    const inTouched = (id: string) => touched.has(tasks.find((t) => t.id === id)?.file ?? '');
+    for (const d of danglingAfter(tasks).filter((d) => inTouched(d.task)).slice(0, 5)) out.push({ kind: 'flow_dangling_after', block: false, detail: `${d.task} → ${d.missing}` });
+    return out;
+  } catch { return []; }
+}
+
 /** Local findings for a diff about to be committed on `branch`. The raw diff: lock files are part of the question here. */
 export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string, branch = currentBranch(root)): LocalFinding[] {
   const out: LocalFinding[] = [];
@@ -63,7 +81,7 @@ export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string,
     const depChange = splitFiles(rawDiff).some((s) => pkgs.some((p) => s.includes(` b/${p}\n`)) && DEP_LINE.test(s));
     if (depChange) out.push({ kind: 'lock_drift', block: false, detail: lockInRepo });
   }
-  out.push(...flowSignoff(root, touched));
+  out.push(...flowSignoff(root, touched), ...flowIndex(root, touched));
   return out;
 }
 

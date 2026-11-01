@@ -159,7 +159,7 @@ The rules also tell the agent to run `cto check` before committing, and never to
 [cto] Nothing staged, checking the working tree instead (9 files, including new untracked files):
   credential_leak         0.03   blocks above 0.5  ok
   test_tampering          0.03   blocks above 0.8  ok
-  architecture_violation  not checked: sprint_goal is empty in .cto.json
+  architecture_violation  not checked: no sprint_goal in .cto.json and no feature Constraints for these files
   code_complexity         2.02   warns above 2  would warn
 [cto] Good to commit.
 ```

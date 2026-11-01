@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { FLOW_DIR, featureIndex } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import type { Agent, HookOutput, PostInput, PreInput, ReplyInput, StopInput } from './agents.js';
@@ -108,6 +109,57 @@ const architectureQ = (goal: string): JevQuestion => ({
   criteria: { true: 'Clearly off-goal or contradicts the sprint goal', false: 'Aligned with or neutral to the sprint goal' },
 });
 
+// ---------- development flow: judge drift against the feature's SPEC instead of the one-line sprint_goal ----------
+
+export interface DriftContext { feature: string; constraints: string; nonGoals: string }
+
+/** Text under `## <heading>` up to the next `## `; '' when the heading is missing. */
+function section(text: string, heading: RegExp): string {
+  const lines = text.split(/\r?\n/);
+  const i = lines.findIndex((l) => heading.test(l));
+  if (i < 0) return '';
+  const rest = lines.slice(i + 1);
+  const end = rest.findIndex((l) => /^##\s/.test(l));
+  return rest.slice(0, end < 0 ? undefined : end).join('\n').trim();
+}
+
+const DRIFT_TEXT_CHARS = 1500;
+const clip = (s: string) => (s.length > DRIFT_TEXT_CHARS ? s.slice(0, DRIFT_TEXT_CHARS) + '…' : s);
+const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return ''; } };
+
+/**
+ * The feature a diff belongs to: per touched file, the feature whose code scope is the longest prefix; the feature that
+ * wins the most files (ties by slug). Its SPEC `## Constraints` plus PRODUCT.md `## 不做的事`. Undefined without the
+ * flow, without a match, or when Constraints is missing or empty: the caller then falls back to sprint_goal.
+ */
+export function driftContext(root: string, files: string[]): DriftContext | undefined {
+  if (!existsSync(join(root, FLOW_DIR, 'features'))) return undefined;
+  const rows = featureIndex(root);
+  const wins = new Map<string, number>();
+  for (const f of files) {
+    let best: { slug: string; len: number } | undefined;
+    for (const r of rows) for (const c of r.code) if (f.startsWith(c) && c.length > (best?.len ?? 0)) best = { slug: r.slug, len: c.length };
+    if (best) wins.set(best.slug, (wins.get(best.slug) ?? 0) + 1);
+  }
+  const feature = [...wins].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+  if (!feature) return undefined;
+  const constraints = section(readOr(join(root, FLOW_DIR, 'features', feature, 'SPEC.md')), /^##\s*Constraints\s*$/);
+  if (!constraints) return undefined;
+  const nonGoals = section(readOr(join(root, FLOW_DIR, 'PRODUCT.md')), /^##\s*不做的事\s*$/);
+  return { feature, constraints: clip(constraints), nonGoals: clip(nonGoals) };
+}
+
+const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQuestion => ({
+  type: 'noul',
+  instructions:
+    `This change belongs to the feature "${feature}". The feature's constraints:\n${constraints}\n` +
+    (nonGoals ? `\nThe product's non-goals (things it will not do):\n${nonGoals}\n` : '') +
+    '\nDoes this change clearly violate one of the listed constraints, or do one of the listed non-goals?',
+  criteria: { true: 'Violates a listed constraint or does a listed non-goal', false: 'Consistent with or unrelated to them' },
+});
+
+const diffPaths = (files: string[]) => files.map((f) => /^diff --git a\/.+? b\/(.+)$/m.exec(f)?.[1]).filter((p): p is string => !!p);
+
 const value = (a?: JevAnswer) => (a?.type === 'noul' ? a.noul : a?.type === 'score' ? a.score : undefined);
 
 function exceeded(answers: Record<string, JevAnswer>, signal: Signal, cfg: CtoConfig): number | undefined {
@@ -169,12 +221,14 @@ export function logDecision(brain: Brain, hook: Decision['hook'], state: string,
 }
 
 /** Run the commit checks on a diff. Shared by the git hook and `cto check`. Mutates brain for provider state and the decision log. */
-export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number, hook: 'commit' | 'check' = 'commit'): Promise<DiffReview | null> {
+export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, lang: Lang, now?: () => number, hook: 'commit' | 'check' = 'commit', root?: string): Promise<DiffReview | null> {
   const files = filterDiff(maskDiff(rawDiff));
   if (!files.length) return null;
   const chunks = chunkDiff(files);
   const soft: Record<string, JevQuestion> = { code_complexity: Q.code_complexity };
-  if (cfg.sprint_goal.trim()) soft.architecture_violation = architectureQ(cfg.sprint_goal.trim());
+  const drift = root ? driftContext(root, diffPaths(files)) : undefined;
+  if (drift) soft.architecture_violation = driftQ(drift);
+  else if (cfg.sprint_goal.trim()) soft.architecture_violation = architectureQ(cfg.sprint_goal.trim());
 
   const notices = new Set<string>();
   const asked = new Set<Signal>();
@@ -224,7 +278,7 @@ export async function gitCommit(rawDiff: string, { root, lang, now }: Env): Prom
     saveBrain(root, brain);
     return { code: 1, stderr: localLines(lang, local.filter((f) => f.block)) };
   }
-  const review = await reviewDiff(rawDiff, cfg, brain, lang, now);
+  const review = await reviewDiff(rawDiff, cfg, brain, lang, now, 'commit', root);
   if (!review) return { ...out, stderr: localLines(lang, local) };
   if (review.failed) brain.skipped_attempts++;
   if (Object.keys(review.scores).length) countCheck(brain, now);

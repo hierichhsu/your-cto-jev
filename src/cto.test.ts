@@ -866,7 +866,7 @@ test('cto check: previews the commit checks on staged or working-tree changes, w
   assert.ok(sent.questions.test_tampering, 'a test file changed, so the test check ran');
   assert.match(out, /credential_leak\s+0\.02\s+blocks above 0\.5\s+ok/);
   assert.match(out, /test_tampering\s+0\.93\s+blocks above 0\.8\s+WOULD BLOCK/);
-  assert.match(out, /architecture_violation\s+not checked: sprint_goal is empty/);
+  assert.match(out, /architecture_violation\s+not checked: no sprint_goal/);
   assert.match(out, /Fix the code, not the tests/);
   assert.equal(loadBrain(repo).blocked_attempts, 0, 'a preview is not counted as a block');
 

@@ -256,7 +256,21 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   lines.push(...conflictLines(root, [...chosen], lang));
   lines.push(t(lang, 'setup_done'));
   if (flow && !savedFlow) lines.push(t(lang, 'setup_flow_next'));
+  // PRODUCT.md holds pricing and business rules: a docs site must not publish docs/cto_jev/. Warn only; config is the user's.
+  const publisher = flow ? docsPublisher(root) : undefined;
+  if (publisher) lines.push(t(lang, 'setup_flow_publish', { file: publisher }));
   return { code: 0, lines };
+}
+
+const PUBLISHER_FILES = ['mkdocs.yml', 'mkdocs.yaml', 'docusaurus.config.js', 'docusaurus.config.ts', 'docusaurus.config.mjs', 'docusaurus.config.cjs', '_config.yml', 'book.toml'];
+
+/** Config file of a documentation site generator at the repo root (relative path), or undefined. */
+export function docsPublisher(root: string): string | undefined {
+  const file = PUBLISHER_FILES.find((f) => existsSync(join(root, f)));
+  if (file) return file;
+  const vp = join(root, 'docs/.vitepress');
+  const cfg = existsSync(vp) ? readdirSync(vp).find((f) => /^config\.\w+$/.test(f)) : undefined;
+  return cfg && `docs/.vitepress/${cfg}`;
 }
 
 /** Notes about other hooks, contrary guidance and duplicate skills; empty when there is nothing to say. */
