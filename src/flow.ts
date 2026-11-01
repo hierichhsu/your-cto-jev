@@ -61,7 +61,7 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
       .trim();
     while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
     const parent = stack[stack.length - 1]?.id;
-    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority && { priority }), ...(seq && { seq }) };
+    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority ? { priority } : {}), ...(seq ? { seq } : {}) };
     if (parent) tasks.find((p) => p.id === parent)?.children.push(t.id);
     tasks.push(t);
     stack.push({ indent, id: t.id });
