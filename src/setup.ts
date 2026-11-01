@@ -7,6 +7,7 @@ import { t, type Lang } from './i18n.js';
 import { loadConfig } from './brain.js';
 import { FLOW_SKILL_PATH, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
 import { findConflicts } from './conflicts.js';
+import { FLOW_DIR } from './flow.js';
 
 const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
@@ -252,10 +253,12 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     try { goal = JSON.parse(readFileSync(cfgPath, 'utf8')).sprint_goal ?? ''; } catch { /* keep empty */ }
   }
   if (flow !== savedFlow && !patchConfig(root, { flow })) lines.push(t(lang, 'setup_flow_bad_json'));
-  if (!String(goal).trim()) lines.push(t(lang, 'setup_sprint'));
+  if (!String(goal).trim() && !flow) lines.push(t(lang, 'setup_sprint')); // with the flow on, drift is judged against SPEC Constraints
   lines.push(...conflictLines(root, [...chosen], lang));
   lines.push(t(lang, 'setup_done'));
-  if (flow && !savedFlow) lines.push(t(lang, 'setup_flow_next'));
+  // The first-run interview is still owed only while a top-level doc is missing or holds an unknown field.
+  const owed = ['PRODUCT.md', 'ARCHITECTURE.md'].some((f) => { try { return /\bunknown\b/.test(readFileSync(join(root, FLOW_DIR, f), 'utf8')); } catch { return true; } });
+  if (flow && !savedFlow && owed) lines.push(t(lang, 'setup_flow_next'));
   // PRODUCT.md holds pricing and business rules: a docs site must not publish docs/cto_jev/. Warn only; config is the user's.
   const publisher = flow ? docsPublisher(root) : undefined;
   if (publisher) lines.push(t(lang, 'setup_flow_publish', { file: publisher }));

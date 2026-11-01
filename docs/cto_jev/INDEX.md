@@ -7,3 +7,4 @@ Read the row of the feature you work on, then its SPEC.md; for each feature in "
 | Feature | Status | Purpose | Code | Depends on | Sign-off |
 |---|---|---|---|---|---|
 | cto-flow | active | 讓宿主 agent（Claude Code、Codex、Gemini CLI、Cursor）扮演專案的 CTO：拆解、派工、驗收，不親自寫 code。cto CLI 守關卡，Jev API 做判斷。 | .agents/skills/cto-flow/, README.md, calibration/, docs/cto_jev/, src/brief.ts, src/docs.ts, src/doctor.ts, src/flow.ts, src/hooks.ts, src/i18n.ts, src/index.ts, src/local.ts, src/setup.ts, src/setupui.ts, src/skill.ts |  | approved/approved |
+| platform | planned | Infrastructure: CI, build, deploy, dependencies |  |  | approved/approved |

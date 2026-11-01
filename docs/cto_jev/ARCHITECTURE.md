@@ -1,6 +1,6 @@
 # your-cto-jev ARCHITECTURE
 
-Status: draft
+Status: approved
 
 ## 技術棧
 

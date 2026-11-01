@@ -1,6 +1,6 @@
 # your-cto-jev PRODUCT
 
-Status: draft
+Status: approved
 
 ## 一句話
 

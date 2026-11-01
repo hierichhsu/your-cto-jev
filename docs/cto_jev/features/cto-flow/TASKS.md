@@ -41,7 +41,7 @@
         驗收: npm test
 
 - [ ] FLOW-6 自己身上用
-  - [ ] FLOW-6.1 寫這個 repo 的 PRODUCT.md、ARCHITECTURE.md，照 SPEC 的初始化流程 (after: FLOW-1.1) (files: docs/cto_jev/)
+  - [x] FLOW-6.1 寫這個 repo 的 PRODUCT.md、ARCHITECTURE.md，照 SPEC 的初始化流程 (after: FLOW-1.1) (files: docs/cto_jev/)
         驗收: manual
   - [ ] FLOW-6.2 README 加「開發流程」一節 (after: FLOW-2.3, FLOW-3.1) (files: README.md)
         驗收: manual
