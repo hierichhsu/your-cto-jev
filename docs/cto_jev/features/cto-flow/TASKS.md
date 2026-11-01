@@ -45,7 +45,7 @@
         驗收: manual
   - [x] FLOW-6.2 README 加「開發流程」一節 (after: FLOW-2.3, FLOW-3.1) (files: README.md)
         驗收: manual
-- [ ] FLOW-7 2026-11-02 release review 的 P2
+- [x] FLOW-7 2026-11-02 release review 的 P2
   - [x] FLOW-7.1 `(after:)` 指到父項時，子項全勾才算完成；`驗收：`全形冒號也認；重複 ID 警告 (files: src/flow.ts, src/flow.test.ts, src/local.ts, src/local.test.ts) (P2)
         驗收: node --test dist/flow.test.js dist/local.test.js
   - [x] FLOW-7.2 brief：writeIndex 失敗 fail open；沒有 src/ 的 repo 不掃孤兒目錄；補 Ready P1→P3 排序測試 (files: src/brief.ts, src/brief.test.ts) (P2)
@@ -56,7 +56,7 @@
         驗收: node --test dist/docs.test.js
   - [x] FLOW-7.5 cto skill 加 `cto index`、`cto docs`；README 的 `--no-flow` 說明改成「移除 skill 與規則，docs/cto_jev/ 還在就照樣檢查」；rules table 用字對齊 FLOW_RULE (files: src/skill.ts, src/skill.test.ts, README.md) (P2)
         驗收: node --test dist/skill.test.js
-  - [ ] FLOW-7.6 SPEC 對齊實作：拿掉「files 路徑不存在 → 列出」；flow_signoff 只在 diff 碰到該 feature 時擋；platform skeleton 由 setup 寫成 approved 的例外 (files: docs/cto_jev/features/cto-flow/SPEC.md) (P2)
+  - [x] FLOW-7.6 SPEC 對齊實作：拿掉「files 路徑不存在 → 列出」；flow_signoff 只在 diff 碰到該 feature 時擋；platform skeleton 由 setup 寫成 approved 的例外 (files: docs/cto_jev/features/cto-flow/SPEC.md) (P2)
         驗收: manual
   - [x] FLOW-7.7 setup 測試：壞掉的 .cto.json 加 --flow 時印訊息、檔案不動 (files: src/setup.test.ts) (P3)
         驗收: node --test dist/setup.test.js
