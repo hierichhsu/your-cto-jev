@@ -23,7 +23,11 @@ export const MEMORY_FILES: { path: string; agents: AgentName[] }[] = [
   { path: 'GEMINI.md', agents: ['gemini'] },
 ];
 
-export const RULES_BLOCK = `${MD_START}
+export const FLOW_SKILL_PATH = '.agents/skills/cto-flow/SKILL.md';
+/** The one extra rule when `cto setup` chose the development flow: the plan lives in docs/cto_jev/. */
+export const FLOW_RULE = `- **Work is planned in \`docs/cto_jev/\`.** Before planning, breaking down, dispatching or accepting work, read \`${FLOW_SKILL_PATH}\`; \`cto brief\` lists what is ready.`;
+
+export const rulesBlock = (flow: boolean) => `${MD_START}
 ## Rules enforced by cto
 
 This repo is guarded by cto: every rule below is checked automatically, and breaking one gets you blocked.
@@ -36,10 +40,11 @@ This repo is guarded by cto: every rule below is checked automatically, and brea
 - **Ask before anything irreversible:** deleting data, force-pushing, rewriting history, dropping a database. (\`destructive_command\` blocks it)
 - **Stay on the sprint goal in \`.cto.json\` and keep changes simple.** (\`architecture_violation\` and \`code_complexity\` warn)
 - **Run \`cto check\` before committing**, and never bypass a block (\`--no-verify\`, editing hooks or thresholds). If a block looks wrong, tell the user.
-
+${flow ? FLOW_RULE + '\n' : ''}
 Details and how to handle a block: \`${SKILL_PATH}\`.
 ${MD_END}
 `;
+export const RULES_BLOCK = rulesBlock(false);
 
 export const SKILL_TEXT = `---
 name: cto
@@ -89,11 +94,99 @@ turns it into a calibration case; you do not run that yourself.
 - \`cto doctor\`: show whether cto is working here (keys, hooks, recent checks).
 `;
 
+// The flow skill: how the host agent plans, dispatches and accepts work under docs/cto_jev/. Written only when
+// `cto setup` chose the flow; the body mirrors docs/cto_jev/features/cto-flow/SPEC.md.
+export const FLOW_SKILL_TEXT = `---
+name: cto-flow
+description: How work is planned, broken down, dispatched, accepted and reviewed in this repo through docs/cto_jev/. Load it whenever you are asked to plan, break down, dispatch or accept work, to start a new feature, or to handle a new request that is bigger than one edit.
+---
+${SKILL_MARK}
+
+# cto-flow: planning and dispatch in this repo
+
+You are the CTO of this repo. The plan lives in \`docs/cto_jev/\`; the only state is the checkboxes in TASKS.md.
+
+## First run
+
+When PRODUCT.md or ARCHITECTURE.md still holds \`unknown\` fields, fill them before anything else. Scan the repo first: README, package.json (or the equivalent manifest), .env.example, the directory tree, existing docs. Fill every field you can and tag each with its source, \`(from: <file>)\`. Then ask the remaining fields in ONE batch of at most five questions, each with your best guess so the user only has to confirm; \`skip\` leaves the field \`unknown\`. Write both files with \`Status: draft\` and stop: the user reads them and flips the status.
+
+## The seven steps
+
+1. **Start with \`cto brief\`.** It regenerates INDEX.md and lists Ready tasks (dependencies all ticked, \`(files:)\` not overlapping another Ready task), Blocked tasks and what blocks them, and the \`unknown\` fields left in PRODUCT.md and ARCHITECTURE.md. Dispatch only when there are Ready tasks; otherwise break work down first.
+2. **Classify a new request against INDEX.md.** Inside an existing feature: only add tasks to its TASKS.md. Touches a feature's \`## Constraints\`: edit SPEC.md, set it back to \`Status: draft\`, stop and wait for the user's sign-off. A new module: create the four files of a new feature. An existing module that has no feature folder yet gets one describing what exists today (a short CONCEPT.md, a SPEC.md with the three sections), \`Status: draft\`, before any task on it. Infrastructure (CI, build, deploy, dependency upgrades): a task under \`features/platform/\`.
+3. **Dispatch with the narrowest reading set.** One sub-agent per Ready task. Give it only: that task's line from TASKS.md, the feature's SPEC.md, and the \`## Interface\` section of each feature it depends on (\`after:\` across features). Nothing else; cross-feature reads stop at Interface.
+4. **Accept by running the check yourself.** Never trust a sub-agent's report. Run the task's \`驗收:\` command yourself; tick the box only when it passes. A task whose check is \`manual\` waits for the user to confirm in the conversation; when you tick it, say it was accepted manually.
+5. **Review with a zero-context reviewer.** When every task of a feature is ticked, dispatch a reviewer that has none of your context. It reads CONCEPT.md, SPEC.md and the diff, and writes REVIEW.md: what it reviewed, how many findings, which tasks they map to. Every finding becomes a new task; nothing is fixed from the review directly.
+6. **Run \`cto docs\` before opening a feature.** It scans markdown outside \`docs/cto_jev/\` and suggests merge / archive / delete without touching files. Bring the suggestions to the user; they decide, then you act.
+7. **Never:** set \`Status: approved\` yourself (only the user does); keep state anywhere other than TASKS.md checkboxes (no side lists, no status files, no \`cto task done\`); guess a PRODUCT.md field. \`unknown\` is a valid value; ask or leave it.
+
+## Directory layout (fixed names, fixed count)
+
+\`\`\`
+docs/cto_jev/
+  INDEX.md                 generated by cto; never hand-edit
+  PRODUCT.md               CTO writes, user signs off
+  ARCHITECTURE.md          CTO writes, user signs off
+  decisions/NNNN-<slug>.md append-only
+  features/<slug>/
+    CONCEPT.md             why: purpose, motivation, business rules, non-goals
+    SPEC.md                how: Interface, Constraints, Internals
+    TASKS.md               parent/child tasks, dependencies, acceptance
+    REVIEW.md              zero-context review: what, how many findings, which tasks
+  archive/<YYYYMM>-<name>/ old documents moved in from elsewhere; agents do not read them
+\`\`\`
+
+Three top-level files, four files per feature. \`features/platform/\` always exists for infrastructure work.
+
+## Sign-off
+
+The first non-heading line of CONCEPT.md, SPEC.md, PRODUCT.md and ARCHITECTURE.md is \`Status: draft\` or \`Status: approved\`. You write the document and stop; the user flips it to approved. A feature with a TASKS.md but a SPEC.md that is not approved blocks commits.
+
+## SPEC.md has exactly three sections
+
+| Section | Reader | Holds |
+|---|---|---|
+| \`## Interface\` | engineers of other features | exported functions, APIs, events, tables |
+| \`## Constraints\` | the drift check | hard business rules, one per line |
+| \`## Internals\` | engineers of this feature | implementation detail |
+
+Another feature reads only your Interface. Changing Interface warns every feature that depends on it.
+
+## TASKS.md syntax
+
+\`\`\`md
+- [ ] FLOW-1 Parent description
+  - [ ] FLOW-1.1 Child description (after: PERM-2) (files: src/x/)
+        驗收: npm test -- x
+\`\`\`
+
+- ID: \`<PREFIX>-<n>\`, children \`<n>.<m>\`. Prefix uppercase, unique across the repo.
+- Parents nest children by indent; a parent has no \`(files:)\` and no \`驗收:\`, and counts as done only when all children are ticked (at most 15).
+- \`(after: ID[, ID])\`: tasks that must be ticked first. An \`after:\` into another feature is a feature dependency.
+- \`(files: path/[, path/])\`: the directories or files the task changes, down to the feature's own directory, never bare \`src/\`. The union of \`(files:)\` is the feature's code scope; there is no other source.
+- \`驗收:\` one runnable command, or \`manual\`.
+
+## Size of a change
+
+- Change inside an existing feature: only add tasks.
+- Touches \`## Constraints\`: SPEC.md back to \`Status: draft\`, wait for sign-off before any task runs.
+- New module: a new feature with its four files.
+- Infrastructure: a task in \`platform\`.
+
+## Shared files
+
+Work that touches shared files (route tables, shared types, migrations) is its own task, run sequentially: it is never marked parallel and never shares a dispatch round with a task that overlaps it. When several tasks each need a shared file (the CLI entry point, a single test file), take it out of their \`(files:)\`, have each sub-agent write its own new file instead (its own test file), and do the shared-file integration yourself after they return. When sub-agents return, run \`git status\` and check that nothing outside the union of their \`(files:)\` changed; revert what did.
+
+## When you cannot spawn sub-agents
+
+Do the Ready tasks yourself, in the order \`cto brief\` lists them, one at a time; accept each one with its \`驗收:\` command before starting the next. Everything else above still applies.
+`;
+
 // Removes exactly what appendMd added: the block, its trailing newline, and the one blank separator line before it.
 const removeMd = (s: string) => s.replace(mdBlockRe, '');
-const appendMd = (s: string) => {
+const appendMd = (s: string, flow: boolean) => {
   const base = removeMd(s);
-  return (base && !base.endsWith('\n') ? base + '\n' : base) + (base.trim() ? '\n' : '') + RULES_BLOCK;
+  return (base && !base.endsWith('\n') ? base + '\n' : base) + (base.trim() ? '\n' : '') + rulesBlock(flow);
 };
 
 function removeFileAndEmptyDirs(root: string, path: string) {
@@ -106,16 +199,16 @@ function removeFileAndEmptyDirs(root: string, path: string) {
 /**
  * Bring guidance in line with the chosen agents: write/refresh the rules block and the skill for them; with
  * removeOthers (exact mode or uninstall) take cto's content out of files no chosen agent reads. Only cto-marked
- * content is ever removed or overwritten.
+ * content is ever removed or overwritten. With flow, the rules block carries the extra docs/cto_jev/ rule.
  */
-export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers: boolean): { written: string[]; removed: string[] } {
+export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers: boolean, flow = false): { written: string[]; removed: string[] } {
   const written: string[] = [];
   const removed: string[] = [];
   for (const m of MEMORY_FILES) {
     const path = join(root, m.path);
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
     if (m.agents.some((a) => chosen.has(a))) {
-      const next = appendMd(current);
+      const next = appendMd(current, flow);
       if (next !== current) { writeFileSync(path, next); written.push(m.path); }
     } else if (removeOthers && mdBlockRe.test(current)) {
       const rest = removeMd(current);
@@ -139,6 +232,24 @@ export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers:
   return { written, removed };
 }
 
+/** Write or refresh the cto-flow skill when the flow is enabled; remove it (only if cto-marked) when not. */
+export function syncFlowSkill(root: string, enabled: boolean): { written: string[]; removed: string[] } {
+  const written: string[] = [];
+  const removed: string[] = [];
+  const skill = join(root, FLOW_SKILL_PATH);
+  if (enabled) {
+    if (!existsSync(skill) || readFileSync(skill, 'utf8') !== FLOW_SKILL_TEXT) {
+      mkdirSync(dirname(skill), { recursive: true });
+      writeFileSync(skill, FLOW_SKILL_TEXT);
+      written.push(FLOW_SKILL_PATH);
+    }
+  } else if (existsSync(skill) && readFileSync(skill, 'utf8').includes(SKILL_MARK)) {
+    removeFileAndEmptyDirs(root, skill);
+    removed.push(FLOW_SKILL_PATH);
+  }
+  return { written, removed };
+}
+
 /** The guidance files the given agents use (what should be committed for them). */
 export function guidancePaths(agentsInUse: Iterable<AgentName>): string[] {
   const set = new Set(agentsInUse);
@@ -146,15 +257,19 @@ export function guidancePaths(agentsInUse: Iterable<AgentName>): string[] {
   return [...MEMORY_FILES.filter((m) => m.agents.some((a) => set.has(a))).map((m) => m.path), SKILL_PATH];
 }
 
-/** Guidance files that are missing or differ from what this version would write, for the given agents. */
-export function staleGuidance(root: string, agentsInUse: AgentName[]): string[] {
+/**
+ * Guidance files that are missing or differ from what this version would write, for the given agents.
+ * Without `flow`, a block with or without the flow rule both count as current (callers that do not know the setting).
+ */
+export function staleGuidance(root: string, agentsInUse: AgentName[], flow?: boolean): string[] {
   if (!agentsInUse.length) return [];
   const stale: string[] = [];
+  const blocks = (flow === undefined ? [false, true] : [flow]).map((f) => rulesBlock(f).trimEnd());
   for (const m of MEMORY_FILES) {
     if (!m.agents.some((a) => agentsInUse.includes(a))) continue;
     const path = join(root, m.path);
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
-    if (!current.includes(RULES_BLOCK.trimEnd())) stale.push(m.path);
+    if (!blocks.some((b) => current.includes(b))) stale.push(m.path);
   }
   const skill = join(root, SKILL_PATH);
   if (!existsSync(skill) || readFileSync(skill, 'utf8') !== SKILL_TEXT) stale.push(SKILL_PATH);

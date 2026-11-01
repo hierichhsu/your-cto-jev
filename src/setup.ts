@@ -4,7 +4,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
 import { t, type Lang } from './i18n.js';
-import { guidancePaths, syncGuidance } from './skill.js';
+import { loadConfig } from './brain.js';
+import { FLOW_SKILL_PATH, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
 import { findConflicts } from './conflicts.js';
 
 const START = '# >>> YOUR CTO JEV START >>>';
@@ -111,7 +112,22 @@ export interface SetupOptions {
   agents?: AgentName[];
   /** The agent list is the full desired set (interactive setup): unpicked agents lose their cto hooks. Default: add only. */
   exact?: boolean;
+  /** Use the cto development flow (cto-flow skill + docs/cto_jev/ skeleton). Undefined keeps the value saved in .cto.json. */
+  flow?: boolean;
 }
+
+// docs/cto_jev/ skeleton, created only for files that do not exist. Headings are the fixed field names the flow checks
+// read (docs/cto_jev/features/cto-flow/SPEC.md); `unknown` is what the agent's first run fills in.
+const fields = (names: string[]) => names.map((n) => `## ${n}\n\nunknown\n`).join('\n');
+export const FLOW_SKELETON: Record<string, string> = {
+  'docs/cto_jev/PRODUCT.md': `# PRODUCT\n\nStatus: draft\n\n${fields(['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'])}`,
+  'docs/cto_jev/ARCHITECTURE.md': `# ARCHITECTURE\n\nStatus: draft\n\n${fields(['技術棧', '目錄地圖', '外部服務與資料', '驗證指令', '不變的原則'])}`,
+  'docs/cto_jev/features/platform/CONCEPT.md': '# platform\n\nStatus: approved\n\n## 目的\n\nInfrastructure: CI, build, deploy, dependencies\n\n## 動機\n\n## 商業規則\n\n## 不做的事\n',
+  'docs/cto_jev/features/platform/SPEC.md': '# platform SPEC\n\nStatus: approved\n\n## Interface\n\n## Constraints\n\n## Internals\n',
+  'docs/cto_jev/features/platform/TASKS.md': '# platform TASKS\n',
+  'docs/cto_jev/features/platform/REVIEW.md': '# platform REVIEW\n\nNot reviewed yet.\n',
+  'docs/cto_jev/decisions/.gitkeep': '',
+};
 
 export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code: number; lines: string[] } {
   const lines: string[] = [];
@@ -161,7 +177,7 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
         lines.push(t(lang, 'uninstall_gitignore'));
       }
     }
-    for (const p of syncGuidance(root, new Set(), true).removed) lines.push(t(lang, 'uninstall_skill', { path: p }));
+    for (const p of [...syncGuidance(root, new Set(), true).removed, ...syncFlowSkill(root, false).removed]) lines.push(t(lang, 'uninstall_skill', { path: p }));
     lines.push(t(lang, 'uninstall_done'));
     return { code: 0, lines };
   }
@@ -198,13 +214,22 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     if (note) lines.push(t(lang, note));
   }
 
-  // 2b. The cto skill (rules for the agent), for the chosen agents.
-  const skills = syncGuidance(root, chosen, !!opts.exact);
-  for (const p of skills.written) lines.push(t(lang, 'setup_skill', { path: p }));
-  const hidden = ignoredByGit(root, guidancePaths(chosen));
+  // 2b. The cto skill (rules for the agent), for the chosen agents; the flow skill and docs skeleton when the flow is on.
+  const savedFlow = loadConfig(root).flow;
+  const flow = opts.flow ?? savedFlow;
+  const skills = syncGuidance(root, chosen, !!opts.exact, flow);
+  const flowSkill = syncFlowSkill(root, flow);
+  for (const p of [...skills.written, ...flowSkill.written]) lines.push(t(lang, 'setup_skill', { path: p }));
+  const hidden = ignoredByGit(root, [...guidancePaths(chosen), ...(flow ? [FLOW_SKILL_PATH] : [])]);
   // Advise git add -f: a .gitignore negation cannot re-include a file whose parent folder is excluded (git rule).
   if (hidden.length) lines.push(t(lang, 'setup_ignored', { list: hidden.join(', '), cmd: `git add -f ${hidden.join(' ')}` }));
-  for (const p of skills.removed) lines.push(t(lang, 'uninstall_skill', { path: p }));
+  for (const p of [...skills.removed, ...flowSkill.removed]) lines.push(t(lang, 'uninstall_skill', { path: p }));
+  if (flow) {
+    // Docs are the user's: never overwritten here, never deleted when the flow is turned off.
+    const created = Object.entries(FLOW_SKELETON).filter(([p]) => !existsSync(join(root, p)));
+    for (const [p, body] of created) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), body); }
+    if (created.length) lines.push(t(lang, 'setup_flow_docs', { list: created.map(([p]) => p).join(', ') }));
+  }
 
   // 3. .gitignore block.
   // Only the entries the file lacks outside our block; a repo that already ignores them all gets no block.
@@ -226,9 +251,11 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   } else {
     try { goal = JSON.parse(readFileSync(cfgPath, 'utf8')).sprint_goal ?? ''; } catch { /* keep empty */ }
   }
+  if (flow !== savedFlow && !patchConfig(root, { flow })) lines.push(t(lang, 'setup_flow_bad_json'));
   if (!String(goal).trim()) lines.push(t(lang, 'setup_sprint'));
   lines.push(...conflictLines(root, [...chosen], lang));
   lines.push(t(lang, 'setup_done'));
+  if (flow && !savedFlow) lines.push(t(lang, 'setup_flow_next'));
   return { code: 0, lines };
 }
 
@@ -275,16 +302,21 @@ export function gitRoot(cwd: string): string | undefined {
 }
 
 /**
- * Set sprint_goal in .cto.json, keeping everything else in the file.
+ * Merge keys into .cto.json, keeping everything else in the file.
  * Refuses (returns false) when the file exists but is not a JSON object: never overwrite someone's thresholds.
  */
-export function setSprintGoal(root: string, goal: string): boolean {
+function patchConfig(root: string, patch: Record<string, unknown>): boolean {
   const path = join(root, '.cto.json');
   let cfg: any = { sprint_goal: '', thresholds: {} };
   if (existsSync(path)) {
     try { cfg = JSON.parse(readFileSync(path, 'utf8')); } catch { return false; }
     if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false;
   }
-  writeFileSync(path, JSON.stringify({ ...cfg, sprint_goal: goal }, null, 2) + '\n');
+  writeFileSync(path, JSON.stringify({ ...cfg, ...patch }, null, 2) + '\n');
   return true;
+}
+
+/** Set sprint_goal in .cto.json, keeping everything else in the file. */
+export function setSprintGoal(root: string, goal: string): boolean {
+  return patchConfig(root, { sprint_goal: goal });
 }

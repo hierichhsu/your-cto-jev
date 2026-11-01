@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { evaluate, providerOrder } from './api.js';
+import { FLOW_DIR, danglingAfter, listFeatures, loadTasks, openTasks, parallelTasks, parseTasks } from './flow.js';
 import { loadBrain, saveBrain } from './brain.js';
 import { chunkDiff, estimateTokens, filterDiff } from './diff.js';
 import { agentPost, agentPre, gitCommit } from './hooks.js';
@@ -375,8 +376,8 @@ test('setup UI, first run: walk the steps, Esc goes back, tick order is priority
     KEY.down, KEY.down, KEY.space, KEY.space, KEY.enter,
     // keys: OpenRouter key, then Cloudflare account + token, which fails verification -> drop it
     'or-key', KEY.enter, 'acc123', KEY.enter, 'cf-tok', KEY.enter, KEY.down, KEY.down, KEY.enter,
-    // sprint goal, then the overview starts on "Save and finish"
-    'ship billing', KEY.enter, KEY.enter,
+    // sprint goal, flow step answered "No", then the overview starts on "Save and finish"
+    'ship billing', KEY.enter, KEY.enter, KEY.enter,
   ]);
   assert.ok(result);
   assert.deepEqual(result.agents, ['cursor', 'gemini']);
@@ -399,8 +400,8 @@ test('setup UI, later run: change one item from the overview and keep the rest; 
     KEY.down, KEY.space, KEY.enter,
     // OpenRouter already has a key and was picked before: not asked again; TypeSafe is new: enter one
     'ts-key', KEY.enter,
-    // back on the overview: move to "Save and finish"
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    // back on the overview: move to "Save and finish" (one more row since the flow item)
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.ok(result);
   assert.deepEqual(result.agents, ['claude'], 'untouched items keep their values');
@@ -595,7 +596,7 @@ test('setup UI: a digit moves a provider to that position; reorder alone asks no
   const reorder = await drive((io) => setupUI(initial, false, 'en', { ...io, probe: okProbe, env: {} }), [
     KEY.down, KEY.enter, // overview -> providers
     KEY.down, KEY.down, '1', KEY.enter, // cursor to Cloudflare, press 1
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // straight back on the overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // straight back on the overview -> save
   ]);
   assert.deepEqual(reorder.result?.providers, ['cloudflare', 'openrouter']);
   assert.ok(!/Keep the current value|OpenRouter API key|Cloudflare Account ID/.test(reorder.out.split('Cloudflare → OpenRouter')[1] ?? ''), 'no key prompts after a pure reorder');
@@ -604,14 +605,14 @@ test('setup UI: a digit moves a provider to that position; reorder alone asks no
     KEY.down, KEY.enter,
     KEY.down, '1', KEY.enter, // TypeSafe was not ticked: pressing 1 ticks it and puts it first
     'ts-key', KEY.enter,
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.deepEqual(pick.result?.providers, ['typesafe', 'openrouter']);
 
   const rotate = await drive((io) => setupUI({ ...initial, providers: ['openrouter'] }, false, 'en', { ...io, probe: okProbe, env: {} }), [
     KEY.down, KEY.down, KEY.enter, // overview -> Change API keys
     KEY.down, KEY.enter, 'or-new', KEY.enter, // "Enter a new one"
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.equal(rotate.result?.keys.OPENROUTER_API_KEY, 'or-new');
   assert.ok(!rotate.out.includes('or-new'), 'new key is not echoed');
@@ -1344,4 +1345,52 @@ test('cto check --base reviews what a branch adds since the merge base, for CI',
   const r = await runCheck(root, 'en', 'main');
   assert.match(r.lines[0], /adds on top of main \(1 files\)/);
   assert.equal(r.code, 0, 'no key: fails open');
+});
+
+test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready/parallel/blocked follow from it', () => {
+  const md = [
+    '# T',
+    '- [ ] CUST-1 顧客列表',
+    '  - [x] CUST-1.1 API (after: PERM-2) (files: src/customers/api/)',
+    '        驗收: npm test -- api',
+    '  - [ ] CUST-1.2 UI (after: CUST-1.1) (files: src/customers/ui/)',
+    '        accept: manual',
+    '  - [ ] CUST-1.3 shared types (after: CUST-1.1, PERM-9) (files: src/types.ts)',
+    '- [ ] CUST-2 report (files: src/customers/)',
+    '- [ ] no id here',
+    '```',
+    '- [ ] CUST-99 example inside a fence',
+    '```',
+  ].join('\n');
+  const t = parseTasks(md, 'customers', 'f/TASKS.md');
+  assert.deepEqual(t.map((x) => x.id), ['CUST-1', 'CUST-1.1', 'CUST-1.2', 'CUST-1.3', 'CUST-2']);
+  const byId = Object.fromEntries(t.map((x) => [x.id, x]));
+  assert.deepEqual(byId['CUST-1'].children, ['CUST-1.1', 'CUST-1.2', 'CUST-1.3']);
+  assert.equal(byId['CUST-1.1'].parent, 'CUST-1');
+  assert.equal(byId['CUST-1.1'].done, true);
+  assert.equal(byId['CUST-1.1'].text, 'API');
+  assert.deepEqual(byId['CUST-1.1'].after, ['PERM-2']);
+  assert.deepEqual(byId['CUST-1.1'].files, ['src/customers/api/']);
+  assert.equal(byId['CUST-1.1'].accept, 'npm test -- api');
+  assert.equal(byId['CUST-1.2'].accept, 'manual');
+  assert.deepEqual(byId['CUST-1.3'].after, ['CUST-1.1', 'PERM-9']);
+  assert.equal(byId['CUST-2'].parent, undefined);
+  assert.equal(byId['CUST-2'].line, 8);
+
+  const perm = parseTasks('- [x] PERM-2 roles (files: src/auth/)\n', 'permissions', 'p/TASKS.md');
+  const { ready, blocked } = openTasks([...perm, ...t]);
+  assert.deepEqual(ready.map((x) => x.id), ['CUST-1.2', 'CUST-2'], 'parents are never ready; done tasks are not open');
+  assert.deepEqual(blocked.map((b) => [b.task.id, b.waitingOn]), [['CUST-1.3', ['PERM-9']]]);
+  assert.deepEqual(parallelTasks(ready).map((x) => x.id), ['CUST-1.2'], 'src/customers/ contains src/customers/ui/, so CUST-2 waits');
+  assert.deepEqual(danglingAfter([...perm, ...t]), [{ task: 'CUST-1.3', missing: 'PERM-9' }]);
+
+  const root = mkdtempSync(join(tmpdir(), 'cto-flow-'));
+  mkdirSync(join(root, FLOW_DIR, 'features', 'b'), { recursive: true });
+  mkdirSync(join(root, FLOW_DIR, 'features', 'a'), { recursive: true });
+  writeFileSync(join(root, FLOW_DIR, 'features', 'a', 'TASKS.md'), '- [ ] A-1 x (files: src/a/)\n');
+  assert.deepEqual(listFeatures(root), ['a', 'b']);
+  const all = loadTasks(root);
+  assert.equal(all.length, 1, 'a feature without TASKS.md is just empty; untracked files count');
+  assert.equal(all[0].feature, 'a');
+  assert.equal(all[0].file, `${FLOW_DIR}/features/a/TASKS.md`);
 });

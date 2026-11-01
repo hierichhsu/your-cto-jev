@@ -1,13 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitFiles } from './diff.js';
+import { FLOW_DIR, loadTasks } from './flow.js';
 import type { CtoConfig } from './brain.js';
 
 // Checks that need no model: they run first, work without any API key, and cost nothing.
 // Blocking ones end the commit before Jev is asked; warnings are printed next to Jev's.
 
-export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift';
+export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff';
 export interface LocalFinding { kind: LocalKind; block: boolean; detail: string }
 
 const BIG_BYTES = 5 * 1024 * 1024;
@@ -21,6 +22,26 @@ const git = (cwd: string, ...args: string[]) => {
 };
 
 export const currentBranch = (root: string) => git(root, 'rev-parse', '--abbrev-ref', 'HEAD');
+
+/**
+ * Features whose TASKS.md has tasks but whose SPEC.md is not `Status: approved`: no work without sign-off.
+ * Only the features this diff touches (their docs folder or a task's `(files:)` scope); any read error means no finding.
+ */
+function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
+  try {
+    const tasks = loadTasks(root);
+    const out: LocalFinding[] = [];
+    for (const slug of new Set(tasks.map((t) => t.feature))) {
+      const dir = `${FLOW_DIR}/features/${slug}/`;
+      const scopes = [dir, ...tasks.filter((t) => t.feature === slug).flatMap((t) => t.files)];
+      if (![...touched].some((f) => scopes.some((s) => f.startsWith(s)))) continue;
+      let spec = '';
+      try { spec = readFileSync(join(root, dir, 'SPEC.md'), 'utf8'); } catch { /* missing SPEC is not approved */ }
+      if (/^Status:\s*(\w+)\s*$/m.exec(spec)?.[1] !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
+    }
+    return out;
+  } catch { return []; }
+}
 
 /** Local findings for a diff about to be committed on `branch`. The raw diff: lock files are part of the question here. */
 export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string, branch = currentBranch(root)): LocalFinding[] {
@@ -42,6 +63,7 @@ export function localCommitChecks(rawDiff: string, cfg: CtoConfig, root: string,
     const depChange = splitFiles(rawDiff).some((s) => pkgs.some((p) => s.includes(` b/${p}\n`)) && DEP_LINE.test(s));
     if (depChange) out.push({ kind: 'lock_drift', block: false, detail: lockInRepo });
   }
+  out.push(...flowSignoff(root, touched));
   return out;
 }
 

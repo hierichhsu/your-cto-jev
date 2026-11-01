@@ -100,6 +100,7 @@ if (args[0] === '--hook' && args[1]) {
   const uninstall = args.includes('--uninstall');
   let chosen: AgentName[] | undefined;
   let goal: string | undefined;
+  let flow = args.includes('--flow') ? true : args.includes('--no-flow') ? false : undefined;
   const root = gitRoot(process.cwd());
   const list = flag('--agents');
   if (args.includes('--refresh')) {
@@ -118,6 +119,7 @@ if (args[0] === '--hook' && args[1]) {
       keys: fileKeys,
       lang: prefs.lang,
       goal: loadConfig(root).sprint_goal,
+      flow: loadConfig(root).flow,
     };
     const firstRun = !wired.length && !providerOrder().length;
     const { setupUI } = await import('./setupui.js'); // clack loads only for interactive setup, never on the hook path
@@ -127,10 +129,11 @@ if (args[0] === '--hook' && args[1]) {
     savePrefs({ provider_order: s.providers, ...(s.lang && { lang: s.lang }) });
     chosen = s.agents;
     goal = s.goal;
+    flow = s.flow ?? false;
   } else if (!uninstall) {
     chosen = detectAgents();
   }
-  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: goal !== undefined });
+  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: goal !== undefined, flow });
   if (!r.code && root && goal !== undefined && goal !== loadConfig(root).sprint_goal && !setSprintGoal(root, goal)) {
     r.lines.push(t(lang, 'setup_goal_bad_json'));
   }
@@ -179,6 +182,22 @@ if (args[0] === '--hook' && args[1]) {
   } else {
     const { brief } = await import('./brief.js');
     console.log(brief(root).join('\n'));
+  }
+} else if (args[0] === 'index' || args[0] === 'docs') {
+  const root = gitRoot(process.cwd());
+  if (!root) {
+    process.stderr.write(t(lang, 'setup_not_git') + '\n');
+    process.exitCode = 1;
+  } else if (args[0] === 'index') {
+    const { writeIndex } = await import('./flow.js');
+    const r = writeIndex(root);
+    console.log(r.changed ? `[cto] ${r.path} updated` : `[cto] ${r.path} is up to date`);
+  } else {
+    const { docsReport } = await import('./docs.js');
+    const { loadBrain, saveBrain } = await import('./brain.js');
+    const brain = loadBrain(root);
+    console.log((await docsReport(root, { brain, lang, timeoutMs: 5000, notices: new Set() })).join('\n'));
+    saveBrain(root, brain); // provider cooldowns, as the hook paths do
   }
 } else if (args[0] === 'doctor') {
   const r = await doctor(process.cwd(), lang);

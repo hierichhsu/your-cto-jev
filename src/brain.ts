@@ -7,6 +7,7 @@ export interface CtoConfig {
   sprint_goal: string;
   test_command: string; // what `cto brief` tells the agent to verify with; detected from the project when empty
   protected_branches: string[]; // commits on these branches and pushes that delete or rewrite them are blocked locally
+  flow: boolean; // the cto development flow (docs/cto_jev/ + cto-flow skill) was chosen in `cto setup`
   thresholds: Record<Signal, number>;
 }
 
@@ -37,6 +38,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
   sprint_goal: '',
   test_command: '',
   protected_branches: [],
+  flow: false,
   thresholds: {
     credential_leak: 0.5,
     destructive_command: 0.7,
@@ -78,6 +80,7 @@ export function loadConfig(root: string): CtoConfig {
     sprint_goal: typeof raw.sprint_goal === 'string' ? raw.sprint_goal : '',
     test_command: typeof raw.test_command === 'string' ? raw.test_command : '',
     protected_branches: Array.isArray(raw.protected_branches) ? raw.protected_branches.filter((b: unknown) => typeof b === 'string') : [],
+    flow: raw.flow === true,
     thresholds: { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) },
   };
 }
