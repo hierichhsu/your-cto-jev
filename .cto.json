@@ -1,0 +1,7 @@
+{
+  "sprint_goal": "",
+  "thresholds": {},
+  "flow": true,
+  "test_command": "npm test",
+  "protected_branches": []
+}
