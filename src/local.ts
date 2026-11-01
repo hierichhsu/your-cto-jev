@@ -2,13 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitFiles } from './diff.js';
-import { danglingAfter, featureIndex, FLOW_DIR, indexStale, loadTasks } from './flow.js';
+import { danglingAfter, duplicateIds, featureIndex, FLOW_DIR, indexStale, loadTasks } from './flow.js';
 import type { CtoConfig } from './brain.js';
 
 // Checks that need no model: they run first, work without any API key, and cost nothing.
 // Blocking ones end the commit before Jev is asked; warnings are printed next to Jev's.
 
-export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after' | 'flow_interface';
+export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after' | 'flow_duplicate_id' | 'flow_interface';
 export interface LocalFinding { kind: LocalKind; block: boolean; detail: string }
 
 const BIG_BYTES = 5 * 1024 * 1024;
@@ -24,7 +24,10 @@ const git = (cwd: string, ...args: string[]) => {
 export const currentBranch = (root: string) => git(root, 'rev-parse', '--abbrev-ref', 'HEAD');
 
 /** A path is in a `(files:)` scope when it is that file or lies under that directory; `src/auth` must not claim `src/authz/`. */
-const inScope = (file: string, scope: string) => file === scope || file.startsWith(scope.endsWith('/') ? scope : `${scope}/`);
+const inScope = (file: string, raw: string) => {
+  const scope = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+  return file === scope || file.startsWith(scope.endsWith('/') ? scope : `${scope}/`);
+};
 
 /**
  * Features whose TASKS.md has tasks but whose SPEC.md is not `Status: approved`: no work without sign-off.
@@ -60,6 +63,8 @@ function flowIndex(root: string, touched: Set<string>): LocalFinding[] {
     const tasks = loadTasks(root);
     const inTouched = (id: string) => touched.has(tasks.find((t) => t.id === id)?.file ?? '');
     for (const d of danglingAfter(tasks).filter((d) => inTouched(d.task)).slice(0, 5)) out.push({ kind: 'flow_dangling_after', block: false, detail: `${d.task} → ${d.missing}` });
+    const dupIn = (id: string) => tasks.some((t) => t.id === id && touched.has(t.file));
+    for (const id of duplicateIds(tasks).filter(dupIn).slice(0, 5)) out.push({ kind: 'flow_duplicate_id', block: false, detail: id });
     return out;
   } catch { return []; }
 }

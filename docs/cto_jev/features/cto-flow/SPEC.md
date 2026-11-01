@@ -91,7 +91,8 @@ CONCEPT.md、SPEC.md、PRODUCT.md、ARCHITECTURE.md 第一個非標題行固定�
 
 ## Constraints
 
-- cto 不寫 CONCEPT、SPEC、TASKS、REVIEW、PRODUCT、ARCHITECTURE 的內容；只寫 INDEX.md。
+- cto 不寫 CONCEPT、SPEC、TASKS、REVIEW、PRODUCT、ARCHITECTURE 的內容；只寫 INDEX.md。例外：`setup --flow` 建空骨架（欄位填 `unknown`），`features/platform/` 的骨架直接是 `Status: approved`，因為它沒有內容要簽。
+- `(files:)` 不存在不算問題：任務做完前檔案本來就不在，做完的任務也可能刪掉它。
 - 任何檢查先規則後 Jev；規則能判的不呼叫 Jev。
 - 封存和刪除只建議，執行由 CTO 在使用者同意後做。
 - `(files:)` 聯集就是 feature 的程式碼範圍；沒有別的來源。
@@ -106,7 +107,8 @@ pre-commit（加進 `local.ts` 的 `localCommitChecks`）：
 
 | 檢查 | 結果 |
 |---|---|
-| `features/x/TASKS.md` 存在，但 `features/x/SPEC.md` 不是 `Status: approved` | 擋 |
+| diff 碰到 feature x（它的資料夾，或任一 task 的 `(files:)` 範圍，以目錄邊界比對），x 的 TASKS.md 有任務 ID，但 `features/x/SPEC.md` 不是 `Status: approved`（大小寫不分） | 擋 |
+| 同一個任務 ID 在 TASKS.md 出現不只一次（只看 diff 碰到的 TASKS.md） | 警告 |
 | INDEX.md 和 TASKS.md 不一致（TASKS 改了、INDEX 沒重新產生） | 警告，提示 `cto index` |
 | `(after:)` 指到不存在的 ID | 警告 |
 | diff 改到某 feature 的 `## Interface` 段 | 警告，列出 INDEX 上依賴它的 feature |
@@ -116,8 +118,7 @@ brief / doctor：
 | 檢查 | 結果 |
 |---|---|
 | `features/x/` 缺檔 | 列出 |
-| `(files:)` 指到的路徑不存在 | 列出 |
-| 程式碼目錄（`src/*` 第一層）不屬於任何 feature | 列出 |
+| 程式碼目錄（`src/*` 第一層）不屬於任何 feature；沒有 `src/` 的 repo 不檢查 | 列出 |
 | 固定標題缺失（PRODUCT、ARCHITECTURE、SPEC 三段） | 列出 |
 
 ### Jev 判斷

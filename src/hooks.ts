@@ -124,7 +124,10 @@ function section(text: string, heading: RegExp): string {
 }
 
 const DRIFT_TEXT_CHARS = 1500;
-const clip = (s: string) => (s.length > DRIFT_TEXT_CHARS ? s.slice(0, DRIFT_TEXT_CHARS) + '…' : s);
+// A skeleton field still reads `unknown`; telling Jev "the non-goals: unknown" only adds noise to the question.
+const clip = (s: string) => (/^[-*\s]*\(?unknown\)?\s*$/i.test(s) ? '' : s.length > DRIFT_TEXT_CHARS ? s.slice(0, DRIFT_TEXT_CHARS) + '…' : s);
+// Without src/ a "code change" is a source file outside dot-directories; lock files, config, images and CI yaml are not.
+const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|kts|rb|php|cs|swift|c|cc|cpp|h|hpp|m|scala|ex|exs|erl|dart|vue|svelte|sql|sh|bash|ps1|lua|zig|hs|ml|clj|pl|r|groovy|tf)$/i;
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return ''; } };
 
 /**
@@ -143,10 +146,10 @@ export function driftContext(root: string, files: string[]): DriftContext | unde
   }
   const feature = [...wins].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
   if (!feature) return undefined;
-  const constraints = section(readOr(join(root, FLOW_DIR, 'features', feature, 'SPEC.md')), /^##\s*Constraints\s*$/);
+  const constraints = clip(section(readOr(join(root, FLOW_DIR, 'features', feature, 'SPEC.md')), /^##\s*Constraints\s*$/));
   if (!constraints) return undefined;
   const nonGoals = section(readOr(join(root, FLOW_DIR, 'PRODUCT.md')), /^##\s*不做的事\s*$/);
-  return { feature, constraints: clip(constraints), nonGoals: clip(nonGoals) };
+  return { feature, constraints, nonGoals: clip(nonGoals) };
 }
 
 export const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQuestion => ({
@@ -159,12 +162,12 @@ export const driftQ = ({ feature, constraints, nonGoals }: DriftContext): JevQue
 });
 
 /**
- * Ask for a decision record when a flow repo changes code under `src/` (any non-markdown file when there is no `src/`)
- * and the same commit adds nothing under `docs/cto_jev/decisions/`. Undefined when the question does not apply.
+ * Ask for a decision record when a flow repo changes code under `src/` (a source file outside dot-directories when there
+ * is no `src/`) and the same commit adds nothing under `docs/cto_jev/decisions/`. Undefined when the question does not apply.
  */
 export function adrQuestion(root: string, paths: string[]): JevQuestion | undefined {
   if (!existsSync(join(root, FLOW_DIR, 'features'))) return undefined;
-  const code = existsSync(join(root, 'src')) ? (p: string) => p.startsWith('src/') : (p: string) => !/\.mdx?$/i.test(p);
+  const code = existsSync(join(root, 'src')) ? (p: string) => p.startsWith('src/') : (p: string) => SOURCE.test(p) && !/(^|\/)\./.test(p);
   // A record is NNNN-slug.md; the .gitkeep that setup leaves in decisions/ is not one.
   if (!paths.some(code) || paths.some((p) => p.startsWith(`${FLOW_DIR}/decisions/`) && /\.md$/i.test(p))) return undefined;
   const principles = clip(section(readOr(join(root, FLOW_DIR, 'ARCHITECTURE.md')), /^##\s*不變的原則\s*$/));

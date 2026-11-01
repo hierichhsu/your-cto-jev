@@ -3,7 +3,23 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { FLOW_DIR, featureIndex, indexStale, renderIndex, writeIndex } from './flow.js';
+import { FLOW_DIR, duplicateIds, featureIndex, indexStale, openTasks, parseTasks, renderIndex, writeIndex } from './flow.js';
+
+test('openTasks: after: on a parent waits for its children, not its own box; full-width 驗收： is read; duplicate ids found', () => {
+  const tasks = parseTasks([
+    '- [ ] A-1 parent',
+    '  - [x] A-1.1 one',
+    '  - [ ] A-1.2 two',
+    '    驗收：npm test -- two',
+    '- [ ] A-2 next (after: A-1)',
+    '- [ ] A-2 again',
+  ].join('\n'), 'a', 'TASKS.md');
+  assert.equal(tasks.find((t) => t.id === 'A-1.2')?.accept, 'npm test -- two');
+  assert.deepEqual(openTasks(tasks).blocked.map((b) => `${b.task.id}:${b.waitingOn}`), ['A-2:A-1']);
+  tasks.find((t) => t.id === 'A-1.2')!.done = true;
+  assert.ok(openTasks(tasks).ready.some((t) => t.text === 'next'), 'all children done: the parent counts as done although its box is empty');
+  assert.deepEqual(duplicateIds(tasks), ['A-2']);
+});
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'cto-index-'));

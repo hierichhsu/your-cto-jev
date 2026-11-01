@@ -28,7 +28,7 @@ const ID = /^([A-Z][A-Z0-9]*-\d+(?:\.\d+)*)\b\s*/;
 const TAG = /\s*\((after|files):\s*([^)]*)\)/g;
 const PRIORITY = /\s*\((P[123])\)/;
 const SEQ = /\s*\(seq\)/;
-const ACCEPT = /^\s*(?:驗收|accept):\s*(.+?)\s*$/i;
+const ACCEPT = /^\s*(?:驗收|accept)[:：]\s*(.+?)\s*$/i;
 const list = (s: string) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
 
 /** Parses one TASKS.md. Items without an id are skipped (they are not tasks the flow can track). */
@@ -90,7 +90,11 @@ const overlaps = (a: string[], b: string[]) => a.some((x) => b.some((y) => x.sta
 /** Open leaf tasks whose `after` tasks are all done. `blocked` says what each of the others is waiting for. */
 export function openTasks(tasks: Task[]): { ready: Task[]; blocked: { task: Task; waitingOn: string[] }[] } {
   const byId = new Map(tasks.map((t) => [t.id, t]));
-  const done = (id: string) => byId.get(id)?.done ?? false;
+  // A parent is done when every child is, whether or not anyone ticked its own box.
+  const done = (id: string): boolean => {
+    const t = byId.get(id);
+    return !t ? false : isLeaf(t) ? t.done : t.children.every(done);
+  };
   const ready: Task[] = [];
   const blocked: { task: Task; waitingOn: string[] }[] = [];
   for (const t of tasks) {
@@ -111,6 +115,12 @@ export function parallelTasks(ready: Task[]): Task[] {
   for (const t of ready) if (!t.seq && !out.some((o) => overlaps(o.files, t.files))) out.push(t);
   return out;
 }
+
+/** Ids defined by more than one task, across all TASKS.md files. */
+export const duplicateIds = (tasks: Task[]) => {
+  const seen = new Set<string>();
+  return [...new Set(tasks.filter((t) => seen.has(t.id) || !seen.add(t.id)).map((t) => t.id))];
+};
 
 /** `after` ids that no task defines. */
 export const danglingAfter = (tasks: Task[]) => {

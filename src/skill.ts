@@ -92,6 +92,8 @@ turns it into a calibration case; you do not run that yourself.
 - \`cto brief\`: sprint goal, verify command, open plan items, and this repo's lessons. Run it before you start.
 - \`cto check\`: preview the commit checks on your current changes.
 - \`cto doctor\`: show whether cto is working here (keys, hooks, recent checks).
+- \`cto index\`: regenerate \`docs/cto_jev/INDEX.md\` (only in a repo that uses the development flow).
+- \`cto docs\`: list stale planning markdown outside \`docs/cto_jev/\` with a suggestion per file; changes nothing.
 `;
 
 // The flow skill: how the host agent plans, dispatches and accepts work under docs/cto_jev/. Written only when

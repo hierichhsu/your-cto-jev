@@ -66,6 +66,8 @@ test('cto docs: rules classify stale planning markdown and leave the rest alone'
   assert.match(out.at(-1)!, /only suggests/);
 
   assert.deepEqual(renderDocs([]), ['No stale planning documents outside docs/cto_jev/.']);
+  const zh = renderDocs(got, 'zh-TW');
+  assert.ok(zh.includes('刪除') && zh.includes('要看一下') && /只給建議/.test(zh.at(-1)!), 'zh-TW titles and footer');
 });
 
 test('cto docs: Jev turns ask candidates into delete / merge / archive, leaves user docs alone', async () => {

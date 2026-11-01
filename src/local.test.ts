@@ -25,6 +25,9 @@ test('flow_signoff: a touched feature with tasks but no approved SPEC blocks; un
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x, src/one.ts)\n');
   assert.deepEqual(kinds(sec('src/xy/a.ts')), [], 'a scope without trailing slash does not claim a sibling directory');
   assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm'], 'the directory itself and a single-file scope');
+  writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src\\x, ./src/z/)\n');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'backslash scope');
+  assert.deepEqual(kinds(sec('src/z/a.ts')), ['flow_signoff!:perm'], './ scope');
   spec('Approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), [], 'status is case-insensitive');
   spec('approved');
@@ -51,6 +54,9 @@ test('flow_index_stale / flow_dangling_after: warn only on commits that touch th
   writeIndex(root);
   assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_dangling_after:PERM-2 → NOPE-1'], 'index regenerated and committed along');
   assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/other/TASKS.md`)), [], 'dangling id lives in a TASKS.md this diff does not touch');
+  writeFileSync(join(root, tasksMd), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x/)\n- [ ] PERM-1 again\n');
+  writeIndex(root);
+  assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_duplicate_id:PERM-1'], 'duplicate id in a touched TASKS.md');
 });
 
 test('flow_interface: warn when a SPEC diff touches the ## Interface section, naming the features that depend on it', () => {

@@ -80,12 +80,12 @@ export function flowIssues(root: string): string[] {
   }
   const tasks = loadTasks(root);
   // No "(files:) not found" check: a task's files do not exist until it is done, and a done task may have deleted them.
-  // First-level code directories (under src/ when it exists) that no task's (files:) entry points into.
-  const base = existsSync(join(root, 'src')) ? 'src/' : '';
+  // Directories under src/ that no task's (files:) entry points into. Without src/ the repo root holds too much that is
+  // not feature code (target/, vendor/, scripts/, cmd/) to call any of it an orphan.
   const owned = tasks.flatMap((t) => t.files.map((f) => `${f.replace(/\\/g, '/')}/`));
-  const orphans = readdirSync(join(root, base), { withFileTypes: true })
+  const orphans = !existsSync(join(root, 'src')) ? [] : readdirSync(join(root, 'src'), { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !NOT_CODE.has(d.name))
-    .map((d) => `${base}${d.name}/`)
+    .map((d) => `src/${d.name}/`)
     .filter((dir) => !owned.some((f) => f.startsWith(dir)))
     .sort();
   if (orphans.length > 3) out.push(`${orphans.join(', ')} belong to no feature`);
@@ -107,7 +107,7 @@ export function issueTotal(issues: string[]): number {
 /** The development flow (docs/cto_jev/features): Ready and Blocked tasks, pending sign-offs, unknown fields. Empty when the repo does not use it. */
 export function flowLines(root: string): string[] {
   if (!existsSync(join(root, FLOW_DIR, 'features'))) return [];
-  writeIndex(root);
+  try { writeIndex(root); } catch { /* read-only checkout (CI): brief still reads, it just cannot refresh INDEX.md */ }
   const rows = featureIndex(root);
   const tasks = loadTasks(root);
   const ids = new Set(tasks.map((t) => t.id));

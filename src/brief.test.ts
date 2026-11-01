@@ -65,6 +65,23 @@ test('brief shows the flow: ready in order, run-together set, overlap note, bloc
   assert.ok(b.indexOf('Features ·') < b.indexOf('Open plan items'), 'flow section comes first');
 });
 
+test('brief Ready: P1 first, untagged as P2, P3 last, file order within a rank; (seq) never in the run-together set', () => {
+  const lines = brief(repo({
+    'docs/cto_jev/features/a/TASKS.md': [
+      '- [ ] A-1 polish (P3) (files: src/a1/)',
+      '- [ ] A-2 normal (files: src/a2/)',
+      '- [ ] A-3 urgent (P1) (files: src/a3/)',
+      '- [ ] A-4 migrate (seq) (P1) (files: db/)',
+      '- [ ] A-5 also normal (P2) (files: src/a5/)',
+      '',
+    ].join('\n'),
+  }));
+  const ids = lines.filter((l) => /^  A-\d /.test(l)).map((l) => l.trim().split(/\s+/)[0]);
+  assert.deepEqual(ids, ['A-3', 'A-4', 'A-2', 'A-5', 'A-1']);
+  assert.match(lines.join('\n'), /^Ready · 5 \(run together: A-3, A-2, A-5, A-1\)$/m);
+  assert.match(lines.join('\n'), /^  A-4\s+P1 migrate .*\(seq: runs alone\)$/m);
+});
+
 test('brief without docs/cto_jev/features has no flow section; an empty flow asks for tasks', () => {
   const plain = brief(repo({ 'PLAN.md': '- [ ] add retry\n', 'docs/cto_jev/PRODUCT.md': 'x: unknown\n' })).join('\n');
   assert.ok(!/Features ·|Ready ·|Unknown fields/.test(plain));
@@ -81,7 +98,7 @@ const SPEC = 'Status: approved\n## Interface\n## Constraints\n## Internals\n';
 const CONCEPT = 'Status: approved\n## 目的\nWhy\n';
 const PRODUCT = ['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'].map((h) => `## ${h}\nx\n`).join('');
 
-test('flowIssues: missing feature files, (files:) paths not on disk, orphan src dirs, missing headings; brief places the section after Blocked', () => {
+test('flowIssues: missing feature files, orphan src dirs, missing headings; brief places the section after Blocked', () => {
   const root = repo({
     'src/billing/index.ts': '',
     'src/orphan/index.ts': '',

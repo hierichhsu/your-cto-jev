@@ -67,6 +67,15 @@ test('setup --flow: skeleton, skill and rule; idempotent; never overwrites docs;
   assert.ok(existsSync(join(root, 'docs/cto_jev/PRODUCT.md')));
 });
 
+test('setup --flow with a broken .cto.json: says so, leaves the file byte-for-byte', () => {
+  const root = repo();
+  const broken = '{ "sprint_goal": "x", ';
+  writeFileSync(join(root, '.cto.json'), broken);
+  const r = setup(root, 'en', { agents: ['claude'], flow: true });
+  assert.ok(r.lines.some((l) => /\.cto\.json is not valid JSON, so the development flow choice was not saved/.test(l)), r.lines.join('\n'));
+  assert.equal(readFileSync(join(root, '.cto.json'), 'utf8'), broken);
+});
+
 test('setup --flow: a docs site generator config gets a reminder to exclude docs/cto_jev/ from publishing', () => {
   const root = repo();
   const run = (flow: boolean) => setup(root, 'en', { agents: ['claude'], flow }).lines.length;

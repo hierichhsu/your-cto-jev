@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { evaluate, type EvalCtx } from './api.js';
 import { estimateTokens } from './diff.js';
 import { featureIndex, renderIndex } from './flow.js';
+import { t, type Lang } from './i18n.js';
 import { maskSensitiveState } from './masker.js';
 import { BOX } from './turn.js';
 import type { JevQuestion } from './types.js';
@@ -107,24 +108,24 @@ export async function judgeDocs(root: string, candidates: DocCandidate[], ctx: E
 
 /** The whole `cto docs` report: rules, then Jev on what the rules left open. No network call when nothing is `ask`. */
 export async function docsReport(root: string, ctx: EvalCtx): Promise<string[]> {
-  return renderDocs(await judgeDocs(root, docCandidates(root), ctx));
+  return renderDocs(await judgeDocs(root, docCandidates(root), ctx), ctx.lang);
 }
 
-const GROUPS: [DocVerdict, string][] = [['delete', 'Delete'], ['merge', 'Merge into a feature'], ['archive', 'Archive to docs/cto_jev/archive/'], ['ask', 'Needs a look']];
+const GROUPS: DocVerdict[] = ['delete', 'merge', 'archive', 'ask'];
 
-export function renderDocs(c: DocCandidate[]): string[] {
-  if (!c.length) return ['No stale planning documents outside docs/cto_jev/.'];
+export function renderDocs(c: DocCandidate[], lang: Lang = 'en'): string[] {
+  if (!c.length) return [t(lang, 'docs_none')];
   const L: string[] = [];
-  for (const [verdict, title] of GROUPS) {
+  for (const verdict of GROUPS) {
     const rows = c.filter((d) => d.verdict === verdict);
     if (!rows.length) continue;
     if (L.length) L.push('');
-    L.push(title);
+    L.push(t(lang, `docs_group_${verdict}`));
     for (const d of rows) {
       const age = d.lastModifiedDays === null ? 'age unknown' : `${d.lastModifiedDays}d old`;
       L.push(`  ${d.file}  ${d.open} open · ${d.done} done · ${age}  — ${d.reason}`);
     }
   }
-  L.push('', 'cto only suggests: nothing was moved or deleted.');
+  L.push('', t(lang, 'docs_footer'));
   return L;
 }

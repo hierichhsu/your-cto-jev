@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLOW_DIR } from './flow.js';
-import { driftContext, gitCommit } from './hooks.js';
+import { adrQuestion, driftContext, gitCommit } from './hooks.js';
 
 process.env.CTO_NO_UPDATE_CHECK = '1';
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read or write the user's real keys and prefs
@@ -29,7 +29,20 @@ test('driftContext: feature by code scope, SPEC constraints and PRODUCT non-goal
   assert.deepEqual(driftContext(root, ['src/pay/a.ts']), { feature: 'pay', constraints: '- never store card numbers', nonGoals: '- no crypto' });
   assert.equal(driftContext(root, ['src/other.ts']), undefined);
   assert.equal(driftContext(flowRepo(''), ['src/pay/a.ts']), undefined, 'empty Constraints -> nothing to judge against');
+  assert.equal(driftContext(flowRepo('unknown'), ['src/pay/a.ts']), undefined, 'skeleton Constraints -> sprint_goal fallback');
+  writeFileSync(join(root, FLOW_DIR, 'PRODUCT.md'), 'Status: draft\n\n## 不做的事\n\nunknown\n');
+  assert.equal(driftContext(root, ['src/pay/a.ts'])?.nonGoals, '', 'a skeleton "unknown" is not a non-goal');
   assert.equal(driftContext(mkdtempSync(join(tmpdir(), 'cto-')), ['src/pay/a.ts']), undefined, 'no flow folder');
+});
+
+test('adrQuestion: without src/, only source files outside dot-directories count; a decisions/*.md record (not .gitkeep) silences it', () => {
+  const root = flowRepo(); // no src/ directory on disk
+  assert.equal(adrQuestion(root, ['package-lock.json', '.cto.json', '.github/workflows/ci.yml', 'logo.png', 'README.md']), undefined);
+  assert.ok(adrQuestion(root, ['cmd/server/main.go']));
+  assert.ok(adrQuestion(root, ['cmd/server/main.go', `${FLOW_DIR}/decisions/.gitkeep`]), '.gitkeep is not a record');
+  assert.equal(adrQuestion(root, ['cmd/server/main.go', `${FLOW_DIR}/decisions/0001-queue.md`]), undefined);
+  writeFileSync(join(root, FLOW_DIR, 'ARCHITECTURE.md'), 'Status: draft\n\n## 不變的原則\n\nunknown\n');
+  assert.ok(!adrQuestion(root, ['cmd/server/main.go'])!.instructions.includes('unknown'), 'skeleton principles stay out of the prompt');
 });
 
 test('git-commit: architecture question quotes the feature constraints when the diff hits a feature, else the sprint goal', async () => {

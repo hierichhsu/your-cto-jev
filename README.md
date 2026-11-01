@@ -130,7 +130,7 @@ Other forms:
 cto setup --agents claude,cursor --yes   # non-interactive (scripts, CI); only adds, never removes
 cto setup --refresh                      # re-write hooks and rules for the agents already set up
 cto setup --uninstall                    # remove every cto hook, rules block and skill again
-cto setup --flow                         # turn on the development flow (docs/cto_jev, cto-flow skill); --no-flow turns it off
+cto setup --flow                         # turn on the development flow (docs/cto_jev, cto-flow skill); --no-flow removes the skill and rule
 cto doctor                               # is it actually working?
 cto brief                                # what an agent should know before it starts here
 cto check                                # preview the commit checks on your current changes
@@ -156,7 +156,7 @@ The rules go where agents always look: a short marked block appended to `CLAUDE.
 | Ask before anything irreversible | `destructive_command` blocks the command |
 | Stay on the sprint goal, or inside the feature's SPEC | `architecture_violation` warns |
 | Keep it simple | `code_complexity` warns |
-| No work without sign-off (flow only) | `flow_signoff` blocks the commit |
+| Work is planned in `docs/cto_jev/` (flow only); no work without sign-off | `flow_signoff` blocks the commit |
 
 The rules also tell the agent to run `cto check` before committing, and never to bypass a block with `--no-verify` or by editing thresholds. Commit these files so the whole team's agents follow the same rules. `cto update` refreshes them (and any new hooks) in the repo you run it from; `cto doctor` flags a repo whose rules or hooks are older than the installed version, and `cto setup --refresh` brings it up to date.
 
@@ -356,7 +356,7 @@ Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. Th
 Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `architecture_undocumented` 0.85, `code_complexity` 2.
 
 - **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`. Under the development flow a commit that falls inside a feature's code scope is judged against that feature's SPEC instead; the goal is the fallback.
-- **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value.
+- **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value. `--no-flow` removes the cto-flow skill and its rule but keeps `docs/cto_jev/`; while `docs/cto_jev/features/` exists, the sign-off, index and drift checks keep running. Delete or archive that folder to stop them.
 - **`test_command`**: what `cto brief` tells the agent to verify with, for example `"pnpm test"`. Detected from the project when empty.
 - **`protected_branches`**: for example `["main", "release"]`. Commits on them and pushes that delete or rewrite them are blocked locally, no key needed. Empty by default.
 - **Thresholds**: Jev returns a probability from 0 to 1. `code_complexity` is the exception: it is a score from 0 (clean) to 4 (unmaintainable).
