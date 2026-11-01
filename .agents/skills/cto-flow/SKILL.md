@@ -68,13 +68,24 @@ REVIEW.md: created empty with one line saying it is pending.
         驗收: manual
 ```
 
-IDs: `<PREFIX>-<n>`, children `<n>.<m>`, prefix uppercase and unique across the repo. A parent has no `(files:)` and no acceptance line; it is done when all children (at most 15) are ticked. `accept:` is accepted as a synonym for `驗收:`. A review finding carries `(P1)` (fix before the release) or `(P2)` (may follow it); brief lists P1 first and P2 last.
+IDs: `<PREFIX>-<n>`, children `<n>.<m>`, prefix uppercase and unique across the repo. A parent has no `(files:)` and no acceptance line; it is done when all children (at most 15) are ticked. `accept:` is accepted as a synonym for `驗收:`.
+
+Two more tags, on any task:
+- **Priority** `(P1)` / `(P2)` / `(P3)`. P1: do first, and nothing releases while one is open (blockers, review findings that are wrong or unsafe). P2: normal work; the default when the tag is absent. P3: when nothing else is left (polish, nice-to-have). brief lists Ready as P1, then P2, then P3.
+- **Sync** `(seq)`: this task runs alone, whatever its `(files:)` say. Use it for migrations, shared types, route tables, anything that touches state every other task reads. Without the tag a task may run together with any Ready task whose `(files:)` do not overlap its own; brief computes that and shows the "run together" set.
+
+```md
+- [ ] CUST-3 Add customer_tier column (P1) (seq) (files: db/migrations/)
+      驗收: npm run migrate:test
+- [ ] CUST-4 Tier badge in the list (P3) (after: CUST-3) (files: src/customers/ui/)
+      驗收: manual
+```
 
 ## cto-jev work
 
 **When:** the user says "cto-jev work" or "continue", or `cto brief` shows Ready tasks.
 
-Branches: work on `review` (or a feature branch merged into it). `main` only receives `cto-jev release`. Never commit to `main` directly; ask the user to add it to `protected_branches` in `.cto.json` if it is not there.
+Branches: work on an integration branch (`review`, or whatever the repo calls it; see the table under `cto-jev release`). The release branch only receives `cto-jev release`. Never commit to it directly; ask the user to add it to `protected_branches` in `.cto.json` if it is not there.
 
 1. `cto brief`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
 2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the `## Interface` of each feature it depends on, the list of files it may touch, and "do not edit anything else; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
@@ -87,14 +98,25 @@ Without sub-agents: do the Ready tasks yourself in brief's order, one at a time,
 
 ## cto-jev release
 
-**When:** the user says "cto-jev release", or asks to merge review into main / ship / deploy.
+**When:** the user says "cto-jev release", or asks to merge, ship or deploy.
 
-1. Everything to be released is on the review branch and every P1 task is ticked. If not, stop and list what is open.
-2. Dispatch a reviewer with none of your context over the whole unreleased diff (`git diff main...review`) plus the SPECs of every feature it touches. Findings get P1 or P2 like a wave review, written into TASKS.md.
-3. P1 findings are fixed (through `cto-jev work`) before anything else; P2 findings stay as tasks for after the release. Tell the user both lists and let them decide the P2 ones that should move up.
-4. `cto check --base main` must pass. Then merge review into main (the user does the merge or the PR; you prepare it). Append one REVIEW.md entry per feature released: date, "release", counts, task ids.
+First decide what "release" means in this repo. Look at `git branch -a` and the deploy config once, tell the user which row applies, and keep it:
 
-**Stop:** before the merge, with the P1/P2 lists in front of the user.
+| The repo has | Work goes to | Release means | Review scope |
+|---|---|---|---|
+| `main` only, one developer | `main` directly, after the wave review in `cto-jev work` | a tag (`vX.Y.Z`) or a deploy from `main` | `git diff <last tag>..HEAD` |
+| `main` + feature branches | a branch per feature or per wave | the PR into `main` | the PR diff, `cto check --base main` |
+| `main` + an integration branch (`review`, `develop`, `staging`) | the integration branch | merging it into `main` (what deploys to production) | `git diff main...<integration>` |
+| `staging` and `live` (or `production`) deploy branches | `staging` | promoting `staging` to `live` | `git diff live...staging`; a second, lighter release review |
+
+Whatever the row, one rule holds: the branch that reaches users receives nothing without a release review, and `protected_branches` in `.cto.json` names it.
+
+1. Everything to be released is on the work branch and every P1 task is ticked. If not, stop and list what is open.
+2. Dispatch a reviewer with none of your context over the whole unreleased diff (the review scope above) plus the SPECs of every feature it touches. Findings get P1, P2 or P3 like a wave review, written into TASKS.md.
+3. P1 findings are fixed (through `cto-jev work`) before anything else; P2 and P3 stay as tasks for after the release. Tell the user both lists and let them decide which P2 should move up.
+4. `cto check --base <release branch>` must pass. Then prepare the merge, PR or tag; the user performs it. Append one REVIEW.md entry per feature released: date, "release", counts, task ids.
+
+**Stop:** before the merge, with the P1/P2/P3 lists in front of the user.
 
 ## cto-jev docs
 

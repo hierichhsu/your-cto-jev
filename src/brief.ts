@@ -121,8 +121,8 @@ export function flowLines(root: string): string[] {
   const ids = new Set(tasks.map((t) => t.id));
   const open = openTasks(tasks);
   const blocked = open.blocked;
-  // Review findings first: P1 before everything, P2 after the ordinary work. Stable, so file order holds within a rank.
-  const rank = (t: Task) => (t.priority === 'P1' ? 0 : t.priority === 'P2' ? 2 : 1);
+  // P1 before everything, P3 after everything; no tag means P2. Stable, so file order holds within a rank.
+  const rank = (t: Task) => (t.priority === 'P1' ? 0 : t.priority === 'P3' ? 2 : 1);
   const ready = [...open.ready].sort((a, b) => rank(a) - rank(b));
   const together = parallelTasks(ready);
   const idW = Math.max(8, ...tasks.map((t) => t.id.length));
@@ -138,7 +138,8 @@ export function flowLines(root: string): string[] {
     : `Ready · none${tasks.length ? '' : ` · add tasks to ${FLOW_DIR}/features/<slug>/TASKS.md`}`);
   for (const t of ready) {
     const first = together.includes(t) ? undefined : together.find((o) => overlaps(o.files, t.files));
-    L.push(line(t, `files ${col(t.files.join(', ') || '-', 22)}  accept: ${(t.accept ?? '-').slice(0, 16)}${first ? `  (overlaps ${first.id}: run after)` : ''}`));
+    const note = t.seq ? '  (seq: runs alone)' : first ? `  (overlaps ${first.id}: run after)` : '';
+    L.push(line(t, `files ${col(t.files.join(', ') || '-', 22)}  accept: ${(t.accept ?? '-').slice(0, 16)}${note}`));
   }
   if (blocked.length) {
     L.push('', `Blocked · ${blocked.length}`);

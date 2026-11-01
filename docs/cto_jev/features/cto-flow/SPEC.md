@@ -51,12 +51,21 @@ CONCEPT.md、SPEC.md、PRODUCT.md、ARCHITECTURE.md 第一個非標題行固定�
 - `(after: ID[, ID])`：必須先完成的 task。跨 feature 的 `after` 就是 feature 依賴。
 - `(files: path/[, path/])`：這個 task 會改的目錄或檔案。寫到 feature 自己的目錄那層，不寫 `src/`。
 - `驗收:` 一行可執行指令，或 `manual`。`manual` 的 task 由使用者在對話中確認後 CTO 才打勾，打勾時說明是人工驗收。
-- `(P1)` / `(P2)`：review 發現的優先度。P1 發版前必修，P2 可以發版後。brief 的 Ready 先列 P1、再列一般、最後 P2。
-- 碰共用檔（routes 表、types、migration）的工作切成獨立 task，不標可平行。
+- `(P1)` / `(P2)` / `(P3)`：任何 task 都能標。P1 先做、有未勾的 P1 不能 release；P2 一般，沒標就是 P2；P3 最後。brief 的 Ready 依 P1 → P2 → P3 排。
+- `(seq)`：這個 task 一定單獨跑，不管 `(files:)` 重不重疊。migration、共用 types、routes 表用它。沒標的 task，`(files:)` 不重疊就可以和別的 Ready task 同時跑，brief 算出來顯示為 run together。
 
 ### 分支與 review
 
-- 工作在 `review` 分支（或合進 review 的 feature 分支）；`main`／`master` 只收 release 的合併。建議 `.cto.json` 設 `protected_branches: ["main"]`。
+- release 的定義看 repo 有什麼分支，`cto-jev release` 第一次跑時判斷一次、告訴使用者、之後固定：
+
+  | repo 有 | 工作在 | release 是 | review 範圍 |
+  |---|---|---|---|
+  | 只有 `main`、一個人 | `main`（每波 commit 前照樣 review） | 打 tag 或從 main 部署 | `git diff <上個 tag>..HEAD` |
+  | `main` + feature 分支 | 每個 feature／每波一個分支 | 進 `main` 的 PR | PR 的 diff，`cto check --base main` |
+  | `main` + 整合分支（`review`、`develop`、`staging`） | 整合分支 | 合進 `main` | `git diff main...<整合分支>` |
+  | `staging` + `live`／`production` | `staging` | staging 升到 live | `git diff live...staging`，第二次較輕的 release review |
+
+  不變的一條：會到使用者手上的那個分支，沒有 release review 不收任何東西；它就是 `.cto.json` 的 `protected_branches`。
 - **每一波 commit 之前先 code review**：零上下文 reviewer 讀該波 diff 和 feature 的 SPEC；P1 發現修掉再 commit，P2 發現寫成 `(P2)` task。
 - **release 之前 review 全部**：把 review 分支對 main 的整個 diff（所有還沒發的 commit）一次 review，發現分 P1／P2 進 TASKS.md；P1 全勾、`cto check --base main` 過，才合進 main。
 - REVIEW.md 每筆記：日期、範圍（哪一波或哪次 release）、發現數、對應 task ID 與優先度。

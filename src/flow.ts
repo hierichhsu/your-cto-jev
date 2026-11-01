@@ -20,12 +20,14 @@ export interface Task {
   after: string[];
   files: string[];
   accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual" means a human confirms
-  priority?: 'P1' | 'P2'; // review findings: P1 must be fixed before the release, P2 may follow it
+  priority?: 'P1' | 'P2' | 'P3'; // P1 first and before any release, P2 (the default when absent) normal, P3 when nothing else is left
+  seq?: boolean; // (seq): never run alongside another task, whatever its (files:) say
 }
 
 const ID = /^([A-Z][A-Z0-9]*-\d+(?:\.\d+)*)\b\s*/;
 const TAG = /\s*\((after|files):\s*([^)]*)\)/g;
-const PRIORITY = /\s*\((P[12])\)/;
+const PRIORITY = /\s*\((P[123])\)/;
+const SEQ = /\s*\(seq\)/;
 const ACCEPT = /^\s*(?:驗收|accept):\s*(.+?)\s*$/i;
 const list = (s: string) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
 
@@ -51,13 +53,15 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
     const after: string[] = [];
     const files: string[] = [];
     let priority: Task['priority'];
+    let seq = false;
     const text = m[3].slice(idm[0].length)
       .replace(TAG, (_, k, v) => { (k === 'after' ? after : files).push(...list(v)); return ''; })
       .replace(PRIORITY, (_, p) => { priority = p; return ''; })
+      .replace(SEQ, () => { seq = true; return ''; })
       .trim();
     while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
     const parent = stack[stack.length - 1]?.id;
-    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority && { priority }) };
+    const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority && { priority }), ...(seq && { seq }) };
     if (parent) tasks.find((p) => p.id === parent)?.children.push(t.id);
     tasks.push(t);
     stack.push({ indent, id: t.id });
@@ -98,10 +102,13 @@ export function openTasks(tasks: Task[]): { ready: Task[]; blocked: { task: Task
   return { ready, blocked };
 }
 
-/** Ready tasks that can run at the same time: taken in file order, skipping any whose files overlap one already taken. */
+/**
+ * Ready tasks that can run at the same time: taken in the given order, skipping any whose files overlap one already
+ * taken and any marked (seq), which always runs on its own.
+ */
 export function parallelTasks(ready: Task[]): Task[] {
   const out: Task[] = [];
-  for (const t of ready) if (!out.some((o) => overlaps(o.files, t.files))) out.push(t);
+  for (const t of ready) if (!t.seq && !out.some((o) => overlaps(o.files, t.files))) out.push(t);
   return out;
 }
 

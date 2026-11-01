@@ -232,7 +232,7 @@ A task is one checklist line, and everything else is computed from it:
         accept: manual
 ```
 
-`(after:)` says what must be ticked first, across features too; `(files:)` says what the task changes. From that, `cto brief` lists what is ready, what can run at the same time (no overlapping files), what is blocked and on whom:
+`(after:)` says what must be ticked first, across features too; `(files:)` says what the task changes. Two optional tags: `(P1)`/`(P2)`/`(P3)` for priority (P1 first and nothing releases while one is open; no tag means P2; P3 last) and `(seq)` for a task that must run alone (migrations, shared types). From that, `cto brief` lists what is ready in priority order, what can run at the same time (no overlapping files, not `(seq)`), what is blocked and on whom:
 
 ```text
 Features · 2 · 1 active · 1 planned · sign-off pending: billing (spec draft)
@@ -254,11 +254,11 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, what other features may call, how it will be verified), writes CONCEPT and SPEC, walks you through them, stops for your `Status: approved` |
 | `cto-jev tasks` | breaks an approved SPEC into parent/child tasks with files, dependencies and an acceptance command each |
 | `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, P2 findings become tasks, then it commits to the review branch |
-| `cto-jev release` | reviews the whole unreleased diff against the SPECs, files P1/P2 tasks, requires every P1 ticked and `cto check --base main` green, then prepares the merge into main |
+| `cto-jev release` | reviews the whole unreleased diff against the SPECs, files P1/P2/P3 tasks, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
 | `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
 | `cto-jev decision` | writes an append-only decision record under `decisions/` |
 
-Work lives on a `review` branch; `main` only receives releases (set `protected_branches: ["main"]` and cto enforces it). Changes inside an existing feature only add tasks; only a new module gets a new folder. The first time it runs it scans the repo, fills PRODUCT.md and ARCHITECTURE.md with what it can prove, asks you the rest a few questions at a time, and walks you through the result until you say it is complete. `unknown` is an allowed answer.
+"Release" adapts to the branches you have. A solo repo with only `main`: the wave review before each commit is the gate, and a release is a tag. `main` plus feature branches: the PR is the release. `main` plus `review`/`develop`/`staging`: merging the integration branch into `main`. `staging` and `live`: promoting one to the other. In every case the branch that reaches users takes nothing without a release review, and that is the branch to put in `protected_branches`. Changes inside an existing feature only add tasks; only a new module gets a new folder. The first time it runs it scans the repo, fills PRODUCT.md and ARCHITECTURE.md with what it can prove, asks you the rest a few questions at a time, and walks you through the result until you say it is complete. `unknown` is an allowed answer.
 
 What `cto` adds on top, all without a model call unless noted:
 

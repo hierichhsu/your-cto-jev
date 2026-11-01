@@ -1356,14 +1356,15 @@ test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready
     '  - [ ] CUST-1.2 UI (after: CUST-1.1) (files: src/customers/ui/)',
     '        accept: manual',
     '  - [ ] CUST-1.3 shared types (after: CUST-1.1, PERM-9) (files: src/types.ts)',
-    '- [ ] CUST-2 report (P2) (files: src/customers/)',
+    '- [ ] CUST-2 report (P3) (files: src/customers/)',
+    '- [ ] CUST-3 migration (seq) (P1) (files: db/)',
     '- [ ] no id here',
     '```',
     '- [ ] CUST-99 example inside a fence',
     '```',
   ].join('\n');
   const t = parseTasks(md, 'customers', 'f/TASKS.md');
-  assert.deepEqual(t.map((x) => x.id), ['CUST-1', 'CUST-1.1', 'CUST-1.2', 'CUST-1.3', 'CUST-2']);
+  assert.deepEqual(t.map((x) => x.id), ['CUST-1', 'CUST-1.1', 'CUST-1.2', 'CUST-1.3', 'CUST-2', 'CUST-3']);
   const byId = Object.fromEntries(t.map((x) => [x.id, x]));
   assert.deepEqual(byId['CUST-1'].children, ['CUST-1.1', 'CUST-1.2', 'CUST-1.3']);
   assert.equal(byId['CUST-1.1'].parent, 'CUST-1');
@@ -1376,15 +1377,18 @@ test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready
   assert.deepEqual(byId['CUST-1.3'].after, ['CUST-1.1', 'PERM-9']);
   assert.equal(byId['CUST-2'].parent, undefined);
   assert.equal(byId['CUST-2'].line, 8);
-  assert.equal(byId['CUST-2'].priority, 'P2');
+  assert.equal(byId['CUST-2'].priority, 'P3');
   assert.equal(byId['CUST-2'].text, 'report', 'the priority tag is stripped from the text');
   assert.equal(byId['CUST-1.1'].priority, undefined);
+  assert.equal(byId['CUST-3'].priority, 'P1');
+  assert.equal(byId['CUST-3'].seq, true);
+  assert.equal(byId['CUST-3'].text, 'migration');
 
   const perm = parseTasks('- [x] PERM-2 roles (files: src/auth/)\n', 'permissions', 'p/TASKS.md');
   const { ready, blocked } = openTasks([...perm, ...t]);
-  assert.deepEqual(ready.map((x) => x.id), ['CUST-1.2', 'CUST-2'], 'parents are never ready; done tasks are not open');
+  assert.deepEqual(ready.map((x) => x.id), ['CUST-1.2', 'CUST-2', 'CUST-3'], 'parents are never ready; done tasks are not open');
   assert.deepEqual(blocked.map((b) => [b.task.id, b.waitingOn]), [['CUST-1.3', ['PERM-9']]]);
-  assert.deepEqual(parallelTasks(ready).map((x) => x.id), ['CUST-1.2'], 'src/customers/ contains src/customers/ui/, so CUST-2 waits');
+  assert.deepEqual(parallelTasks(ready).map((x) => x.id), ['CUST-1.2'], 'src/customers/ contains src/customers/ui/, so CUST-2 waits; CUST-3 is (seq) and never joins a wave');
   assert.deepEqual(danglingAfter([...perm, ...t]), [{ task: 'CUST-1.3', missing: 'PERM-9' }]);
 
   const root = mkdtempSync(join(tmpdir(), 'cto-flow-'));
