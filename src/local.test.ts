@@ -22,6 +22,11 @@ test('flow_signoff: a touched feature with tasks but no approved SPEC blocks; un
   assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'a task file scope');
   assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/perm/TASKS.md`)), ['flow_signoff!:perm'], 'the feature folder itself');
   assert.deepEqual(kinds(sec('src/y/b.ts')), [], 'an unrelated commit');
+  writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x, src/one.ts)\n');
+  assert.deepEqual(kinds(sec('src/xy/a.ts')), [], 'a scope without trailing slash does not claim a sibling directory');
+  assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm'], 'the directory itself and a single-file scope');
+  spec('Approved');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), [], 'status is case-insensitive');
   spec('approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), []);
   rmSync(join(dir, 'SPEC.md'));

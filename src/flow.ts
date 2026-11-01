@@ -132,7 +132,7 @@ export interface FeatureRow {
 
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return undefined; } };
 /** `Status: draft|approved` anywhere in the file; no file or no such line is 'missing'. */
-const signoff = (path: string): Signoff => (/^Status:\s*(draft|approved)\s*$/m.exec(readOr(path) ?? '')?.[1] as Signoff | undefined) ?? 'missing';
+const signoff = (path: string): Signoff => (/^Status:\s*(draft|approved)\s*$/im.exec(readOr(path) ?? '')?.[1]?.toLowerCase() as Signoff | undefined) ?? 'missing';
 
 function purpose(concept: string): string {
   const lines = concept.split(/\r?\n/);

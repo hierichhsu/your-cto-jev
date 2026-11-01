@@ -23,6 +23,9 @@ const git = (cwd: string, ...args: string[]) => {
 
 export const currentBranch = (root: string) => git(root, 'rev-parse', '--abbrev-ref', 'HEAD');
 
+/** A path is in a `(files:)` scope when it is that file or lies under that directory; `src/auth` must not claim `src/authz/`. */
+const inScope = (file: string, scope: string) => file === scope || file.startsWith(scope.endsWith('/') ? scope : `${scope}/`);
+
 /**
  * Features whose TASKS.md has tasks but whose SPEC.md is not `Status: approved`: no work without sign-off.
  * Only the features this diff touches (their docs folder or a task's `(files:)` scope); any read error means no finding.
@@ -34,10 +37,10 @@ function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
     for (const slug of new Set(tasks.map((t) => t.feature))) {
       const dir = `${FLOW_DIR}/features/${slug}/`;
       const scopes = [dir, ...tasks.filter((t) => t.feature === slug).flatMap((t) => t.files)];
-      if (![...touched].some((f) => scopes.some((s) => f.startsWith(s)))) continue;
+      if (![...touched].some((f) => scopes.some((s) => inScope(f, s)))) continue;
       let spec = '';
       try { spec = readFileSync(join(root, dir, 'SPEC.md'), 'utf8'); } catch { /* missing SPEC is not approved */ }
-      if (/^Status:\s*(\w+)\s*$/m.exec(spec)?.[1] !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
+      if (/^Status:\s*(\w+)\s*$/im.exec(spec)?.[1]?.toLowerCase() !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
     }
     return out;
   } catch { return []; }

@@ -172,9 +172,9 @@ export function adrQuestion(root: string, paths: string[]): JevQuestion | undefi
     type: 'noul',
     instructions:
       (principles ? `The architecture's standing principles:\n${principles}\n\n` : '') +
-      'Does this change introduce or remove a service, data store, external dependency, layer, module boundary or cross-cutting mechanism, ' +
-      'or break one of the listed principles, i.e. a change that deserves a decision record?',
-    criteria: { true: 'Changes the architecture or breaks a listed principle; a decision record is missing', false: 'Ordinary feature or fix within the existing architecture' },
+      'Does this change introduce or remove a service, data store, external system or SDK the product now depends on, layer, module boundary or cross-cutting mechanism, ' +
+      'or break one of the listed principles, i.e. a change that deserves a decision record? Adding a library, upgrading a version or importing a helper package is not that.',
+    criteria: { true: 'Changes the architecture or breaks a listed principle; a decision record is missing', false: 'Ordinary feature, fix, library import or version bump within the existing architecture' },
   };
 }
 
