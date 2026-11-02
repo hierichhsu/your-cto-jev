@@ -1482,6 +1482,8 @@ test('flow: TASKS.md parses ids, nesting, after/files tags and acceptance; ready
   assert.deepEqual(ready.map((x) => x.id), ['CUST-1.2', 'CUST-2', 'CUST-3'], 'parents are never ready; done tasks are not open');
   assert.deepEqual(blocked.map((b) => [b.task.id, b.waitingOn]), [['CUST-1.3', ['PERM-9']]]);
   assert.deepEqual(parallelTasks(ready).map((x) => x.id), ['CUST-1.2'], 'src/customers/ contains src/customers/ui/, so CUST-2 waits; CUST-3 is (seq) and never joins a wave');
+  const bare = parseTasks('- [ ] X-1 a\n- [ ] X-2 b\n- [ ] X-3 c (files: src/x/)\n', 'x', 'x/TASKS.md');
+  assert.deepEqual(parallelTasks(bare).map((x) => x.id), ['X-3'], 'tasks without (files:) could touch anything: never run together');
   assert.deepEqual(danglingAfter([...perm, ...t]), [{ task: 'CUST-1.3', missing: 'PERM-9' }]);
 
   const root = mkdtempSync(join(tmpdir(), 'cto-flow-'));

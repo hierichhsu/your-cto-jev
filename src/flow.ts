@@ -107,11 +107,12 @@ export function openTasks(tasks: Task[]): { ready: Task[]; blocked: { task: Task
 
 /**
  * Ready tasks that can run at the same time: taken in the given order, skipping any whose files overlap one already
- * taken and any marked (seq), which always runs on its own.
+ * taken and any that runs alone: marked (seq), or with no (files:), whose reach is unknown.
  */
+export const runsAlone = (t: Task) => !!t.seq || !t.files.length;
 export function parallelTasks(ready: Task[]): Task[] {
   const out: Task[] = [];
-  for (const t of ready) if (!t.seq && !out.some((o) => overlaps(o.files, t.files))) out.push(t);
+  for (const t of ready) if (!runsAlone(t) && !out.some((o) => overlaps(o.files, t.files))) out.push(t);
   return out;
 }
 

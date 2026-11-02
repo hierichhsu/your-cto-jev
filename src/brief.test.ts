@@ -73,13 +73,15 @@ test('brief Ready: P1 first, untagged as P2, P3 last, file order within a rank; 
       '- [ ] A-3 urgent (P1) (files: src/a3/)',
       '- [ ] A-4 migrate (seq) (P1) (files: db/)',
       '- [ ] A-5 also normal (P2) (files: src/a5/)',
+      '- [ ] A-6 untagged (P3)',
       '',
     ].join('\n'),
   }));
   const ids = lines.filter((l) => /^  A-\d /.test(l)).map((l) => l.trim().split(/\s+/)[0]);
-  assert.deepEqual(ids, ['A-3', 'A-4', 'A-2', 'A-5', 'A-1']);
-  assert.match(lines.join('\n'), /^Ready · 5 \(run together: A-3, A-2, A-5, A-1\)$/m);
+  assert.deepEqual(ids, ['A-3', 'A-4', 'A-2', 'A-5', 'A-1', 'A-6']);
+  assert.match(lines.join('\n'), /^Ready · 6 \(run together: A-3, A-2, A-5, A-1\)$/m);
   assert.match(lines.join('\n'), /^  A-4\s+P1 migrate .*\(seq: runs alone\)$/m);
+  assert.match(lines.join('\n'), /^  A-6\s+P3 untagged .*\(no files: runs alone; add \(files:\)\)$/m, 'a task with no (files:) never joins a wave');
 });
 
 test('brief without docs/cto_jev/features has no flow section; an empty flow asks for tasks', () => {
