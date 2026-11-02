@@ -308,7 +308,7 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   lines.push(t(lang, 'setup_done'));
   // The first-run interview is still owed only while a top-level doc is missing or holds an unknown field.
   const owed = ['PRODUCT.md', 'ARCHITECTURE.md'].some((f) => { try { return /\bunknown\b/.test(readFileSync(join(root, FLOW_DIR, f), 'utf8')); } catch { return true; } });
-  if (flow && !savedFlow && owed) lines.push(t(lang, 'setup_flow_next'));
+  if (flow && !savedFlow && owed) lines.push(t(lang, 'setup_flow_next', { claude: claude ? 1 : 0 }));
   // PRODUCT.md holds pricing and business rules: a docs site must not publish docs/cto_jev/. Warn only; config is the user's.
   const publisher = flow ? docsPublisher(root) : undefined;
   if (publisher) lines.push(t(lang, 'setup_flow_publish', { file: publisher }));

@@ -36,7 +36,7 @@ test('setup --flow: skeleton, skill and rule; idempotent; never overwrites docs;
   assert.ok(read('CLAUDE.md').includes(FLOW_RULE), 'rules block carries the flow rule');
   assert.ok(read('CLAUDE.md').includes(rulesBlock(true)));
   assert.equal(loadConfig(root).flow, true, 'choice persisted in .cto.json');
-  assert.match(on.lines.at(-1)!, /set up PRODUCT\.md and ARCHITECTURE\.md/, 'last line says what to do next');
+  assert.match(on.lines.at(-1)!, /type \/cto-jev init in Claude Code, or say "set up PRODUCT\.md and ARCHITECTURE\.md"/, 'last line says what to do next, with the Claude Code command');
   assert.deepEqual(staleGuidance(root, ['claude']), [], 'doctor does not flag a flow-on block');
 
   // the user's edits survive a re-run (what --refresh does: no flow option, saved value applies)
@@ -107,27 +107,25 @@ async function drive<T>(run: (io: { input: PassThrough; output: Writable }) => P
   return { result: await p, out };
 }
 
-test('setup UI: flow is the last first-run step and an overview item; Esc goes back to the sprint goal', async () => {
+test('setup UI: flow is the last first-run step and an overview item; no sprint goal is asked', async () => {
   const initial = { agents: [], providers: [], keys: {}, goal: '' };
   const first = await drive((io) => setupUI(initial, true, 'en', { ...io, env: {} }), [
     KEY.enter, // agents: none
     KEY.enter, // providers: none (no keys asked)
-    'g', KEY.enter, // sprint goal
-    KEY.esc, // flow: Esc goes back to the goal
-    KEY.enter, // goal again, kept
     KEY.down, KEY.enter, // flow: yes
     KEY.enter, // overview starts on save
   ]);
   assert.ok(first.result);
   assert.equal(first.result.flow, true);
-  assert.equal(first.result.goal, 'g');
+  assert.equal(first.result.goal, '', 'goal carried through unchanged');
+  assert.doesNotMatch(first.out, /sprint goal/i);
   assert.match(first.out, /Use the cto development flow\?/);
   assert.match(first.out, /Development flow/, 'overview row');
 
   const off = await drive((io) => setupUI({ ...initial, flow: true }, false, 'en', { ...io, env: {} }), [
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview (agents, providers, keys, goal, flow) -> Development flow
+    KEY.down, KEY.down, KEY.down, KEY.enter, // overview (agents, providers, keys, flow) -> Development flow
     KEY.down, KEY.enter, // cursor starts on the current "yes" (last option); Down wraps to "no"
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
   ]);
   assert.ok(off.result);
   assert.equal(off.result.flow, false);
@@ -158,9 +156,9 @@ test('setup UI: agent list shows what is always installed, each agent\'s files a
   const r = await drive((io) => setupUI(initial, false, 'en', { ...io, env: {}, detected: ['codex'], plan }), [
     KEY.enter, // overview -> agents
     KEY.down, KEY.down, KEY.down, KEY.space, KEY.enter, // tick Codex CLI
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
     KEY.right, KEY.enter, // summary: No -> back to the overview
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // save again
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // save again
     KEY.enter, // Yes
   ]);
   assert.ok(r.result);
