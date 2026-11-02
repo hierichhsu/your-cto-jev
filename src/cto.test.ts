@@ -1121,6 +1121,99 @@ test('done check: plan checklist items newly ticked in markdown are claims, judg
   setKeys(false);
 });
 
+test('done check: ticks the agent committed this turn are still judged, with computed facts about each acceptance command', async () => {
+  const { tickedItems, turnState } = await import('./turn.js');
+  const { agentPre, agentStop } = await import('./hooks.js');
+  const { loadBrain } = await import('./brain.js');
+  const plan = [
+    '- [x] A-1 List API', '      accept: npm test -- a',
+    '- [x] A-2 Badge', '      驗收： manual',
+    '- [x] A-3 Parent', '  - [ ] A-3.1 Child', '        accept: npm run x',
+  ].join('\n') + '\n';
+  const P = 'docs/cto_jev/features/a/TASKS.md';
+  const ticks = ['+- [x] A-1 List API', '+- [x] A-2 Badge', '+- [x] A-3 Parent'];
+  assert.deepEqual(tickedItems([`+++ b/${P}`, ...ticks].join('\n'), () => plan).map((t) => [t.text, t.accept]), [
+    ['A-1 List API', 'npm test -- a'], ['A-2 Badge', 'manual'], ['A-3 Parent', undefined],
+  ], "a parent does not take its child's acceptance line");
+  assert.deepEqual(tickedItems(['+++ b/plan.md', ...ticks].join('\n'), () => plan).map((t) => t.accept), [undefined, undefined, undefined],
+    'outside docs/cto_jev/ an acceptance line is prose, not a command');
+  const odd = '- [x] B-1 X\n      accept: `npm run b`\n- [x] B-2 Y\n\nAccept: not mine\n';
+  assert.deepEqual(tickedItems([`+++ b/${P}`, '+- [x] B-1 X', '+- [x] B-2 Y'].join('\n'), () => odd).map((t) => t.accept), ['npm run b', undefined],
+    'backticks stripped; an outdented line after a blank is not the item\'s');
+
+  const edit = { kind: 'edit' as const, file: 'src/a.ts' };
+  const run = (command: string, ok = true) => ({ kind: 'run' as const, command, ok, tail: '' });
+  const t1 = [{ file: 'T.md', text: 'A-1 List API', children: [], accept: 'npm test -- a' }];
+  assert.match(turnState('', [edit, run('cd x && npm test  --  a')], t1), /its acceptance command `npm test -- a` ran after the last code edit and passed/);
+  assert.match(turnState('', [run('npm test -- a'), edit], t1), /passed, but only before the last code edit/);
+  assert.match(turnState('', [edit, run('npm test -- a', false)], t1), /ran this turn and failed/);
+  assert.match(turnState('', [edit, run('npm test')], t1), /did not run this turn/, 'the whole suite is not the named command');
+  for (const c of ['npm test -- api', 'echo "npm test -- a"', 'npm test -- a || true']) {
+    assert.match(turnState('', [edit, run(c)], t1), /did not run this turn/, c);
+  }
+  const t2 = [{ file: 'T.md', text: 'A-2 Badge', children: [], accept: 'manual' }];
+  assert.match(turnState('A-2 accepted manually.', [], t2), /says it was accepted manually/);
+  for (const m of ['A-2 done.', 'A-2 is not accepted manually yet.', 'A-1 accepted manually. A-2 built.']) {
+    assert.match(turnState(m, [], t2), /does not say the user accepted it/, m);
+  }
+  assert.doesNotMatch(turnState('', [edit], [{ file: 'T.md', text: 'x', children: [] }]), /acceptance command/);
+
+  setKeys();
+  process.env.CTO_PROVIDER = 'openrouter';
+  let sent: any;
+  globalThis.fetch = (async (_u: string, init: any) => {
+    const body = JSON.parse(init.body);
+    if (body.questions.done_unverified) sent = body;
+    return new Response(JSON.stringify(answers(Object.fromEntries(Object.keys(body.questions).map((k) => [k, noul(0.1)])))));
+  }) as any;
+  const root = tmp();
+  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: root });
+  git('init', '-q');
+  const T = join(root, P);
+  mkdirSync(dirname(T), { recursive: true });
+  writeFileSync(T, plan.replace(/\[x\]/g, '[ ]'));
+  git('add', '.'); git('commit', '-qm', 'plan');
+  const before = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  const env = { root, lang: 'en' as const };
+  await agentPre(agents.codex, { sessionId: 'W', command: 'npm test -- a' }, env);
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3'));
+  await agentPre(agents.codex, { sessionId: 'W', command: 'git add -A && git commit -m wave' }, env);
+  assert.equal(loadBrain(root).turn_base?.W?.head, before, 'HEAD recorded before the commit runs');
+  git('add', '.'); git('commit', '-qm', 'wave');
+  await agentStop(agents.codex, { sessionId: 'W', cwd: root, lastMessage: 'Wave committed; the user saw A-2, accepted manually.', stopHookActive: false }, env);
+  assert.ok(sent, 'committed ticks reach the done check');
+  assert.match(sent.state, /TASKS\.md: A-1 List API/);
+  assert.match(sent.state, /"A-1 List API": its acceptance command `npm test -- a` ran after the last code edit and passed/);
+  assert.match(sent.state, /"A-2 Badge" is accepted by the user \(manual\), and the final message says it was accepted manually/);
+  assert.equal(loadBrain(root).turn_base?.W, undefined, 'the base is used once');
+
+  // A manual tick the user did not confirm is blocked by cto itself, without asking Jev.
+  sent = undefined;
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual\n');
+  let out = await agentStop(agents.codex, { sessionId: 'M', cwd: root, lastMessage: 'Copy done.', stopHookActive: false }, env);
+  assert.equal(sent, undefined, 'no Jev call');
+  assert.equal(out.code, 2);
+  assert.match(out.stderr.join('\n'), /A-4 Copy text: this task is accepted by the user \(manual\)/);
+
+  // With another tick in the same turn, Jev still judges that one: the manual block does not swallow it.
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual\n- [x] A-6 Help page\n      accept: manual\n- [x] A-5 Search\n      accept: npm test -- s\n');
+  out = await agentStop(agents.codex, { sessionId: 'N', cwd: root, lastMessage: 'Done.', stopHookActive: false }, env);
+  assert.equal(out.code, 2, 'A-6 (manual, unconfirmed) still blocks; A-4 was judged in the previous stop');
+  const jev = String((sent as any)?.state ?? '');
+  assert.match(jev, /"A-5 Search": its acceptance command `npm test -- s` did not run this turn/);
+  assert.doesNotMatch(jev, /A-6 Help page/, 'the manual tick is reported by cto, not sent to Jev');
+  assert.match(out.stderr.join('\n'), /A-6 Help page: this task is accepted by the user/);
+
+  // A base older than a turn (an interrupted turn left it) is replaced, and a rewritten one is ignored.
+  const { saveBrain } = await import('./brain.js');
+  const b = loadBrain(root);
+  b.turn_base = { X: { head: before, at: Date.now() - 7 * 3600_000 } };
+  saveBrain(root, b);
+  await agentPre(agents.codex, { sessionId: 'X', command: 'git commit -am x' }, env);
+  assert.notEqual(loadBrain(root).turn_base?.X?.head, before, 'stale base replaced by the current HEAD');
+  setKeys(false);
+});
+
 test('lessons: failures are fingerprinted once, the edit before the same command passes is the fix, brief shows it', async () => {
   const { commandHead, fingerprint, errorLines, loadLessons, recordFailure, resolveFromTurn, saveLessons } = await import('./lessons.js');
   const { brief, detectTestCommand } = await import('./brief.js');

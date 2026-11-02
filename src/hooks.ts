@@ -5,7 +5,7 @@ import { FLOW_DIR, featureIndex } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import type { Agent, HookOutput, PostInput, PreInput, ReplyInput, StopInput } from './agents.js';
-import { isCodeFile, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { isCodeFile, manualUnconfirmed, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
 import { DECISIONS_KEPT, DECISION_STATE_CHARS, freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type Decision, type RecentError } from './brain.js';
@@ -209,9 +209,18 @@ export const stagedDiff = (cwd: string) =>
   execFileSync('git', DIFF_ARGS, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
 
 /** Uncommitted changes (staged and not) to tracked markdown files, for checklist ticks. Empty outside git or before the first commit. */
-export function planDiff(cwd: string): string {
+/** How long a recorded turn base stays valid: longer than any one agent turn, shorter than a gap between sessions. */
+export const TURN_BASE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** `commit` still exists and is an ancestor of HEAD (not amended or rebased away). */
+function isAncestor(cwd: string, commit: string): boolean {
+  try { execFileSync('git', ['merge-base', '--is-ancestor', commit, 'HEAD'], { cwd, stdio: 'ignore' }); return true; } catch { return false; }
+}
+
+/** Markdown changes from `base` (default HEAD) to the working tree: committed since `base` and uncommitted alike. */
+export function planDiff(cwd: string, base = 'HEAD'): string {
   try {
-    return execFileSync('git', ['diff', 'HEAD', ...DIFF_ARGS.slice(2), '--', '*.md', '*.mdx'],
+    return execFileSync('git', ['diff', base, ...DIFF_ARGS.slice(2), '--', '*.md', '*.mdx'],
       { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return ''; }
 }
@@ -358,6 +367,18 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
+  // The flow ticks a task and commits it in the same turn; the stop check diffs from here so those ticks are not missed.
+  const turnKey = input.sessionId ?? '';
+  const at = (now ?? Date.now)();
+  const kept = brain.turn_base?.[turnKey];
+  // A turn interrupted without a stop event leaves its base behind; one older than TURN_BASE_TTL_MS belongs to it.
+  if (/\bgit\b[^;&|]*\bcommit\b/.test(command) && (!kept || at - kept.at > TURN_BASE_TTL_MS)) {
+    try {
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const others = Object.entries(brain.turn_base ?? {}).filter(([k, b]) => k !== turnKey && at - b.at <= TURN_BASE_TTL_MS);
+      brain.turn_base = Object.fromEntries([...others.slice(-20), [turnKey, { head, at }]]);
+    } catch { /* no commit yet: the plain HEAD diff covers it */ }
+  }
   const questions: Record<string, JevQuestion> = { destructive_command: Q.destructive_command };
   let state = maskSensitiveState(command);
   // A command that writes code files (sed -i, redirects, formatters) is a fix attempt, same as an edit tool. Marked
@@ -424,31 +445,51 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   // Lessons learn from every stop, including the one after our own block: that is when the fix usually lands.
   const lessons = loadLessons(root);
   if (resolveFromTurn(lessons, actions, root, new Date((now ?? Date.now)())).length) saveLessons(root, lessons);
+  // Every stop ends the turn, so the recorded base is used once and cleared.
+  const turnKey = input.sessionId ?? '';
+  const recorded = brain.turn_base?.[turnKey];
+  if (recorded) { delete brain.turn_base![turnKey]; saveBrain(root, brain); }
+  const base = recorded && (now ?? Date.now)() - recorded.at <= TURN_BASE_TTL_MS && isAncestor(root, recorded.head) ? recorded.head : undefined;
   if (input.stopHookActive) return out;
   const lastMessage = input.lastMessage || logged?.reply || '';
   // ponytail: ticks are attributed to the turn that ends after they appear, so a box the user ticked by hand between
   // turns is judged against the agent's turn. Rare; per-turn snapshots of plan files would fix it.
   const judged = new Set(brain.judged_items ?? []);
-  const ticked = tickedItems(planDiff(root), (f) => { try { return readFileSync(join(root, f), 'utf8'); } catch { return undefined; } })
+  const ticked = tickedItems(planDiff(root, base), (f) => { try { return readFileSync(join(root, f), 'utf8'); } catch { return undefined; } })
     .filter((t) => !judged.has(tickedKey(t)));
   if (!ticked.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) return out;
 
+  // A manual task ticked without the user's confirmation is a text fact, not a judgement: cto blocks it itself. Jev
+  // still judges everything else in the turn, since this stop's block is the only one it gets.
+  const manual = manualUnconfirmed(ticked, lastMessage);
+  const manualLines = manual.slice(0, 5).map((m) => t(lang, 'done_manual', { detail: m.text.slice(0, 80) }));
+  const rest = ticked.filter((x) => !manual.includes(x));
+  if (!rest.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) {
+    brain.blocked_attempts++;
+    brain.judged_items = [...judged, ...manual.map(tickedKey)].slice(-300);
+    saveBrain(root, brain);
+    return agent.stopBlock(manualLines);
+  }
+
   const cfg = loadConfig(root);
-  const state = turnState(lastMessage, actions, ticked);
+  const state = turnState(lastMessage, actions, rest);
   const r = await evaluate(
     { state, questions: { done_unverified: Q.done_unverified }, ...(input.sessionId && { session_id: input.sessionId }) },
     { brain, lang, timeoutMs: AGENT_TIMEOUT_MS, notices: new Set(), now },
   );
-  if (!r.ok) brain.skipped_attempts++;
-  else {
+  if (!r.ok) {
+    brain.skipped_attempts++;
+    if (manual.length) brain.judged_items = [...judged, ...manual.map(tickedKey)].slice(-300);
+  } else {
     countCheck(brain, now);
     logDecision(brain, 'stop', state, r.answers, cfg, now);
     brain.judged_items = [...judged, ...ticked.map(tickedKey)].slice(-300);
   }
   const v = r.ok ? exceeded(r.answers, 'done_unverified', cfg) : undefined;
-  if (v !== undefined) {
+  const lines = [...manualLines, ...(v !== undefined ? verdict(lang, 'done_unverified', v, cfg, null) : [])];
+  if (lines.length) {
     brain.blocked_attempts++;
-    out = agent.stopBlock(verdict(lang, 'done_unverified', v, cfg, null));
+    out = agent.stopBlock(lines);
   }
   saveBrain(root, brain);
   return out;

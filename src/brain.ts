@@ -31,6 +31,8 @@ export interface Brain {
   last_check_at?: string;
   /** Checklist items the done check already judged ("file:text"), so an uncommitted tick is judged once, not every turn. */
   judged_items?: string[];
+  /** Per session: HEAD just before the agent's first `git commit` of the turn, so the done check sees ticks it committed. */
+  turn_base?: Record<string, { head: string; at: number }>;
   decisions?: Decision[];
 }
 
