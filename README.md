@@ -251,10 +251,10 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | Say | The agent |
 |---|---|
 | `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
-| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, what other features may call, how it will be verified), writes CONCEPT and SPEC, walks you through them, stops for your `Status: approved` |
+| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, the simpler option it rejected, data migration and rollback, what other features may call, how a production failure gets noticed, how it will be verified), writes CONCEPT and SPEC, has a zero-context reviewer check that a newcomer could build from them without making design decisions and that nothing unneeded or already in the code gets built, walks you through them, stops for your `Status: approved` |
 | `cto-jev tasks` | breaks an approved SPEC into parent/child tasks with files, dependencies and an acceptance command each |
-| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, P2 findings become tasks, then it commits to the review branch |
-| `cto-jev release` | reviews the whole unreleased diff against the SPECs, files P1/P2/P3 tasks, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
+| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first (and the fixes reviewed once more), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits to the review branch |
+| `cto-jev release` | reviews the whole unreleased diff against the SPECs (looking hardest at waves marked `self-review`), files P1/P2/P3 tasks under the same findings rules, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
 | `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
 | `cto-jev decision` | writes an append-only decision record under `decisions/` |
 

@@ -3,10 +3,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, SKILL_MARK, SKILL_TEXT, syncFlowSkill } from './skill.js';
+import { FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, SKILL_MARK, SKILL_TEXT, syncFlowSkill } from './skill.js';
 
 test('the cto skill lists every user-facing command, including the flow ones', () => {
   for (const cmd of ['cto brief', 'cto check', 'cto doctor', 'cto index', 'cto docs']) assert.ok(SKILL_TEXT.includes(`\`${cmd}\``), cmd);
+});
+
+test('the flow skill routes every review (docs, wave, release) through the shared findings rules', () => {
+  const rules = FLOW_SKILL_TEXT.indexOf('## Review findings');
+  assert.ok(rules > 0);
+  assert.equal(FLOW_SKILL_TEXT.match(/as under "Review findings"/g)?.length, 3, 'feature, work and release all point there');
+  assert.ok(FLOW_SKILL_TEXT.includes('self-review'));
 });
 
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {
