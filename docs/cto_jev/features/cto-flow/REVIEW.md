@@ -22,3 +22,10 @@
 - P1: 0
 - P2: 1，當場修掉：同名但沒有 cto 標記的 `.claude/commands/cto-jev.md` 會被覆寫；改成有檔無標記就不寫，並補測試
 - P3: 2：skill description 說每個 agent 都能打 `/cto-jev`（已改成分 agent 寫）；`cto doctor` 不檢查 flow skill 和 `/cto-jev` 是否存在或被 git 忽略（未立 task，0.9.x 就有的缺口）
+
+## 2026-11-02 · skill 加入 EGM 借來的 review 規則（文件 review、發現處理、self-review）
+
+- P1: 1，當場修掉：文件 review 的 re-review 會叫 agent 在 SPEC 簽核前寫 TASKS（規則矛盾）；改成文件 review 的剩餘發現改文件或在逐段說明時提出
+- P2: 13，小的當場修：文件 review 的 P2 當場改、記 REVIEW.md；嚴重度反駁也要證據；交給使用者的項目停在那裡；re-review 的 P1 當場修；release 的修正經 work 的 wave review 算 re-review；無 sub-agent 時所有 review 標 self-review；migration/rollback 寫在 Internals；改既有 SPEC 也跑文件 review；README 兩列補齊
+- Re-review（只看修正）：P1 1，既有的矛盾，當場修掉：只有 main 的 repo，work 說不能直接 commit 到 release 分支、release 表說直接 commit 到 main；改成這一列是例外，main 不放 protected_branches
+- 未處理：code review 裡「看不懂」能不能反駁（目前規則寫的是文件）

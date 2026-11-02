@@ -66,9 +66,11 @@ CONCEPT.md、SPEC.md、PRODUCT.md、ARCHITECTURE.md 第一個非標題行固定�
   | `staging` + `live`／`production` | `staging` | staging 升到 live | `git diff live...staging`，第二次較輕的 release review |
 
   不變的一條：會到使用者手上的那個分支，沒有 release review 不收任何東西；它就是 `.cto.json` 的 `protected_branches`。
-- **每一波 commit 之前先 code review**：零上下文 reviewer 讀該波 diff 和 feature 的 SPEC；P1 發現修掉再 commit，P2 發現寫成 `(P2)` task。
+- **SPEC 簽核前先 review 文件**：零上下文 reviewer（可搜程式碼）讀 CONCEPT 和 SPEC，回答兩題：新人只靠這兩份能不能不做設計決定就寫出來；有沒有做現在用不到、或程式碼裡已經有的東西。發現先改進文件，再帶使用者逐段看。
+- **每一波 commit 之前先 code review**：零上下文 reviewer 讀該波 diff 和 feature 的 SPEC；P1 發現修掉再 commit，P2 發現寫成 `(P2)` task。沒有 sub-agent 時是自審，REVIEW.md 那筆標 `self-review`，release review 要特別看這幾波。
+- **處理發現的規則（三種 review 共用）**：反駁要引用 reviewer 讀得到的檔案、symbol 或文件裡的決定，「故意的」不算；證據在 reviewer 讀不到的地方（口頭決定、團隊慣例）就交給使用者，確認後寫進文件；reviewer 看不懂就是文件缺內容，不能反駁；不自己改嚴重度；P1 修完由新的 reviewer 只看修正、只看一次：它找到的 P1 當場修、不再審，其他進 TASKS（文件 review 還沒有 TASKS，就改文件或在逐段說明時提出），不循環；交給使用者或還沒裁決的反駁，停在那裡，不 commit、不打勾、不請簽核。
 - **release 之前 review 全部**：把 review 分支對 main 的整個 diff（所有還沒發的 commit）一次 review，發現分 P1／P2 進 TASKS.md；P1 全勾、`cto check --base main` 過，才合進 main。
-- REVIEW.md 每筆記：日期、範圍（哪一波或哪次 release）、發現數、對應 task ID 與優先度。
+- REVIEW.md 每筆記（文件 review、每一波、每次 release 各一筆）：日期、範圍、發現數、對應 task ID 與優先度、反駁或交給使用者的項目。
 
 ### INDEX.md（產生）
 
@@ -175,7 +177,7 @@ brief / doctor：
 | 名字 | 什麼時候 | 做什麼、停在哪 |
 |---|---|---|
 | `cto-jev init` | 第一次，或 brief 顯示 Unknown fields | 掃 repo 填能證明的；每輪最多五題；寫完逐標題帶使用者走，直到使用者說完整；停在 draft 等簽核 |
-| `cto-jev feature` | 比一個 edit 大的需求 | 先跑 `cto-jev docs`；對 INDEX 分類；**先談再寫**，CONCEPT 和 SPEC 各有一張必答清單；寫完逐段過到使用者說完整；停在 draft，不寫 TASKS |
+| `cto-jev feature` | 比一個 edit 大的需求 | 先跑 `cto-jev docs`；對 INDEX 分類；**先談再寫**，CONCEPT 和 SPEC 各有一張必答清單（含：考慮過哪個更簡單的做法、資料遷移與回滾、正式環境壞了怎麼發現）；寫完先給零上下文 reviewer 看，再逐段過到使用者說完整；停在 draft，不寫 TASKS |
 | `cto-jev tasks` | SPEC approved 後 | 拆父子 task，每個子項有 files、after、驗收；共用檔獨立；`cto index` 後 brief 的 Ready 是第一波 |
 | `cto-jev work` | 使用者說繼續，或 brief 有 Ready | brief → 派工（最窄讀取集）→ `git status` 對範圍 → 自己跑驗收才打勾 → **該波 review，P1 修掉、P2 進 task → commit** |
 | `cto-jev release` | 要把 review 合進 main | review 全部未發的 diff；發現分 P1／P2 進 TASKS；P1 全勾、`cto check --base main` 過才合併；REVIEW.md 記一筆 |

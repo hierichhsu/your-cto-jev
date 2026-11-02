@@ -35,15 +35,16 @@ Short bullets or a table per heading. `## 不做的事` and `## 不變的原則`
 1. Run `cto-jev docs` first when it has not run this session; bring its suggestions to the user before opening a feature.
 2. Read `docs/cto_jev/INDEX.md` and classify:
    - Inside an existing feature, within its Constraints: add tasks to its TASKS.md (`cto-jev tasks`). No new docs.
-   - Changes a feature's `## Constraints` or `## Interface`: edit its SPEC.md, set `Status: draft`, stop for sign-off.
+   - Changes a feature's `## Constraints` or `## Interface`: edit its SPEC.md, set `Status: draft`, run the docs review (step 5), stop for sign-off.
    - A new module: `features/<slug>/` with the four files below.
    - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with the three sections), `Status: draft`, before any task on it.
    - Infrastructure (CI, build, deploy, dependency upgrades): a task under `features/platform/`.
 3. Talk before you write. Restate the request in two sentences and ask until every question below has an answer or an explicit "not relevant". At most five questions per message, each with your best guess; an installed interview skill may run the rounds, the questions below are what must be answered. Do not write CONCEPT.md until the first group is settled, nor SPEC.md until the second.
-   - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches.
-   - For SPEC: which data and tables change; what other features may call (the Interface) and what stays private; the error cases and what the user sees; the hard rules the code must never break (the Constraints); how each part will be verified.
+   - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches; which simpler option was considered and why it was rejected (goes under `## 動機`).
+   - For SPEC: which data and tables change, and whether existing data must migrate and how it rolls back; what other features may call (the Interface) and what stays private; the error cases and what the user sees; how a failure in production gets noticed (migration, rollback and that go under `## Internals`); the hard rules the code must never break (the Constraints); how each part will be verified.
 4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call.
-5. Walk the user through both files section by section and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
+5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers two questions: could an engineer new to this repo build it from these two files without making a design decision; and does it build something not needed now, or something the code already has. Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
+6. Walk the user through both files section by section, including what the review changed, and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
 
 **Stop:** when the user says the docs are complete; they set `Status: approved`. Never write TASKS.md before the SPEC is approved; cto blocks the commit anyway.
 
@@ -85,16 +86,28 @@ Two more tags, on any task:
 
 **When:** the user says "cto-jev work" or "continue", or `cto brief` shows Ready tasks.
 
-Branches: work on an integration branch (`review`, or whatever the repo calls it; see the table under `cto-jev release`). The release branch only receives `cto-jev release`. Never commit to it directly; ask the user to add it to `protected_branches` in `.cto.json` if it is not there.
+Branches: work on an integration branch (`review`, or whatever the repo calls it; see the table under `cto-jev release`). The release branch only receives `cto-jev release`. Never commit to it directly; ask the user to add it to `protected_branches` in `.cto.json` if it is not there. The one exception is a repo with only `main` and one developer (the first row of that table): there you commit each reviewed wave to `main`, and `main` stays out of `protected_branches`, or every commit would be blocked.
 
 1. `cto brief`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
 2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the `## Interface` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
 3. When they return: `git status`; revert anything outside the union of their `(files:)`. Integrate the shared files yourself. Fix any existing test their change broke. A sub-agent's "the SPEC does not say" goes into the SPEC now, not into the code's comments.
 4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. `manual` waits for the user to confirm in the conversation; say "accepted manually" when you tick it. Tick the parent when its last child is ticked.
-5. **Review before you commit.** Dispatch a reviewer with none of your context: it reads the feature's CONCEPT.md and SPEC.md and the uncommitted diff, and returns findings each marked P1 (wrong, unsafe, breaks a Constraint or the Interface) or P2 (should improve, can wait). Fix every P1 now and re-run acceptance. Write every P2 as a `(P2)` task in TASKS.md. Append one entry to REVIEW.md: date, scope (the task ids of the wave), how many P1/P2, which task ids they became.
+5. **Review before you commit.** Dispatch a reviewer with none of your context: it reads the feature's CONCEPT.md and SPEC.md and the uncommitted diff, and returns findings each marked P1 (wrong, unsafe, breaks a Constraint or the Interface) or P2 (should improve, can wait). Handle them as under "Review findings": fix every P1 now and re-run acceptance; write every P2 as a `(P2)` task in TASKS.md. Append one entry to REVIEW.md: date, scope (the task ids of the wave), how many P1/P2, which task ids they became, what was contested or escalated.
 6. `cto check`, then commit the wave to the review branch.
 
-Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next; review your own diff with fresh eyes against the SPEC before each commit.
+Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next; review your own diff against the SPEC before each commit. That is not a review by a fresh reader: write `self-review` in its REVIEW.md entry, so the release review looks harder at those waves.
+
+## Review findings
+
+Every review (docs, wave, release) ends here. You wrote what was reviewed, so wanting to disagree is not evidence.
+
+- **Contest** a finding only by citing something the reviewer could read: a file and symbol, or a decision written in the docs. "It was intentional" is not evidence.
+- **Escalate** to the user when the evidence is outside anything the reviewer could read (a verbal decision, a team convention). Do not dismiss it yourself; if the user confirms, write the fact into the docs.
+- A reviewer who could not follow the docs found missing context. Never contest that.
+- Never change a severity yourself. A P1 that looks like a P2 is contested like any finding, with evidence, and the user decides.
+- An escalated finding, or a contest the user has not decided, stops the job there: do not commit, tick or ask for sign-off over it.
+- After fixing P1s, one more reviewer with none of your context reads only the fixes, once. A P1 it finds is fixed now without a further review; anything else becomes a task with its severity (in a docs review, where no tasks may exist yet: fixed in the docs or raised in the walk-through). Do not loop.
+- Without sub-agents every review here, the re-review included, is your own: say `self-review` in its REVIEW.md entry.
 
 ## cto-jev release
 
@@ -109,12 +122,12 @@ First decide what "release" means in this repo. Look at `git branch -a` and the 
 | `main` + an integration branch (`review`, `develop`, `staging`) | the integration branch | merging it into `main` (what deploys to production) | `git diff main...<integration>` |
 | `staging` and `live` (or `production`) deploy branches | `staging` | promoting `staging` to `live` | `git diff live...staging`; a second, lighter release review |
 
-Whatever the row, one rule holds: the branch that reaches users receives nothing without a release review, and `protected_branches` in `.cto.json` names it.
+Whatever the row, one rule holds: the branch that reaches users receives nothing without a release review, and `protected_branches` in `.cto.json` names it. In the `main`-only row the wave review before each commit is that review, and `main` is not protected.
 
 1. Everything to be released is on the work branch and every P1 task is ticked. If not, stop and list what is open.
-2. Dispatch a reviewer with none of your context over the whole unreleased diff (the review scope above) plus the SPECs of every feature it touches. Findings get P1, P2 or P3 like a wave review, written into TASKS.md.
-3. P1 findings are fixed (through `cto-jev work`) before anything else; P2 and P3 stay as tasks for after the release. Tell the user both lists and let them decide which P2 should move up.
-4. `cto check --base <release branch>` must pass. Then prepare the merge, PR or tag; the user performs it. Append one REVIEW.md entry per feature released: date, "release", counts, task ids.
+2. Dispatch a reviewer with none of your context over the whole unreleased diff (the review scope above) plus the SPECs of every feature it touches; point it at the waves marked `self-review` in REVIEW.md. Findings get P1, P2 or P3, handled as under "Review findings", written into TASKS.md.
+3. P1 findings are fixed (through `cto-jev work`, whose wave review counts as the re-review) before anything else; P2 and P3 stay as tasks for after the release. Tell the user both lists and let them decide which P2 should move up.
+4. `cto check --base <release branch>` must pass. Then prepare the merge, PR or tag; the user performs it. Append one REVIEW.md entry per feature released: date, "release", counts, task ids, what was contested or escalated.
 
 **Stop:** before the merge, with the P1/P2/P3 lists in front of the user.
 
@@ -153,7 +166,7 @@ docs/cto_jev/
     CONCEPT.md             why: 目的, 動機, 商業規則, 不做的事
     SPEC.md                how: Interface, Constraints, Internals
     TASKS.md               the only state; review findings carry (P1)/(P2)
-    REVIEW.md              one entry per wave review and per release
+    REVIEW.md              one entry per docs review, wave review and release
   archive/<YYYYMM>-<name>/ cto-jev docs moves old documents here; nobody reads them
 ```
 
