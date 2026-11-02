@@ -9,8 +9,8 @@ import { maskSensitiveState } from './masker.js';
 import { BOX } from './turn.js';
 import type { JevQuestion } from './types.js';
 
-// `cto docs`: tracked markdown outside docs/cto_jev/ that looks like a stale planning document. Rules first
-// (docs/cto_jev/features/cto-flow/SPEC.md → "`cto docs` 的規則篩"), Jev only for what the rules leave as `ask`.
+// `cto docs`: tracked markdown outside docs/cto_jev/ that looks like a stale planning document. Rules
+// first, Jev only for what the rules leave as `ask`.
 // Suggest only: nothing here moves or deletes.
 
 export type DocVerdict = 'delete' | 'merge' | 'archive' | 'ask';

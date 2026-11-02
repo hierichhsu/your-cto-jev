@@ -411,8 +411,6 @@ node scripts/harvest-commands.mjs --rows 300 # real agent commands from a public
 
 `calibrate` uses exactly the questions and state builders that ship, prints every case's score, and reports how many cases the current threshold catches and wrongly blocks. Harvested candidates in `calibration/candidates/` (from nebius/SWE-rebench-openhands-trajectories, CC-BY-4.0) join the measurement once someone sets their `expect` label.
 
-The full design, including the measured results behind the defaults, is in [`your-cto-jev-spec.html`](./your-cto-jev-spec.html) (written in 繁體中文).
-
 ## License
 
 [MIT](./LICENSE)

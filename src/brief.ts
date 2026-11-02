@@ -54,7 +54,7 @@ const unknownCount = (path: string) => {
   try { return readFileSync(path, 'utf8').split(/\r?\n/).filter((l) => /\(unknown\)|unknown\s*$/.test(l)).length; } catch { return 0; }
 };
 
-// Fixed headings, as the SPEC's 欄位 tables name them (docs/cto_jev/features/cto-flow/SPEC.md).
+// Fixed headings, as the flow skill (FLOW_SKILL_TEXT in skill.ts) names them.
 const HEADINGS: [string, string[]][] = [
   ['PRODUCT.md', ['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束']],
   ['ARCHITECTURE.md', ['技術棧', '目錄地圖', '外部服務與資料', '驗證指令', '不變的原則']],
