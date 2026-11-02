@@ -131,7 +131,7 @@ export function flowLines(root: string): string[] {
     : `Ready · none${tasks.length ? '' : ` · add tasks to ${FLOW_DIR}/features/<slug>/TASKS.md`}`);
   for (const t of ready) {
     const first = together.includes(t) ? undefined : together.find((o) => overlaps(o.files, t.files));
-    const note = t.seq ? '  (seq: runs alone)' : first ? `  (overlaps ${first.id}: run after)` : '';
+    const note = t.seq ? '  (seq: runs alone)' : !t.files.length ? '  (no files: runs alone; add (files:))' : first ? `  (overlaps ${first.id}: run after)` : '';
     L.push(line(t, `files ${t.files.join(', ') || '-'}  accept: ${t.accept ?? '-'}${note}`));
   }
   if (blocked.length) {

@@ -187,7 +187,7 @@ IDs: \`<PREFIX>-<n>\`, children \`<n>.<m>\`, prefix uppercase and unique across 
 
 Two more tags, on any task:
 - **Priority** \`(P1)\` / \`(P2)\` / \`(P3)\`. P1: do first, and nothing releases while one is open (blockers, review findings that are wrong or unsafe). P2: normal work; the default when the tag is absent. P3: when nothing else is left (polish, nice-to-have). brief lists Ready as P1, then P2, then P3.
-- **Sync** \`(seq)\`: this task runs alone, whatever its \`(files:)\` say. Use it for migrations, shared types, route tables, anything that touches state every other task reads. Without the tag a task may run together with any Ready task whose \`(files:)\` do not overlap its own; brief computes that and shows the "run together" set.
+- **Sync** \`(seq)\`: this task runs alone, whatever its \`(files:)\` say. Use it for migrations, shared types, route tables, anything that touches state every other task reads. Without the tag a task may run together with any Ready task whose \`(files:)\` do not overlap its own; brief computes that and shows the "run together" set. A task with no \`(files:)\` also runs alone, since its reach is unknown.
 
 \`\`\`md
 - [ ] CUST-3 Add customer_tier column (P1) (seq) (files: db/migrations/)
