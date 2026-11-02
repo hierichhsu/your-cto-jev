@@ -111,7 +111,7 @@ turns it into a calibration case; you do not run that yourself.
 `;
 
 // The flow skill: how the host agent plans, dispatches and accepts work under docs/cto_jev/. Written only when
-// `cto setup` chose the flow; the body mirrors docs/cto_jev/features/cto-flow/SPEC.md.
+// `cto setup` chose the flow.
 export const FLOW_SKILL_TEXT = `---
 name: cto-jev
 description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.

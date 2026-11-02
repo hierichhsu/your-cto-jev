@@ -118,7 +118,7 @@ export interface SetupOptions {
 }
 
 // docs/cto_jev/ skeleton, created only for files that do not exist. Headings are the fixed field names the flow checks
-// read (docs/cto_jev/features/cto-flow/SPEC.md); `unknown` is what the agent's first run fills in.
+// read (FLOW_SKILL_TEXT in skill.ts); `unknown` is what the agent's first run fills in.
 const fields = (names: string[]) => names.map((n) => `## ${n}\n\nunknown\n`).join('\n');
 export const FLOW_SKELETON: Record<string, string> = {
   'docs/cto_jev/PRODUCT.md': `# PRODUCT\n\nStatus: draft\n\n${fields(['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'])}`,
@@ -141,7 +141,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   const out: FileChange[] = [];
   const at = (p: string, change: 'write' | 'remove', abs = join(root, p)) => out.push({ path: p, change: change === 'remove' ? 'remove' : existsSync(abs) ? 'update' : 'new' });
   const chosen = new Set(chosenAgents);
-  // git reports the hooks dir with long names; a Windows temp root may be 8.3 (ERICHS~1). Compare real paths.
+  // git reports the hooks dir with long names; a Windows temp root may be 8.3 (C:\Users\JOHNDO~1). Compare real paths.
   const real = (p: string) => { try { return realpathSync.native(p); } catch { return p; } };
   const dir = hooksDir(root);
   for (const [name, body] of GIT_HOOKS) {

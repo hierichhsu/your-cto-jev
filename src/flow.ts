@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { BOX } from './turn.js';
 
 // docs/cto_jev/features/<slug>/TASKS.md: the one place the development flow keeps state. Everything else (INDEX,
-// ready list, feature dependencies, code ownership) is computed from it. Spec: docs/cto_jev/features/cto-flow/SPEC.md.
+// ready list, feature dependencies, code ownership) is computed from it. Format: FLOW_SKILL_TEXT in skill.ts.
 
 export const FLOW_DIR = 'docs/cto_jev';
 export const FEATURE_FILES = ['CONCEPT.md', 'SPEC.md', 'TASKS.md', 'REVIEW.md'] as const;
