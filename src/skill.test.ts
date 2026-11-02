@@ -12,8 +12,15 @@ test('the cto skill lists every user-facing command, including the flow ones', (
 test('the flow skill routes every review (docs, wave, release) through the shared findings rules', () => {
   const rules = FLOW_SKILL_TEXT.indexOf('## Review findings');
   assert.ok(rules > 0);
-  assert.equal(FLOW_SKILL_TEXT.match(/as under "Review findings"/g)?.length, 3, 'feature, work and release all point there');
+  assert.equal(FLOW_SKILL_TEXT.match(/as under "Review findings"/g)?.length, 4, 'feature, work, work all and release all point there');
   assert.ok(FLOW_SKILL_TEXT.includes('self-review'));
+});
+
+test('work runs one wave; work all runs every wave, parks instead of stopping, reviews once, never releases', () => {
+  const all = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('### cto-jev work all'), FLOW_SKILL_TEXT.indexOf('## Review findings'));
+  assert.ok(FLOW_SKILL_TEXT.includes('**Stop:** after one wave is committed'));
+  for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', 'never before the review', 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
+  assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
 });
 
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {

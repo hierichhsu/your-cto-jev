@@ -30,7 +30,7 @@ const LEGACY_FLOW_SKILL = '.agents/skills/cto-flow/SKILL.md'; // 0.9.x name, rem
 export const FLOW_COMMAND_PATH = '.claude/commands/cto-jev.md';
 export const FLOW_COMMAND_TEXT = `---
 description: The cto development flow - init, feature, tasks, work, release, docs, decision
-argument-hint: "[init | feature <request> | tasks | work | release | docs | decision]"
+argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decision]"
 ---
 ${SKILL_MARK}
 
@@ -114,7 +114,7 @@ turns it into a calibration case; you do not run that yourself.
 // `cto setup` chose the flow.
 export const FLOW_SKILL_TEXT = `---
 name: cto-jev
-description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
+description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break an approved spec down), "cto-jev work" (dispatch, accept, review, commit one wave), "cto-jev work all" (every wave in one go, one review at the end), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
 ${SKILL_MARK}
 
@@ -200,7 +200,7 @@ Two more tags, on any task:
 
 **When:** the user says "cto-jev work" or "continue", or \`cto brief\` shows Ready tasks.
 
-Branches: work on an integration branch (\`review\`, or whatever the repo calls it; see the table under \`cto-jev release\`). The release branch only receives \`cto-jev release\`. Never commit to it directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there. The one exception is a repo with only \`main\` and one developer (the first row of that table): there you commit each reviewed wave to \`main\`, and \`main\` stays out of \`protected_branches\`, or every commit would be blocked.
+Branches: work on an integration branch (\`review\`, or whatever the repo calls it; see the table under \`cto-jev release\`). The release branch only receives \`cto-jev release\`. Never commit to it directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there. The one exception is a repo with only \`main\` and one developer (the first row of that table): there you commit each reviewed wave to \`main\` (\`cto-jev work all\` uses a branch instead, below), and \`main\` stays out of \`protected_branches\`, or every commit would be blocked.
 
 1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
 2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
@@ -211,6 +211,25 @@ Branches: work on an integration branch (\`review\`, or whatever the repo calls 
 
 Without sub-agents: do the Ready tasks yourself in brief's order, one at a time, accepting each before the next; review your own diff against the SPEC before each commit. That is not a review by a fresh reader: write \`self-review\` in its REVIEW.md entry, so the release review looks harder at those waves.
 
+**Stop:** after one wave is committed. Say what was done and what \`cto brief\` shows Ready next.
+
+### cto-jev work all
+
+**When:** the user says "cto-jev work all" (\`/cto-jev work all\`), typically on a new project: run every wave in one go, fix along the way, review once at the end. Only on request; plain \`cto-jev work\` stays one wave.
+
+1. Branch: in a repo with only \`main\`, create a branch \`work-all\` from \`main\` and work there, since these waves are not reviewed one by one; every other repo uses its integration branch as usual. Note the commit you start from.
+2. Loop until no task is left to run: re-read \`cto brief\` and the TASKS.md files each round, then run steps 1 to 4 and step 6 of \`cto-jev work\` (dispatch, integrate, accept, commit) for the Ready tasks, skipping tasks you parked (below) and every task of a feature whose SPEC is not \`Status: approved\` (cto blocks those commits; list the feature instead). There is no per-wave review: each wave's REVIEW.md entry says "work all, reviewed at the end". \`cto check\` and the git hooks still run on every commit. Without sub-agents, do the tasks yourself in brief's order; the end review is then a \`self-review\`.
+3. Fix along the way: a failing acceptance or a broken test is yours to fix before moving on. The same failure twice means a different approach, not a third try.
+4. Never stop for the user mid-run: park the task instead. Parked means unticked, never dispatched again in this run, and its dependants wait too (they are not Ready while it is unticked). The parked ids live only in this conversation; the final report lists them, and the next run starts without them. Park a task when:
+   - it needs a decision that would change a SPEC's \`## Interface\` or \`## Constraints\`. Do not edit those sections or the \`Status:\` line. A gap that only touches \`## Internals\` you decide yourself: add it under \`## Internals\` as \`Assumed: ...\` and leave \`Status:\` as it is;
+   - it is \`manual\`: build it, run what can be run, and list it for the user to accept (do not tick it);
+   - it needs credentials, money, an outside account, or anything irreversible;
+   - it still fails after a second approach.
+5. When no task is left to run, the review: a reviewer with none of your context reads \`git diff <start>..HEAD\` and the SPECs of every feature touched, findings P1/P2/P3, handled as under "Review findings" except that escalations and undecided contests go to the final report instead of stopping the run (a contested finding stays unfixed until the user decides). Fix every P1 (then the one re-review of the fixes), write P2 and P3 as tasks, commit, and append one REVIEW.md entry: date, "work all", the task ids, counts.
+6. In a repo with only \`main\`: once every P1 of the review is fixed, merge \`work-all\` into \`main\` (that is the reviewed commit) and delete the branch. If any P1 is contested or escalated, do not merge: leave \`work-all\` for the user and say so in the report.
+
+**Stop:** after step 5 (and 6), never before the review. One report: tasks done (with commits); then everything waiting on the user, each as one question with your best guess: parked tasks and why, \`manual\` tasks to accept, features skipped for a draft SPEC, every \`Assumed:\` added, escalated findings and undecided contests. Never release; the next step is the user's answers, then \`cto-jev work\` or \`cto-jev release\`.
+
 ## Review findings
 
 Every review (docs, wave, release) ends here. You wrote what was reviewed, so wanting to disagree is not evidence.
@@ -219,7 +238,7 @@ Every review (docs, wave, release) ends here. You wrote what was reviewed, so wa
 - **Escalate** to the user when the evidence is outside anything the reviewer could read (a verbal decision, a team convention). Do not dismiss it yourself; if the user confirms, write the fact into the docs.
 - A reviewer who could not follow the docs found missing context. Never contest that.
 - Never change a severity yourself. A P1 that looks like a P2 is contested like any finding, with evidence, and the user decides.
-- An escalated finding, or a contest the user has not decided, stops the job there: do not commit, tick or ask for sign-off over it.
+- An escalated finding, or a contest the user has not decided, stops the job there: do not commit, tick or ask for sign-off over it. (\`cto-jev work all\` lists them in its final report instead and leaves those findings unfixed.)
 - After fixing P1s, one more reviewer with none of your context reads only the fixes, once. A P1 it finds is fixed now without a further review; anything else becomes a task with its severity (in a docs review, where no tasks may exist yet: fixed in the docs or raised in the walk-through). Do not loop.
 - Without sub-agents every review here, the re-review included, is your own: say \`self-review\` in its REVIEW.md entry.
 
