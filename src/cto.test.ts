@@ -376,14 +376,14 @@ test('setup UI, first run: walk the steps, Esc goes back, tick order is priority
     KEY.down, KEY.down, KEY.space, KEY.space, KEY.enter,
     // keys: OpenRouter key, then Cloudflare account + token, which fails verification -> drop it
     'or-key', KEY.enter, 'acc123', KEY.enter, 'cf-tok', KEY.enter, KEY.down, KEY.down, KEY.enter,
-    // sprint goal, flow step answered "No", then the overview starts on "Save and finish"
-    'ship billing', KEY.enter, KEY.enter, KEY.enter,
+    // flow step answered "No", then the overview starts on "Save and finish"
+    KEY.enter, KEY.enter,
   ]);
   assert.ok(result);
   assert.deepEqual(result.agents, ['cursor', 'gemini']);
   assert.deepEqual(result.providers, ['openrouter'], 'Cloudflare was dropped after failing');
   assert.deepEqual(result.keys, { OPENROUTER_API_KEY: 'or-key' });
-  assert.equal(result.goal, 'ship billing');
+  assert.equal(result.goal, '', 'no sprint goal step');
   assert.match(out, /\[1\] Cloudflare/, 'tick order shown as numbers');
   assert.match(out, /\[2\] OpenRouter/);
   assert.match(out, /OpenRouter → Cloudflare/, 'second pass reordered');
@@ -400,8 +400,8 @@ test('setup UI, later run: change one item from the overview and keep the rest; 
     KEY.down, KEY.space, KEY.enter,
     // OpenRouter already has a key and was picked before: not asked again; TypeSafe is new: enter one
     'ts-key', KEY.enter,
-    // back on the overview: move to "Save and finish" (one more row since the flow item)
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    // back on the overview: move to "Save and finish" (the first row after an edit)
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.ok(result);
   assert.deepEqual(result.agents, ['claude'], 'untouched items keep their values');
@@ -596,7 +596,7 @@ test('setup UI: a digit moves a provider to that position; reorder alone asks no
   const reorder = await drive((io) => setupUI(initial, false, 'en', { ...io, probe: okProbe, env: {} }), [
     KEY.down, KEY.enter, // overview -> providers
     KEY.down, KEY.down, '1', KEY.enter, // cursor to Cloudflare, press 1
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // straight back on the overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // straight back on the overview -> save
   ]);
   assert.deepEqual(reorder.result?.providers, ['cloudflare', 'openrouter']);
   assert.ok(!/Keep the current value|OpenRouter API key|Cloudflare Account ID/.test(reorder.out.split('Cloudflare → OpenRouter')[1] ?? ''), 'no key prompts after a pure reorder');
@@ -605,14 +605,14 @@ test('setup UI: a digit moves a provider to that position; reorder alone asks no
     KEY.down, KEY.enter,
     KEY.down, '1', KEY.enter, // TypeSafe was not ticked: pressing 1 ticks it and puts it first
     'ts-key', KEY.enter,
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.deepEqual(pick.result?.providers, ['typesafe', 'openrouter']);
 
   const rotate = await drive((io) => setupUI({ ...initial, providers: ['openrouter'] }, false, 'en', { ...io, probe: okProbe, env: {} }), [
     KEY.down, KEY.down, KEY.enter, // overview -> Change API keys
     KEY.down, KEY.enter, 'or-new', KEY.enter, // "Enter a new one"
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter,
   ]);
   assert.equal(rotate.result?.keys.OPENROUTER_API_KEY, 'or-new');
   assert.ok(!rotate.out.includes('or-new'), 'new key is not echoed');

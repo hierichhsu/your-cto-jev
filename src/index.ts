@@ -11,7 +11,7 @@ import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
 import { detectLang, t } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
-import { detectAgents, gitRoot, planSetup, setSprintGoal, setup, wiredAgents } from './setup.js';
+import { detectAgents, gitRoot, planSetup, setup, wiredAgents } from './setup.js';
 import type { SetupState } from './setupui.js';
 
 async function readStdin(): Promise<string> {
@@ -99,7 +99,7 @@ if (args[0] === '--hook' && args[1]) {
 } else if (args[0] === 'setup') {
   const uninstall = args.includes('--uninstall');
   let chosen: AgentName[] | undefined;
-  let goal: string | undefined;
+  let interactive = false; // the menu lists every agent, so what is left unticked loses its cto hooks (exact mode)
   let flow = args.includes('--flow') ? true : args.includes('--no-flow') ? false : undefined;
   const root = gitRoot(process.cwd());
   const list = flag('--agents');
@@ -128,15 +128,12 @@ if (args[0] === '--hook' && args[1]) {
     saveCredentials(s.keys);
     savePrefs({ provider_order: s.providers, ...(s.lang && { lang: s.lang }) });
     chosen = s.agents;
-    goal = s.goal;
+    interactive = true;
     flow = s.flow ?? false;
   } else if (!uninstall) {
     chosen = detectAgents();
   }
-  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: goal !== undefined, flow });
-  if (!r.code && root && goal !== undefined && goal !== loadConfig(root).sprint_goal && !setSprintGoal(root, goal)) {
-    r.lines.push(t(lang, 'setup_goal_bad_json'));
-  }
+  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: interactive, flow });
   const latest = r.code ? undefined : await checkUpdate();
   if (latest) r.lines.push(t(lang, 'update_available', { latest, current: currentVersion() }));
   (r.code ? process.stderr : process.stdout).write(r.lines.join('\n') + '\n');

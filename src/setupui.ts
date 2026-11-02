@@ -14,7 +14,7 @@ export interface SetupState {
   providers: string[]; // picked providers, in failover order
   keys: Credentials; // keys stored in the credentials file (env-only keys are never copied in)
   lang?: 'zh-TW' | 'en';
-  goal: string;
+  goal: string; // sprint_goal, carried through unchanged: it is set in .cto.json, not asked in setup
   flow?: boolean; // the cto development flow; absent = off
 }
 
@@ -39,7 +39,7 @@ export const displayWidth = (s: string) => [...s].reduce((w, ch) => w + (WIDE.te
 const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - displayWidth(s)));
 
 /**
- * Interactive setup. First run walks agents -> providers -> keys -> sprint goal -> flow (Esc goes back one step), then
+ * Interactive setup. First run walks agents -> providers -> keys -> flow (Esc goes back one step), then
  * shows the menu. Later runs open the menu directly, pre-filled with the current setup, so any single item can be
  * changed without touching the rest. Returns the final state, or null if the user quits without saving.
  */
@@ -129,11 +129,6 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
     return { ...s, keys: keys as Credentials, providers: kept };
   };
 
-  const goalStep: Step = async (s) => {
-    const r = await text({ ...io, message: t(lang, 'ui_goal_q'), placeholder: t(lang, 'ui_goal_ph'), initialValue: s.goal });
-    return isCancel(r) ? BACK : { ...s, goal: (r ?? '').trim() };
-  };
-
   const flowStep: Step = async (s) => {
     const r = await select({
       ...io,
@@ -169,7 +164,7 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
   intro(t(lang, 'ui_title'), io);
   if (firstRun) {
     log.info(t(lang, 'ui_first_run'), io);
-    const r = await walk([agentsStep, providersStep, keysStepFor(initial.providers), goalStep, flowStep]);
+    const r = await walk([agentsStep, providersStep, keysStepFor(initial.providers), flowStep]);
     if (r === BACK) { outro(t(lang, 'ui_quit'), io); return null; }
     state = r;
   }
@@ -179,7 +174,6 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
       ['agents', t(lang, 'ui_m_agents'), state.agents.map((n) => agents[n].label).join(', ') || t(lang, 'doc_none')],
       ['providers', t(lang, 'ui_m_providers'), state.providers.map((p, i) => `${i + 1}. ${providers[p].label}`).join('  ') || t(lang, 'doc_none')],
       ['keys', t(lang, 'ui_m_keys'), state.providers.map((p) => { const v = providers[p].keys.map((k) => (state.keys as Record<string, string>)[k] ?? env[k]).filter(Boolean).pop(); return v ? `${providers[p].label} ${tail(v)}` : ''; }).filter(Boolean).join('  ') || t(lang, 'doc_none')],
-      ['goal', t(lang, 'ui_m_goal'), state.goal || t(lang, 'ui_unset')],
       ['flow', t(lang, 'ui_m_flow'), t(lang, state.flow ? 'ui_on' : 'ui_off')],
       ['lang', t(lang, 'ui_m_lang'), state.lang ?? t(lang, 'ui_lang_auto')],
     ];
@@ -205,7 +199,6 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
       agents: [agentsStep],
       providers: [providersStep, keysStepFor(state.providers)],
       keys: [keysStepFor(null)],
-      goal: [goalStep],
       flow: [flowStep],
       lang: [langStep],
     };
