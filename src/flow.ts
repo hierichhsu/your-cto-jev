@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOX } from './turn.js';
+import { ACCEPT, BOX } from './turn.js';
 
 // docs/cto_jev/features/<slug>/TASKS.md: the one place the development flow keeps state. Everything else (INDEX,
 // ready list, feature dependencies, code ownership) is computed from it. Format: FLOW_SKILL_TEXT in skill.ts.
@@ -28,7 +28,6 @@ const ID = /^([A-Z][A-Z0-9]*-\d+(?:\.\d+)*)\b\s*/;
 const TAG = /\s*\((after|files):\s*([^)]*)\)/g;
 const PRIORITY = /\s*\((P[123])\)/;
 const SEQ = /\s*\(seq\)/;
-const ACCEPT = /^\s*(?:驗收|accept)[:：]\s*(.+?)\s*$/i;
 const list = (s: string) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
 
 /** Parses one TASKS.md. Items without an id are skipped (they are not tasks the flow can track). */

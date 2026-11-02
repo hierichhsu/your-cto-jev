@@ -24,7 +24,7 @@ export interface JevResponse {
 export type TurnAction = { kind: 'edit'; file: string } | { kind: 'run'; command: string; ok: boolean; tail: string };
 
 /** A markdown checklist item newly marked done ("- [x]"), with the checklist lines nested under it. */
-export interface Ticked { file: string; text: string; children: string[] }
+export interface Ticked { file: string; text: string; children: string[]; /** the 驗收:/accept: line under it, if any */ accept?: string }
 
 export type Signal =
   | 'credential_leak'
