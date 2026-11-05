@@ -27,8 +27,9 @@ const block = (body: string) => `${START}\n${body}${END}\n`;
 const blockRe = /(\r?\n)?# >>> YOUR CTO JEV START >>>\r?\n[\s\S]*?# <<< YOUR CTO JEV END <<<(\r?\n)?/;
 
 export function removeBlock(content: string): string {
-  // Keep the user's own newline before the block, in the user's line ending.
-  return content.replace(blockRe, (_m, lead?: string, trail?: string) => (lead && trail ? lead : ''));
+  // The newline before the block is the user's (appendBlock ends their last line first): keep it, in their line ending,
+  // even when an editor stripped the newline after END.
+  return content.replace(blockRe, (_m, lead?: string) => lead ?? '');
 }
 
 export function appendBlock(content: string, body: string): string {

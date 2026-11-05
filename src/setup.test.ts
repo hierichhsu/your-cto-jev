@@ -231,3 +231,13 @@ test('setup --refresh rewrites an old git hook block in a repo with no agents wi
   assert.doesNotMatch(out, /not set up/);
   assert.match(readFileSync(hook, 'utf8'), /s=\$\?; \[ \$s -eq 0 \] \|\| exit \$s/);
 });
+
+test('uninstall keeps the user\'s last newline when an editor stripped the newline after the block', () => {
+  const root = repo();
+  const hook = join(root, '.git/hooks/pre-commit');
+  writeFileSync(hook, '#!/bin/sh\r\necho mine\r\n');
+  setup(root, 'en', { agents: [] });
+  writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\r?\n$/, ''));
+  setup(root, 'en', { uninstall: true });
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine\r\n');
+});
