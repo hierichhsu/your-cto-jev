@@ -36,3 +36,14 @@ test('doctor flags a git hook whose cto block is from an older version, but not 
   setup(root, 'en', { agents: ['claude'] });
   assert.doesNotMatch(await text(), /older than this version/, 'cto setup brings it current');
 });
+
+test('doctor finds the hooks setup wrote in a husky repo (core.hooksPath = .husky/_)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cto-doctor-husky-'));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['config', 'core.hooksPath', '.husky/_'], { cwd: root });
+  setup(root, 'en', { agents: ['claude'] });
+  const out = (await doctor(root, 'en')).lines.join('\n');
+  assert.match(out, /OK git pre-commit installed/);
+  assert.match(out, /OK git pre-push installed/);
+  assert.doesNotMatch(out, /!! .*pre-(commit|push)/);
+});

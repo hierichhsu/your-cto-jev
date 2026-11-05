@@ -7,7 +7,7 @@ import { loadBrain, loadConfig, loadCredentials } from './brain.js';
 import { flowIssues, issueTotal } from './brief.js';
 import { AGENT_TIMEOUT_MS } from './hooks.js';
 import { t, type Lang } from './i18n.js';
-import { GIT_HOOKS, conflictLines, ignoredByGit, missingHooks, wiredAgents } from './setup.js';
+import { GIT_HOOKS, conflictLines, hooksDir, ignoredByGit, missingHooks, wiredAgents } from './setup.js';
 import { guidancePaths, staleGuidance } from './skill.js';
 import { checkUpdate, currentVersion } from './update.js';
 
@@ -70,10 +70,10 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
     L.push('', t(lang, 'doc_no_repo'));
   } else {
     L.push('', t(lang, 'doc_repo', { root }));
-    const hooksDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], { cwd: root, encoding: 'utf8' }).trim();
+    const dir = hooksDir(root);
     const staleHooks: string[] = [];
     for (const [name, body] of GIT_HOOKS) {
-      const hookPath = join(hooksDir, name);
+      const hookPath = join(dir, name);
       const hook = existsSync(hookPath) ? readFileSync(hookPath, 'utf8').replace(/\r\n/g, '\n') : '';
       if (!hook.includes('YOUR CTO JEV START')) { L.push(`  !! ${t(lang, 'doc_hook_missing', { name })}`); problems.push(t(lang, 'doc_hook_missing', { name })); continue; }
       // An older block (e.g. ≤0.9.8 without the exit-status guard) still has the marker but behaves differently.

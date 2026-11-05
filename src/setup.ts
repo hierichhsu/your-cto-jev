@@ -23,10 +23,12 @@ const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.c
 const OURS = (cmd?: unknown) => typeof cmd === 'string' && cmd.startsWith('cto --hook ');
 
 const block = (body: string) => `${START}\n${body}${END}\n`;
-const blockRe = /\n?# >>> YOUR CTO JEV START >>>\n[\s\S]*?# <<< YOUR CTO JEV END <<<\n?/;
+// \r?\n: an editor or core.autocrlf may have turned the file CRLF; the block must still be found, or setup appends a second one.
+const blockRe = /(\r?\n)?# >>> YOUR CTO JEV START >>>\r?\n[\s\S]*?# <<< YOUR CTO JEV END <<<(\r?\n)?/;
 
 export function removeBlock(content: string): string {
-  return content.replace(blockRe, (m) => (m.startsWith('\n') && m.endsWith('\n') ? '\n' : ''));
+  // Keep the user's own newline before the block, in the user's line ending.
+  return content.replace(blockRe, (_m, lead?: string, trail?: string) => (lead && trail ? lead : ''));
 }
 
 export function appendBlock(content: string, body: string): string {

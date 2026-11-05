@@ -81,6 +81,22 @@ test('setup .gitignore: a repo .gitignore rule covering an entry (.claude/) coun
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), text, 'a re-run keeps the same block');
 });
 
+test('setup: a CRLF hook and .gitignore keep one block across re-runs; uninstall restores the user\'s lines, CRLF intact', () => {
+  const root = repo();
+  const hook = join(root, '.git/hooks/pre-commit');
+  const ignore = join(root, '.gitignore');
+  const old = '# >>> YOUR CTO JEV START >>>\r\nold\r\n# <<< YOUR CTO JEV END <<<\r\n';
+  mkdirSync(join(root, '.git/hooks'), { recursive: true });
+  writeFileSync(hook, '#!/bin/sh\r\necho mine\r\n' + old);
+  writeFileSync(ignore, 'node_modules\r\n' + old);
+  setup(root, 'en', { agents: ['claude'] });
+  setup(root, 'en', { agents: ['claude'] });
+  for (const p of [hook, ignore]) assert.equal(readFileSync(p, 'utf8').split('YOUR CTO JEV START').length, 2, `${p}: one block`);
+  assert.equal(setup(root, 'en', { uninstall: true }).code, 0);
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine\r\n');
+  assert.equal(readFileSync(ignore, 'utf8'), 'node_modules\r\n');
+});
+
 test('setup --flow with a broken .cto.json: says so, leaves the file byte-for-byte', () => {
   const root = repo();
   const broken = '{ "sprint_goal": "x", ';
