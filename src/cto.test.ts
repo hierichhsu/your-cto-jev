@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { evaluate, providerOrder } from './api.js';
 import { FLOW_DIR, danglingAfter, listFeatures, loadTasks, openTasks, parallelTasks, parseTasks } from './flow.js';
@@ -282,14 +282,24 @@ test('setup installs idempotently and uninstall restores exactly', () => {
 
 test('setup: a failing command above the cto block still blocks the commit', () => {
   const root = tmp();
-  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: root, stdio: 'pipe' });
+  // A fake `cto` that always passes goes first on PATH, so only the `false` line above the block can fail the commit.
+  const bin = tmp();
+  writeFileSync(join(bin, 'cto'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'; // Windows spells it Path
+  const env = { ...process.env, [pathKey]: bin + delimiter + process.env[pathKey] };
+  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: root, stdio: 'pipe', env });
   git('init', '-q');
-  writeFileSync(join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nfalse\n'); // stands in for a failing biome check
+  const hook = join(root, '.git', 'hooks', 'pre-commit');
+  writeFileSync(hook, '#!/bin/sh\nfalse\n'); // stands in for a failing biome check
   setup(root, 'en', { agents: [] });
   writeFileSync(join(root, 'a.txt'), 'a\n');
   git('add', 'a.txt');
   assert.throws(() => git('commit', '-qm', 'x'));
   assert.throws(() => git('rev-parse', '--verify', 'HEAD'), 'no commit was made');
+  // same hook with the line above passing: the fake cto lets the commit through, so the failure above came from `false`
+  writeFileSync(hook, readFileSync(hook, 'utf8').replace('#!/bin/sh\nfalse\n', '#!/bin/sh\ntrue\n'));
+  git('commit', '-qm', 'x');
+  git('rev-parse', '--verify', 'HEAD');
 });
 
 test('setup writes each agent in its own format', () => {

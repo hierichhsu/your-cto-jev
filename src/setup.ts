@@ -41,6 +41,27 @@ export function hasEarlyExit(content: string): boolean {
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
+/**
+ * IGNORE_BODY entries the repo's own .gitignore does not already cover outside our block: an exact line, or any rule there
+ * git says matches (`.claude/` covers `.claude/settings.local.json`). Global excludesFile and .git/info/exclude do not
+ * count; linters like biome never read them. shortcut: a rule in a nested .gitignore does not count either.
+ */
+function missingIgnores(root: string, text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const have = new Set(removeBlock(text).split(/\r?\n/).map((l) => l.trim()));
+  const [start, end] = [lines.findIndex((l) => l.trim() === START), lines.findIndex((l) => l.trim() === END)];
+  const inBlock = (n: number) => start >= 0 && n - 1 >= start && n - 1 <= (end >= 0 ? end : lines.length);
+  const entries = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  let out = '';
+  // Exit 1 means nothing matched; a git failure leaves the exact-line answer.
+  try { if (entries.length) out = execFileSync('git', ['check-ignore', '--no-index', '-v', ...entries], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { /* none covered */ }
+  const covered = new Set(out.split('\n').flatMap((l) => {
+    const m = /^\.gitignore:(\d+):([^\t]*)\t(.*)$/.exec(l);
+    return m && !m[2].startsWith('!') && !inBlock(+m[1]) ? [m[3]] : [];
+  }));
+  return entries.filter((e) => !covered.has(e));
+}
+
 /** Hooks dir honoring core.hooksPath (via --git-path). Husky's generated .husky/_ is replaced on install, so use .husky. */
 export function hooksDir(root: string): string {
   const dir = git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks');
@@ -173,8 +194,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   if (flow) for (const p of Object.keys(FLOW_SKELETON)) if (!existsSync(join(root, p))) at(p, 'write');
   const ignore = join(root, '.gitignore');
   const ignoreText = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
-  const have = new Set(removeBlock(ignoreText).split(/\r?\n/).map((l) => l.trim()));
-  const missing = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  const missing = missingIgnores(root, ignoreText);
   if (missing.length && appendBlock(ignoreText, missing.join('\n') + '\n') !== ignoreText) at('.gitignore', 'write');
   const cfg = loadConfig(root);
   if (!existsSync(join(root, '.cto.json')) || cfg.flow !== flow || cfg.sprint_goal !== goal) at('.cto.json', 'write');
@@ -288,8 +308,7 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   // 3. .gitignore block.
   // Only the entries the file lacks outside our block; a repo that already ignores them all gets no block.
   const ignoreText = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
-  const have = new Set(removeBlock(ignoreText).split(/\r?\n/).map((l) => l.trim()));
-  const missing = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  const missing = missingIgnores(root, ignoreText);
   if (missing.length) {
     writeFileSync(ignorePath, appendBlock(ignoreText, missing.join('\n') + '\n'));
     lines.push(t(lang, 'setup_gitignore'));

@@ -71,11 +71,15 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
   } else {
     L.push('', t(lang, 'doc_repo', { root }));
     const hooksDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], { cwd: root, encoding: 'utf8' }).trim();
-    for (const [name] of GIT_HOOKS) {
+    const staleHooks: string[] = [];
+    for (const [name, body] of GIT_HOOKS) {
       const hookPath = join(hooksDir, name);
-      const hook = existsSync(hookPath) ? readFileSync(hookPath, 'utf8') : '';
-      if (hook.includes('YOUR CTO JEV START')) L.push(`  OK ${t(lang, 'doc_hook_ok', { name, path: hookPath })}`);
-      else { L.push(`  !! ${t(lang, 'doc_hook_missing', { name })}`); problems.push(t(lang, 'doc_hook_missing', { name })); }
+      const hook = existsSync(hookPath) ? readFileSync(hookPath, 'utf8').replace(/\r\n/g, '\n') : '';
+      if (!hook.includes('YOUR CTO JEV START')) { L.push(`  !! ${t(lang, 'doc_hook_missing', { name })}`); problems.push(t(lang, 'doc_hook_missing', { name })); continue; }
+      // An older block (e.g. ≤0.9.8 without the exit-status guard) still has the marker but behaves differently.
+      const current = hook.includes(`# >>> YOUR CTO JEV START >>>\n${body}# <<< YOUR CTO JEV END <<<`);
+      if (!current) staleHooks.push(`${name} hook`);
+      L.push(`  ${current ? 'OK' : '!!'} ${t(lang, 'doc_hook_ok', { name, path: hookPath })}`);
     }
 
     const wired = wiredAgents(root);
@@ -83,7 +87,7 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
     // Only files git ignores AND does not track yet: once added with -f they are tracked and fine.
     const hidden = ignoredByGit(root, guidancePaths(wired)).filter((p) => !isTracked(root, p));
     if (hidden.length) L.push(`  -- ${t(lang, 'doc_ignored', { list: hidden.join(', '), cmd: `git add -f ${hidden.join(' ')}` })}`);
-    const stale = [...missingHooks(root), ...staleGuidance(root, wired)];
+    const stale = [...staleHooks, ...missingHooks(root), ...staleGuidance(root, wired)];
     if (stale.length) {
       L.push(`  !! ${t(lang, 'doc_stale', { list: stale.join(', ') })}`);
       problems.push(t(lang, 'doc_stale', { list: stale.join(', ') }));

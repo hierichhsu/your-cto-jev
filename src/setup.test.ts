@@ -69,6 +69,18 @@ test('setup --flow: skeleton, skill and rule; idempotent; never overwrites docs;
   assert.ok(existsSync(join(root, 'docs/cto_jev/PRODUCT.md')));
 });
 
+test('setup .gitignore: a repo .gitignore rule covering an entry (.claude/) counts; .git/info/exclude does not; idempotent', () => {
+  const root = repo();
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n.claude/\n');
+  writeFileSync(join(root, '.git/info/exclude'), 'debug_stdin.json\n');
+  assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
+  const text = readFileSync(join(root, '.gitignore'), 'utf8');
+  assert.equal(text, 'node_modules\n.claude/\n# >>> YOUR CTO JEV START >>>\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n# <<< YOUR CTO JEV END <<<\n');
+  assert.deepEqual(planSetup(root, ['claude'], false, ''), [], 'plan agrees: nothing left to write');
+  assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
+  assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), text, 'a re-run keeps the same block');
+});
+
 test('setup --flow with a broken .cto.json: says so, leaves the file byte-for-byte', () => {
   const root = repo();
   const broken = '{ "sprint_goal": "x", ';
