@@ -83,6 +83,12 @@ test('setup .gitignore: a repo .gitignore rule covering an entry (.claude/) coun
   assert.deepEqual(planSetup(root, ['claude'], false, ''), [], 'plan agrees: nothing left to write');
   assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), text, 'a re-run keeps the same block');
+
+  // a user's *.tmp covers the brain's temp files (.cto-brain.json.<pid>.tmp), so that entry is not added
+  const tmpRoot = repo();
+  writeFileSync(join(tmpRoot, '.gitignore'), '*.tmp\n');
+  setup(tmpRoot, 'en', { agents: [] });
+  assert.doesNotMatch(readFileSync(join(tmpRoot, '.gitignore'), 'utf8'), /\.cto-brain\.json\.\*tmp/);
 });
 
 test('setup: a CRLF hook and .gitignore keep one block across re-runs; uninstall restores the user\'s lines, CRLF intact', () => {

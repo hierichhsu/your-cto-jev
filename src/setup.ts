@@ -51,13 +51,15 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
 function missingIgnores(root: string, text: string): string[] {
   const have = new Set(removeBlock(text).split(/\r?\n/).map((l) => l.trim()));
   const entries = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
+  // Ask about a real file name: brain.ts writes `.cto-brain.json.<pid>.tmp`, which a user's `*.tmp` covers.
+  const sample = (e: string) => e.replace('*', '1.');
   let out = '';
   // Exit 1 means nothing matched; a git failure leaves the exact-line answer.
-  try { if (entries.length) out = git(root, 'check-ignore', '--no-index', '-v', ...entries); } catch { /* none covered */ }
+  try { if (entries.length) out = git(root, 'check-ignore', '--no-index', '-v', ...entries.map(sample)); } catch { /* none covered */ }
   // A rule reported from inside our block counts only if the same line also sits outside it.
   const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))
     .filter((m) => m && !m[1].startsWith('!') && have.has(m[1].trim())).map((m) => m![2]);
-  return entries.filter((e) => !covered.includes(e));
+  return entries.filter((e) => !covered.includes(sample(e)));
 }
 
 /** Hooks dir honoring core.hooksPath (via --git-path). Husky's generated .husky/_ is replaced on install, so use .husky. */
