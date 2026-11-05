@@ -20,6 +20,10 @@ import { maskDiff, maskSensitiveState } from './masker.js';
 import { setSprintGoal, setup, wiredAgents } from './setup.js';
 
 const loadBrainCd = (b: any) => b.provider_cooldown.cloudflare;
+// a developer's global core.hooksPath or commit.gpgsign must not reach the temp repos; child git inherits process.env
+process.env.GIT_CONFIG_GLOBAL = join(mkdtempSync(join(tmpdir(), 'cto-gitconfig-')), 'gitconfig');
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.CTO_NO_UPDATE_CHECK = '1'; // tests never hit the registry or write the user's cache
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read or write the user's real keys and prefs
 const tmp = () => mkdtempSync(join(tmpdir(), 'cto-'));

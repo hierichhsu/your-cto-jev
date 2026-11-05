@@ -7,6 +7,10 @@ import { test } from 'node:test';
 import { brief, flowIssues } from './brief.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read the user's real keys and prefs
+// never read the developer's git config (a global core.hooksPath or commit.gpgsign breaks the temp repos)
+process.env.GIT_CONFIG_GLOBAL = join(mkdtempSync(join(tmpdir(), 'cto-gitconfig-')), 'gitconfig');
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
 
 const repo = (files: Record<string, string>) => {
   const root = mkdtempSync(join(tmpdir(), 'cto-brief-'));

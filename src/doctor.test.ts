@@ -8,6 +8,10 @@ import { providers } from './api.js';
 import { doctor } from './doctor.js';
 import { setup } from './setup.js';
 
+// a developer's global core.hooksPath or commit.gpgsign must not reach the temp repos; child git inherits process.env
+process.env.GIT_CONFIG_GLOBAL = join(mkdtempSync(join(tmpdir(), 'cto-gitconfig-')), 'gitconfig');
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read the user's real keys and prefs
 process.env.CTO_NO_UPDATE_CHECK = '1';
 for (const p of Object.values(providers)) for (const k of p.keys) delete process.env[k]; // no live probes

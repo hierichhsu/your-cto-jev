@@ -8,6 +8,10 @@ import { loadBrain } from './brain.js';
 import { docCandidates, judgeDocs, renderDocs, type DocCandidate } from './docs.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read the user's real keys and prefs
+// never read the developer's git config (a global core.hooksPath or commit.gpgsign breaks the temp repos)
+process.env.GIT_CONFIG_GLOBAL = join(mkdtempSync(join(tmpdir(), 'cto-gitconfig-')), 'gitconfig');
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.OPENROUTER_API_KEY = 'k';
 const ctx = () => ({ brain: loadBrain(mkdtempSync(join(tmpdir(), 'cto-brain-'))), lang: 'en' as const, timeoutMs: 1000, notices: new Set<string>() });
 const noul = (v: number) => ({ type: 'noul', noul: v });

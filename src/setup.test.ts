@@ -10,6 +10,10 @@ import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, r
 import { FLOW_SKELETON, docsPublisher, isSetUp, planSetup, setup } from './setup.js';
 import { setupUI } from './setupui.js';
 
+// a developer's global core.hooksPath or commit.gpgsign must not reach the temp repos; child git inherits process.env
+process.env.GIT_CONFIG_GLOBAL = join(mkdtempSync(join(tmpdir(), 'cto-gitconfig-')), 'gitconfig');
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never touch the user's real keys and prefs
 
 const repo = () => {
