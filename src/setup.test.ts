@@ -241,3 +241,12 @@ test('uninstall keeps the user\'s last newline when an editor stripped the newli
   setup(root, 'en', { uninstall: true });
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine\r\n');
 });
+
+test('isSetUp: a fresh husky clone (block in .husky/, core.hooksPath not set yet) counts as set up', () => {
+  const root = repo();
+  execFileSync('git', ['config', 'core.hooksPath', '.husky/_'], { cwd: root });
+  setup(root, 'en', { agents: [] });
+  assert.match(readFileSync(join(root, '.husky/pre-commit'), 'utf8'), /YOUR CTO JEV START/);
+  execFileSync('git', ['config', '--unset', 'core.hooksPath'], { cwd: root }); // what a fresh clone looks like
+  assert.equal(isSetUp(root), true);
+});

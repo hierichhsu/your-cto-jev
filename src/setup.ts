@@ -391,8 +391,9 @@ export function isSetUp(root: string): boolean {
   if (wiredAgents(root).length) return true;
   // A global core.hooksPath is shared by every repo; .cto.json (always written by setup) says it was this one.
   if (!existsSync(join(root, '.cto.json'))) return false;
-  const dir = hooksDir(root);
-  return GIT_HOOKS.some(([name]) => existsSync(join(dir, name)) && blockRe.test(readFileSync(join(dir, name), 'utf8')));
+  // .husky too: in a fresh clone the committed .husky/ hooks carry the block before husky has set core.hooksPath.
+  return [hooksDir(root), join(root, '.husky')].some((dir) =>
+    GIT_HOOKS.some(([name]) => existsSync(join(dir, name)) && blockRe.test(readFileSync(join(dir, name), 'utf8'))));
 }
 
 /** Repo root, or undefined outside a git repo. */
