@@ -207,8 +207,15 @@ test('setup --refresh rewrites an old git hook block in a repo with no agents wi
   setup(root, 'en', { agents: [] });
   assert.equal(isSetUp(root), true);
   const hook = join(root, '.git', 'hooks', 'pre-commit');
-  const old = readFileSync(hook, 'utf8').replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''); // the ≤0.9.8 block
+  const current = readFileSync(hook, 'utf8');
+  const old = current.replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''); // the ≤0.9.8 block
+  assert.notEqual(old, current, 'the old block was made');
   writeFileSync(hook, old);
+  // hooks shared through a global core.hooksPath: another repo with the block but no .cto.json is not set up
+  const other = repo();
+  assert.equal(isSetUp(other), false);
+  execFileSync('git', ['config', 'core.hooksPath', join(root, '.git', 'hooks')], { cwd: other });
+  assert.equal(isSetUp(other), false);
   const cli = join(import.meta.dirname, 'index.js');
   const out = execFileSync(process.execPath, [cli, 'setup', '--refresh'], { cwd: root, encoding: 'utf8', env: { ...process.env, CTO_NO_UPDATE_CHECK: '1' } });
   assert.doesNotMatch(out, /not set up/);
