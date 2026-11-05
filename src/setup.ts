@@ -387,6 +387,13 @@ export function wiredAgents(root: string): AgentName[] {
   });
 }
 
+/** cto was set up here: an agent is wired, or only the git hooks are (setup with no agents). */
+export function isSetUp(root: string): boolean {
+  if (wiredAgents(root).length) return true;
+  const dir = hooksDir(root);
+  return GIT_HOOKS.some(([name]) => existsSync(join(dir, name)) && blockRe.test(readFileSync(join(dir, name), 'utf8')));
+}
+
 /** Repo root, or undefined outside a git repo. */
 export function gitRoot(cwd: string): string | undefined {
   try { return git(cwd, 'rev-parse', '--show-toplevel'); } catch { return undefined; }

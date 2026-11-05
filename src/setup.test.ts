@@ -7,7 +7,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { test } from 'node:test';
 import { loadConfig } from './brain.js';
 import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, docsPublisher, planSetup, setup } from './setup.js';
+import { FLOW_SKELETON, docsPublisher, isSetUp, planSetup, setup } from './setup.js';
 import { setupUI } from './setupui.js';
 
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never touch the user's real keys and prefs
@@ -199,4 +199,18 @@ test('setup UI: agent list shows what is always installed, each agent\'s files a
   assert.match(r.out, /Will write/);
   assert.match(r.out, /CLAUDE\.md\s+update cto's part/);
   assert.equal((r.out.match(/Write these files\?/g) ?? []).length >= 2, true, 'asked twice: No went back, Yes saved');
+});
+
+test('setup --refresh rewrites an old git hook block in a repo with no agents wired', () => {
+  const root = repo();
+  assert.equal(isSetUp(root), false);
+  setup(root, 'en', { agents: [] });
+  assert.equal(isSetUp(root), true);
+  const hook = join(root, '.git', 'hooks', 'pre-commit');
+  const old = readFileSync(hook, 'utf8').replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''); // the ≤0.9.8 block
+  writeFileSync(hook, old);
+  const cli = join(import.meta.dirname, 'index.js');
+  const out = execFileSync(process.execPath, [cli, 'setup', '--refresh'], { cwd: root, encoding: 'utf8', env: { ...process.env, CTO_NO_UPDATE_CHECK: '1' } });
+  assert.doesNotMatch(out, /not set up/);
+  assert.match(readFileSync(hook, 'utf8'), /s=\$\?; \[ \$s -eq 0 \] \|\| exit \$s/);
 });

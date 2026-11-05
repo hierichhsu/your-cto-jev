@@ -11,7 +11,7 @@ import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
 import { detectLang, t } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
-import { detectAgents, gitRoot, planSetup, setup, wiredAgents } from './setup.js';
+import { detectAgents, gitRoot, isSetUp, planSetup, setup, wiredAgents } from './setup.js';
 import type { SetupState } from './setupui.js';
 
 async function readStdin(): Promise<string> {
@@ -106,7 +106,7 @@ if (args[0] === '--hook' && args[1]) {
   if (args.includes('--refresh')) {
     // Re-write everything cto manages for the agents already wired here; choices stay as they are.
     chosen = root ? wiredAgents(root) : [];
-    if (root && !chosen.length) { console.log(t(lang, 'refresh_none')); process.exit(0); }
+    if (root && !isSetUp(root)) { console.log(t(lang, 'refresh_none')); process.exit(0); }
   } else if (list) chosen = list.split(',').map((s) => s.trim()).filter((s): s is AgentName => (agentNames as string[]).includes(s));
   else if (!uninstall && root && process.stdin.isTTY && process.stdout.isTTY && !args.includes('--yes')) {
     // Interactive: start from what is actually set up now, so re-running setup edits instead of starting over.
@@ -144,7 +144,7 @@ if (args[0] === '--hook' && args[1]) {
     console.log(t(lang, 'update_done'));
     // The new version refreshes this repo's managed hooks and rules, so changes reach it without re-running setup.
     const root = gitRoot(process.cwd());
-    if (root && wiredAgents(root).length) {
+    if (root && isSetUp(root)) {
       console.log(t(lang, 'refresh_after_update'));
       spawnSync('cto setup --refresh', { stdio: 'inherit', shell: true, cwd: root });
     }
