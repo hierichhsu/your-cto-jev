@@ -15,7 +15,8 @@ const LEGACY_SKILL = '.claude/skills/cto/SKILL.md'; // 0.5.0 pre-release layout,
 
 const MD_START = '<!-- >>> YOUR CTO JEV START >>> -->';
 const MD_END = '<!-- <<< YOUR CTO JEV END <<< -->';
-const mdBlockRe = /\n?<!-- >>> YOUR CTO JEV START >>> -->\n[\s\S]*?<!-- <<< YOUR CTO JEV END <<< -->\n?/;
+// \r?\n: a CLAUDE.md turned CRLF (editor, core.autocrlf) must still match, or setup appends a second rules block.
+const mdBlockRe = /(?:\r?\n)?<!-- >>> YOUR CTO JEV START >>> -->\r?\n[\s\S]*?<!-- <<< YOUR CTO JEV END <<< -->(?:\r?\n)?/;
 
 export const MEMORY_FILES: { path: string; agents: AgentName[] }[] = [
   { path: 'CLAUDE.md', agents: ['claude'] },

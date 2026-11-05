@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, SKILL_MARK, SKILL_TEXT, syncFlowSkill } from './skill.js';
+import { FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, SKILL_MARK, SKILL_TEXT, syncFlowSkill, syncGuidance } from './skill.js';
 
 test('the cto skill lists every user-facing command, including the flow ones', () => {
   for (const cmd of ['cto brief', 'cto check', 'cto doctor', 'cto index', 'cto docs']) assert.ok(SKILL_TEXT.includes(`\`${cmd}\``), cmd);
@@ -61,4 +61,17 @@ test('syncFlowSkill writes the marked cto-jev skill when enabled and removes it 
   assert.ok(!existsSync(path));
   assert.ok(!existsSync(dirname(path)));
   assert.deepEqual(syncFlowSkill(root, false), { written: [], removed: [] });
+});
+
+test('syncGuidance: a CLAUDE.md turned CRLF keeps one rules block, and removal leaves the user text', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cto-crlf-'));
+  const path = join(root, 'CLAUDE.md');
+  writeFileSync(path, '# Mine\r\n');
+  syncGuidance(root, new Set(['claude']), false);
+  writeFileSync(path, readFileSync(path, 'utf8').replace(/\r?\n/g, '\r\n'));
+  syncGuidance(root, new Set(['claude']), false);
+  assert.equal(readFileSync(path, 'utf8').split('YOUR CTO JEV START').length, 2, 'exactly one block');
+  writeFileSync(path, readFileSync(path, 'utf8').replace(/\r?\n/g, '\r\n'));
+  syncGuidance(root, new Set(), true);
+  assert.equal(readFileSync(path, 'utf8'), '# Mine\r\n');
 });
