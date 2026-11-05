@@ -12,11 +12,14 @@ import { FLOW_DIR } from './flow.js';
 const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
 // Keep the block minimal: all logic (including the git diff call) lives in the package, so npm update upgrades every repo.
-const HOOK_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
+// A hook's result is its last command's; once our block is last, a failing line above it (biome, lint) would be ignored.
+const KEEP_FAIL = 's=$?; [ $s -eq 0 ] || exit $s\n';
+const HOOK_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
 // pre-push gets git's ref lines on stdin; they are passed straight through.
-const PUSH_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nfi\n';
+const PUSH_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nfi\n';
 export const GIT_HOOKS: [string, string][] = [['pre-commit', HOOK_BODY], ['pre-push', PUSH_BODY]];
-const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n';
+// settings.local.json is Claude Code's per-machine file; often only the global gitignore covers it, which linters like biome never read.
+const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n';
 const OURS = (cmd?: unknown) => typeof cmd === 'string' && cmd.startsWith('cto --hook ');
 
 const block = (body: string) => `${START}\n${body}${END}\n`;

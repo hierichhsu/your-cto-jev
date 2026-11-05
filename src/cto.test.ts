@@ -250,7 +250,8 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /\.cto-brain\.json/);
   assert.ok(existsSync(join(root, '.cto.json')));
   // a .gitignore that already has every entry gets no block
-  const already = 'node_modules/\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n';
+  assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /^\.claude\/settings\.local\.json$/m);
+  const already = 'node_modules/\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n';
   writeFileSync(join(root, '.gitignore'), already);
   assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), already);
@@ -277,6 +278,18 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   execFileSync('git', ['init', '-q'], { cwd: warn });
   writeFileSync(join(warn, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
   assert.match(setup(warn, 'en', { agents: [] }).lines.join('\n'), /exit 0 before the cto block/);
+});
+
+test('setup: a failing command above the cto block still blocks the commit', () => {
+  const root = tmp();
+  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: root, stdio: 'pipe' });
+  git('init', '-q');
+  writeFileSync(join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nfalse\n'); // stands in for a failing biome check
+  setup(root, 'en', { agents: [] });
+  writeFileSync(join(root, 'a.txt'), 'a\n');
+  git('add', 'a.txt');
+  assert.throws(() => git('commit', '-qm', 'x'));
+  assert.throws(() => git('rev-parse', '--verify', 'HEAD'), 'no commit was made');
 });
 
 test('setup writes each agent in its own format', () => {
