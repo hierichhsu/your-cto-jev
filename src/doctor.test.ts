@@ -33,7 +33,7 @@ test('doctor flags a git hook whose cto block is from an older version, but not 
   // the ≤0.9.8 block: no exit-status guard as its first line
   writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\r\n/g, '\n').replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''));
   out = await text();
-  assert.match(out, /!! git pre-commit installed/);
+  assert.match(out, /!! git pre-commit hook block is from an older cto/);
   assert.match(out, /older than this version \(pre-commit hook\)\. Run cto setup --refresh/);
   assert.doesNotMatch(out, /pre-push hook/);
 

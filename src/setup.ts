@@ -49,19 +49,15 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
  * count; linters like biome never read them. shortcut: a rule in a nested .gitignore does not count either.
  */
 function missingIgnores(root: string, text: string): string[] {
-  const lines = text.split(/\r?\n/);
   const have = new Set(removeBlock(text).split(/\r?\n/).map((l) => l.trim()));
-  const [start, end] = [lines.findIndex((l) => l.trim() === START), lines.findIndex((l) => l.trim() === END)];
-  const inBlock = (n: number) => start >= 0 && n - 1 >= start && n - 1 <= (end >= 0 ? end : lines.length);
   const entries = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
   let out = '';
   // Exit 1 means nothing matched; a git failure leaves the exact-line answer.
-  try { if (entries.length) out = execFileSync('git', ['check-ignore', '--no-index', '-v', ...entries], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { /* none covered */ }
-  const covered = new Set(out.split('\n').flatMap((l) => {
-    const m = /^\.gitignore:(\d+):([^\t]*)\t(.*)$/.exec(l);
-    return m && !m[2].startsWith('!') && !inBlock(+m[1]) ? [m[3]] : [];
-  }));
-  return entries.filter((e) => !covered.has(e));
+  try { if (entries.length) out = git(root, 'check-ignore', '--no-index', '-v', ...entries); } catch { /* none covered */ }
+  // A rule reported from inside our block counts only if the same line also sits outside it.
+  const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))
+    .filter((m) => m && !m[1].startsWith('!') && have.has(m[1].trim())).map((m) => m![2]);
+  return entries.filter((e) => !covered.includes(e));
 }
 
 /** Hooks dir honoring core.hooksPath (via --git-path). Husky's generated .husky/_ is replaced on install, so use .husky. */

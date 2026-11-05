@@ -144,7 +144,10 @@ if (args[0] === '--hook' && args[1]) {
     console.log(t(lang, 'update_done'));
     // The new version refreshes this repo's managed hooks and rules, so changes reach it without re-running setup.
     const root = gitRoot(process.cwd());
-    if (root && isSetUp(root)) {
+    let setUp = false;
+    // isSetUp runs git with --path-format, which git < 2.31 rejects; the update already succeeded, so just skip the refresh.
+    try { setUp = !!root && isSetUp(root); } catch { /* skip refresh */ }
+    if (root && setUp) {
       console.log(t(lang, 'refresh_after_update'));
       spawnSync('cto setup --refresh', { stdio: 'inherit', shell: true, cwd: root });
     }

@@ -79,7 +79,7 @@ export async function doctor(cwd: string, lang: Lang, slowMs = AGENT_TIMEOUT_MS)
       // An older block (e.g. ≤0.9.8 without the exit-status guard) still has the marker but behaves differently.
       const current = hook.includes(`# >>> YOUR CTO JEV START >>>\n${body}# <<< YOUR CTO JEV END <<<`);
       if (!current) staleHooks.push(`${name} hook`);
-      L.push(`  ${current ? 'OK' : '!!'} ${t(lang, 'doc_hook_ok', { name, path: hookPath })}`);
+      L.push(`  ${current ? 'OK' : '!!'} ${t(lang, current ? 'doc_hook_ok' : 'doc_hook_outdated', { name, path: hookPath })}`);
     }
 
     const wired = wiredAgents(root);
