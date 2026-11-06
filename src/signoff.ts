@@ -1,5 +1,6 @@
 // Sign-off guard helpers (pure): which doc a path or command touches, what an edit produces, and whether the
 // change is the CTO approving its own doc. The hook wiring (I/O, messages) lives elsewhere.
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { posix } from 'node:path';
 import { docStatus, FLOW_DIR } from './flow.js';
 import { maskSensitiveState } from './masker.js';
@@ -32,18 +33,31 @@ export function signoffState(review: string, prompt: string): string {
   return `CTO (written by the agent):\n"""\n${cto}\n"""\n\nUSER (the user's reply):\n"""\n${unquote(prompt.trim())}\n"""`;
 }
 
-// Forward slashes, Git Bash `/d/...` to `d:/...`, `..` resolved without climbing above the drive.
+// Forward slashes, `\\?\` dropped, Git Bash `/d/...` to `d:/...`, `..` resolved without climbing above the drive.
+// An NTFS stream (`SPEC.md::$DATA`, `SPEC.md:x`) is the same file, so everything from a `:` after the drive goes.
 function absolute(cwd: string, p: string): string {
-  const slash = (s: string) => s.replace(/\\/g, '/').replace(/^\/([a-z])(?=\/|$)/i, '$1:');
+  const slash = (s: string) => s.replace(/\\/g, '/').replace(/^\/\/[?.]\//, '').replace(/^\/([a-z])(?=\/|$)/i, '$1:');
   const q = slash(p);
   const full = /^([a-z]:)?\//i.test(q) ? q : `${slash(cwd)}/${q}`;
   const [, drive = '', rest] = /^([a-z]:)?(.*)$/is.exec(full)!;
-  return drive.toLowerCase() + posix.normalize(rest).replace(/\/+$/, '');
+  return drive.toLowerCase() + posix.normalize(rest.replace(/:.*$/s, '')).replace(/\/+$/, '');
+}
+
+// 8.3 short names (`ARCHIT~1.MD`) and symlinks: the deepest part that exists becomes its real long path.
+function real(p: string): string {
+  let head = p, tail = '';
+  while (!existsSync(head)) {
+    const i = head.lastIndexOf('/');
+    if (i <= 0 || /^[a-z]:$/i.test(head.slice(0, i))) return p;
+    tail = head.slice(i) + tail;
+    head = head.slice(0, i);
+  }
+  try { return absolute('/', realpathSync.native(head)) + tail; } catch { return p; }
 }
 
 // Repo-relative path, or undefined when it is outside root. Case-insensitive like the file systems it guards.
 function relative(root: string, cwd: string, p: string): string | undefined {
-  const r = absolute('/', root), full = absolute(cwd, p);
+  const r = real(absolute('/', root)), full = real(absolute(cwd, p));
   if (full.toLowerCase() === r.toLowerCase()) return '';
   return full.toLowerCase().startsWith(r.toLowerCase() + '/') ? full.slice(r.length + 1) : undefined;
 }
@@ -101,7 +115,21 @@ export function powershellHitsSignoffDoc(root: string, cwd: string, command: str
   return DOC_NAME.test(cmd) && cmd.includes(FLOW_DIR);
 }
 
-/** For the Bash rule: paths from shellWrites; `?` (target unknown) is let through. */
-export function shellWritesSignoffDoc(root: string, cwd: string, writtenPaths: string[]): boolean {
-  return writtenPaths.some((p) => p !== '?' && signoffDoc(root, cwd, p) !== undefined);
+/**
+ * For the Bash rule: paths from shellWrites; `?` (target unknown) is let through. A `cd` earlier in the command is
+ * invisible here, so a bare sign-off doc name in a command that mentions cto_jev blocks, and so does a folder under
+ * docs/cto_jev as the target when the command names a sign-off doc (`cp SPEC.md docs/cto_jev/features/x/`).
+ */
+export function shellWritesSignoffDoc(root: string, cwd: string, writtenPaths: string[], command = ''): boolean {
+  const cmd = command.replace(/\\/g, '/').toLowerCase();
+  const flowCmd = cmd.includes('cto_jev');
+  const isDir = (rel: string) => { try { return statSync(posix.join(absolute('/', root), rel)).isDirectory(); } catch { return false; } };
+  return writtenPaths.some((p) => {
+    if (p === '?') return false;
+    if (signoffDoc(root, cwd, p) !== undefined) return true;
+    const name = p.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop()!.replace(/:.*$/s, '').toLowerCase();
+    if (flowCmd && SIGNOFF_DOCS.some((d) => d.toLowerCase() === name)) return true;
+    const rel = relative(root, cwd, p);
+    return inFlow(rel) && DOC_NAME.test(cmd) && (/[\\/]$/.test(p) || isDir(rel!));
+  });
 }

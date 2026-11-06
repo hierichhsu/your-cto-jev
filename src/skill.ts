@@ -181,7 +181,7 @@ Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原�
 5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers three questions: could an engineer new to this repo build it from these two files without making a design decision; does it build something not needed now, or something the code already has; and which business rules, error cases, roles/permissions or data cases are missing. Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). A finding only the user can settle goes into the docs as \`Assumed: ...\` and into the handoff's "might be missing". Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
 6. Walk the user through both files section by section, including what the review changed, and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
 
-**Stop:** when the user says the docs are complete: send a review handoff (see "Sign-off") for CONCEPT.md and SPEC.md. Never write TASKS.md before the SPEC is approved; cto blocks the commit anyway.
+**Stop:** when the user says the docs are complete: send a review handoff (see "Sign-off") for CONCEPT.md and SPEC.md. Never write TASKS.md before both CONCEPT and SPEC are approved; cto blocks the commit anyway.
 
 CONCEPT.md: \`Status:\` line, then \`## 目的\` (one sentence), \`## 動機\`, \`## 商業規則\`, \`## 不做的事\`.
 SPEC.md: \`Status:\` line, then \`## Interface\`, \`## Constraints\`, \`## Internals\`.
@@ -189,7 +189,7 @@ REVIEW.md: created empty with one line saying it is pending.
 
 ## cto-jev tasks
 
-**When:** the user says "cto-jev tasks", or SPEC.md is \`Status: approved\` and TASKS.md is empty or the request adds work.
+**When:** the user says "cto-jev tasks", or CONCEPT.md and SPEC.md are both \`Status: approved\` and TASKS.md is empty or the request adds work.
 
 1. One parent per deliverable, children small enough for one sub-agent and one acceptance command.
 2. Every child gets \`(files:)\` (the directories it changes, never bare \`src/\`), \`(after:)\` for anything that must be ticked first (across features too), and an acceptance line: a runnable command, or \`manual\` when only a human can judge.
@@ -240,7 +240,7 @@ Without sub-agents: do the Ready tasks yourself in brief's order, one at a time,
 
 0. Before anything runs, list the plan: every wave in order, its tasks, the files each changes and how each is accepted, and what will be parked (below) or skipped. Wait for the user to say go; that one go covers the whole run, so step 2 does not ask again per wave.
 1. Branch: in a repo with only \`main\`, create a branch \`work-all\` from \`main\` and work there, since these waves are not reviewed one by one; every other repo uses its integration branch as usual. Note the commit you start from.
-2. Loop until no task is left to run: re-read \`cto brief\` and the TASKS.md files each round, then run steps 1 to 4 and step 6 of \`cto-jev work\` (dispatch, integrate, accept, commit) for the Ready tasks, skipping tasks you parked (below) and every task of a feature whose SPEC is not \`Status: approved\` (cto blocks those commits; list the feature instead). There is no per-wave review: each wave's REVIEW.md entry says "work all, reviewed at the end". \`cto check\` and the git hooks still run on every commit. Without sub-agents, do the tasks yourself in brief's order; the end review is then a \`self-review\`.
+2. Loop until no task is left to run: re-read \`cto brief\` and the TASKS.md files each round, then run steps 1 to 4 and step 6 of \`cto-jev work\` (dispatch, integrate, accept, commit) for the Ready tasks, skipping tasks you parked (below) and every task of a feature whose CONCEPT or SPEC is not \`Status: approved\` (cto blocks those commits; list the feature instead). There is no per-wave review: each wave's REVIEW.md entry says "work all, reviewed at the end". \`cto check\` and the git hooks still run on every commit. Without sub-agents, do the tasks yourself in brief's order; the end review is then a \`self-review\`.
 3. Fix along the way: a failing acceptance or a broken test is yours to fix before moving on. The same failure twice means a different approach, not a third try.
 4. Never stop for the user mid-run: park the task instead. Parked means unticked, never dispatched again in this run, and its dependants wait too (they are not Ready while it is unticked). The parked ids live only in this conversation; the final report lists them, and the next run starts without them. Park a task when:
    - it needs a decision that would change a SPEC's \`## Interface\` or \`## Constraints\`. Do not edit those sections or the \`Status:\` line. A gap that only touches \`## Internals\` you decide yourself: add it under \`## Internals\` as \`Assumed: ...\` and leave \`Status:\` as it is;

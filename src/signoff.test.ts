@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc } from './signoff.js';
 import { shellWrites } from './shellwrites.js';
@@ -86,4 +89,29 @@ test('shellWritesSignoffDoc: shellWrites targets resolved like the guard; `?` le
   assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cp /tmp/a ${F}/TASKS.md`)), false);
   assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cat ${F}/SPEC.md`)), false);
   assert.equal(shellWritesSignoffDoc(root, root, ['?']), false);
+});
+
+test('shellWritesSignoffDoc: a cd into docs/cto_jev or a folder target still blocks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cto-sw-'));
+  mkdirSync(join(root, F), { recursive: true });
+  const hit = (c: string) => shellWritesSignoffDoc(root, root, shellWrites(c), c);
+  assert.equal(hit(`cd ${F} && sed -i 's/draft/approved/' SPEC.md`), true);
+  assert.equal(hit(`cp /tmp/SPEC.md ${F}/`), true);
+  assert.equal(hit(`cp /tmp/SPEC.md ${F}`), true, 'existing folder, no trailing slash');
+  assert.equal(hit(`cp /tmp/TASKS.md ${F}/`), false, 'no sign-off doc named');
+  assert.equal(hit(`cd ${F} && echo x >> TASKS.md`), false);
+  assert.equal(hit(`sed -i 's/a/b/' SPEC.md`), false, 'a SPEC.md outside docs/cto_jev');
+});
+
+test('signoffDoc: NTFS streams, \\\\?\\ prefix and 8.3 short names resolve to the doc', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'cto-ads-'));
+  mkdirSync(join(tmp, F), { recursive: true });
+  writeFileSync(join(tmp, F, 'SPEC.md'), 'Status: approved\n');
+  const long = realpathSync.native(tmp);
+  assert.equal(signoffDoc(long, long, `${F}/SPEC.md::$DATA`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(long, long, `${F}/SPEC.md:x`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(long, '/', `\\\\?\\${join(long, F, 'SPEC.md')}`), `${F}/SPEC.md`);
+  // os.tmpdir() is a short name on some Windows machines (C:\Users\ERICHS~1); the long root must still match.
+  assert.equal(signoffDoc(long, '/', join(tmp, F, 'SPEC.md')), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(tmp, '/', join(long, F, 'SPEC.md')), `${F}/SPEC.md`);
 });

@@ -380,7 +380,7 @@ async function sessionNotice(brain: Brain, sessionId: string | undefined, lang: 
 export async function agentPre(agent: Agent, input: PreInput, { root, lang, now }: Env): Promise<HookOutput> {
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
-  if (shellWritesSignoffDoc(root, input.cwd ?? root, shellWrites(command))) return agent.block([t(lang, 'signoff_guard')]);
+  if (shellWritesSignoffDoc(root, input.cwd ?? root, shellWrites(command), command)) return agent.block([t(lang, 'signoff_guard')]);
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
