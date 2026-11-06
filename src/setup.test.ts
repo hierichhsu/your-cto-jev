@@ -335,3 +335,35 @@ test('setup codex, cursor, gemini: no prompt hook, no edit guard', () => {
   assert.ok(!existsSync(join(root, '.claude/settings.local.json')));
   assert.deepEqual(missingHooks(root), []);
 });
+
+test('setup .gitignore: a user rule matching only one pid (*.1.tmp) does not cover the brain\'s temp files', () => {
+  const root = repo();
+  writeFileSync(join(root, '.gitignore'), '*.1.tmp\n');
+  setup(root, 'en', { agents: [] });
+  assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /^\.cto-brain\.json\.\*tmp$/m);
+});
+
+test('setup then uninstall restores a hook and .gitignore with no trailing newline byte-for-byte', () => {
+  const root = repo();
+  const hook = join(root, '.git/hooks/pre-commit');
+  const ignore = join(root, '.gitignore');
+  mkdirSync(join(root, '.git/hooks'), { recursive: true });
+  writeFileSync(hook, '#!/bin/sh\necho mine');
+  writeFileSync(ignore, 'node_modules');
+  setup(root, 'en', { agents: [] });
+  const once = readFileSync(hook, 'utf8');
+  setup(root, 'en', { agents: [] });
+  assert.equal(readFileSync(hook, 'utf8'), once, 'a re-run keeps the same block');
+  assert.deepEqual(planSetup(root, [], false, '').filter((c) => c.path.includes('pre-commit')), [], 'plan agrees');
+  assert.equal(setup(root, 'en', { uninstall: true }).code, 0);
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\necho mine');
+  assert.equal(readFileSync(ignore, 'utf8'), 'node_modules');
+});
+
+test('setup .gitignore: an entry the user ignores and then re-includes with ! is not covered', () => {
+  const root = repo();
+  writeFileSync(join(root, '.gitignore'), '.cto-brain.json\n!.cto-brain.json\n');
+  setup(root, 'en', { agents: [] });
+  const block = readFileSync(join(root, '.gitignore'), 'utf8').split('YOUR CTO JEV START')[1];
+  assert.match(block, /^\.cto-brain\.json$/m);
+});

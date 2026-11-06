@@ -26,15 +26,18 @@ const block = (body: string) => `${START}\n${body}${END}\n`;
 // \r?\n: an editor or core.autocrlf may have turned the file CRLF; the block must still be found, or setup appends a second one.
 const blockRe = /(\r?\n)?# >>> YOUR CTO JEV START >>>\r?\n[\s\S]*?# <<< YOUR CTO JEV END <<<(\r?\n)?/;
 
+// The bytes alone cannot tell our newline from the user's, so a block that had to end their last line says so.
+const ADDED_EOL = '# cto ended the line above';
+
 export function removeBlock(content: string): string {
-  // The newline before the block is the user's (appendBlock ends their last line first): keep it, in their line ending,
+  // The newline before the block is the user's unless the block carries ADDED_EOL: keep it, in their line ending,
   // even when an editor stripped the newline after END.
-  return content.replace(blockRe, (_m, lead?: string) => lead ?? '');
+  return content.replace(blockRe, (m, lead?: string) => (m.includes(ADDED_EOL) ? '' : lead ?? ''));
 }
 
 export function appendBlock(content: string, body: string): string {
   const base = removeBlock(content);
-  return (base && !base.endsWith('\n') ? base + '\n' : base) + block(body);
+  return base && !base.endsWith('\n') ? `${base}\n${block(`${ADDED_EOL}\n${body}`)}` : base + block(body);
 }
 
 /** An exit 0 outside our block means the appended block never runs. */
@@ -52,20 +55,21 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
 function missingIgnores(text: string): string[] {
   const outside = removeBlock(text);
   const have = new Set(outside.split(/\r?\n/).map((l) => l.trim()));
-  const entries = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
-  // Ask about a real file name: brain.ts writes `.cto-brain.json.<pid>.tmp`, which a user's `*.tmp` covers.
-  const sample = (e: string) => e.replace('*', '1.');
-  let out = '';
+  const entries = IGNORE_BODY.split('\n').filter(Boolean);
+  // Ask about a real file name: brain.ts writes `.cto-brain.json.<pid>.tmp`, which a user's `*.tmp` covers; a long odd pid
+  // so a rule like `*.1.tmp`, which matches one pid only, does not pass for covering them all.
+  const sample = (e: string) => e.replace('*', '9876543210.');
+  let out: string | undefined;
   // check-ignore names only the last matching rule, which would be our block's own line, so ask a scratch repo whose
-  // .gitignore is the user's lines alone. Exit 1 means nothing matched; a git failure leaves the exact-line answer.
-  if (entries.length) {
-    const tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
-    try {
-      git(tmp, 'init', '-q');
-      writeFileSync(join(tmp, '.gitignore'), outside);
-      out = git(tmp, 'check-ignore', '--no-index', '-v', ...entries.map(sample));
-    } catch { /* none covered */ } finally { rmSync(tmp, { recursive: true, force: true }); }
-  }
+  // .gitignore is the user's lines alone; it also honours a later `!` rule. Exit 1 means nothing matched.
+  const tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
+  try {
+    git(tmp, 'init', '-q');
+    writeFileSync(join(tmp, '.gitignore'), outside);
+    out = git(tmp, 'check-ignore', '--no-index', '-v', ...entries.map(sample));
+  } catch (e) { if ((e as { status?: number }).status === 1) out = ''; } finally { rmSync(tmp, { recursive: true, force: true }); }
+  // git failed: fall back to exact lines.
+  if (out === undefined) return entries.filter((l) => !have.has(l));
   const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))
     .filter((m) => m && !m[1].startsWith('!')).map((m) => m![2]);
   return entries.filter((e) => !covered.includes(sample(e)));
