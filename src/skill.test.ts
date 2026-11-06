@@ -23,6 +23,20 @@ test('work runs one wave; work all runs every wave, parks instead of stopping, r
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
 });
 
+test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
+  const t = FLOW_SKILL_TEXT;
+  assert.match(t, /^Review: docs\/cto_jev\/\S+, /m, 'a standalone Review: line with comma-separated repo paths');
+  for (const s of ['Key points:', 'Might be missing:', 'Data:', 'Assumed: ...', 'Partial agreement signs nothing', "cto's hook sets", 'the user edits the line', 'first set \`Status: draft\` with the Edit tool', 'Shell commands may not write']) assert.ok(t.includes(s), s);
+  assert.ok(!t.includes('they set \`Status: approved\`'), 'the user no longer hand-sets approved in Claude Code');
+  assert.equal(t.match(/complete: send a review handoff/g)?.length, 2, 'init and feature both stop with a handoff');
+  assert.ok(t.includes('which business rules, error cases, roles/permissions or data cases are missing'), 'docs review third question');
+  assert.ok(t.includes('At most three rounds per review') && t.includes('If P1s remain after round three') && !t.includes('Do not loop'));
+  const work = t.slice(t.indexOf('## cto-jev work'), t.indexOf('### cto-jev work all'));
+  const all = t.slice(t.indexOf('### cto-jev work all'), t.indexOf('## Review findings'));
+  assert.ok(work.includes('Before dispatching, list what will run') && work.includes('wait for the user to say go'));
+  assert.ok(all.includes('every wave in order') && all.includes('what will be parked') && all.includes('Wait for the user to say go'));
+});
+
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {
   const root = mkdtempSync(join(tmpdir(), 'cto-jev-cmd-'));
   const legacy = join(root, '.agents/skills/cto-flow/SKILL.md');

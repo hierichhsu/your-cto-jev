@@ -141,8 +141,9 @@ export interface FeatureRow {
 }
 
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return undefined; } };
-/** `Status: draft|approved` anywhere in the file; no file or no such line is 'missing'. */
-const signoff = (path: string): Signoff => (/^Status:\s*(draft|approved)\s*$/im.exec(readOr(path) ?? '')?.[1]?.toLowerCase() as Signoff | undefined) ?? 'missing';
+/** A sign-off doc's state: the first `Status: draft|approved` line (any case); no such line is 'missing'. */
+export const docStatus = (text: string): Signoff => (/^Status:\s*(draft|approved)\s*$/im.exec(text)?.[1]?.toLowerCase() as Signoff | undefined) ?? 'missing';
+const signoff = (path: string): Signoff => docStatus(readOr(path) ?? '');
 
 function purpose(concept: string): string {
   const lines = concept.split(/\r?\n/);

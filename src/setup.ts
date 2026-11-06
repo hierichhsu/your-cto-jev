@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
 import { t, type Lang } from './i18n.js';
@@ -49,17 +49,25 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
  * git says matches (`.claude/` covers `.claude/settings.local.json`). Global excludesFile and .git/info/exclude do not
  * count; linters like biome never read them. shortcut: a rule in a nested .gitignore does not count either.
  */
-function missingIgnores(root: string, text: string): string[] {
-  const have = new Set(removeBlock(text).split(/\r?\n/).map((l) => l.trim()));
+function missingIgnores(text: string): string[] {
+  const outside = removeBlock(text);
+  const have = new Set(outside.split(/\r?\n/).map((l) => l.trim()));
   const entries = IGNORE_BODY.split('\n').filter((l) => l && !have.has(l));
   // Ask about a real file name: brain.ts writes `.cto-brain.json.<pid>.tmp`, which a user's `*.tmp` covers.
   const sample = (e: string) => e.replace('*', '1.');
   let out = '';
-  // Exit 1 means nothing matched; a git failure leaves the exact-line answer.
-  try { if (entries.length) out = git(root, 'check-ignore', '--no-index', '-v', ...entries.map(sample)); } catch { /* none covered */ }
-  // A rule reported from inside our block counts only if the same line also sits outside it.
+  // check-ignore names only the last matching rule, which would be our block's own line, so ask a scratch repo whose
+  // .gitignore is the user's lines alone. Exit 1 means nothing matched; a git failure leaves the exact-line answer.
+  if (entries.length) {
+    const tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
+    try {
+      git(tmp, 'init', '-q');
+      writeFileSync(join(tmp, '.gitignore'), outside);
+      out = git(tmp, 'check-ignore', '--no-index', '-v', ...entries.map(sample));
+    } catch { /* none covered */ } finally { rmSync(tmp, { recursive: true, force: true }); }
+  }
   const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))
-    .filter((m) => m && !m[1].startsWith('!') && have.has(m[1].trim())).map((m) => m![2]);
+    .filter((m) => m && !m[1].startsWith('!')).map((m) => m![2]);
   return entries.filter((e) => !covered.includes(sample(e)));
 }
 
@@ -195,7 +203,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   if (flow) for (const p of Object.keys(FLOW_SKELETON)) if (!existsSync(join(root, p))) at(p, 'write');
   const ignore = join(root, '.gitignore');
   const ignoreText = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
-  const missing = missingIgnores(root, ignoreText);
+  const missing = missingIgnores(ignoreText);
   if (missing.length && appendBlock(ignoreText, missing.join('\n') + '\n') !== ignoreText) at('.gitignore', 'write');
   const cfg = loadConfig(root);
   if (!existsSync(join(root, '.cto.json')) || cfg.flow !== flow || cfg.sprint_goal !== goal) at('.cto.json', 'write');
@@ -309,7 +317,7 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   // 3. .gitignore block.
   // Only the entries the file lacks outside our block; a repo that already ignores them all gets no block.
   const ignoreText = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
-  const missing = missingIgnores(root, ignoreText);
+  const missing = missingIgnores(ignoreText);
   if (missing.length) {
     writeFileSync(ignorePath, appendBlock(ignoreText, missing.join('\n') + '\n'));
     lines.push(t(lang, 'setup_gitignore'));

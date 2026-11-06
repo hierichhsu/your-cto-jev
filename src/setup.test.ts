@@ -241,3 +241,20 @@ test('uninstall keeps the user\'s last newline when an editor stripped the newli
   setup(root, 'en', { uninstall: true });
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine\r\n');
 });
+
+test('setup .gitignore: a user rule added above an existing block covers an entry, so a re-run drops it from the block', () => {
+  const root = repo();
+  const ignore = join(root, '.gitignore');
+  writeFileSync(ignore, 'node_modules\n');
+  setup(root, 'en', { agents: [] });
+  const before = readFileSync(ignore, 'utf8');
+  assert.match(before, /^\.cto-brain\.json\.\*tmp$/m, 'no user rule yet: the block carries the entry');
+
+  // nothing covers anything new: a re-run leaves the file byte-for-byte
+  setup(root, 'en', { agents: [] });
+  assert.equal(readFileSync(ignore, 'utf8'), before);
+
+  writeFileSync(ignore, before.replace('node_modules\n', 'node_modules\n*.tmp\n'));
+  setup(root, 'en', { agents: [] });
+  assert.equal(readFileSync(ignore, 'utf8'), 'node_modules\n*.tmp\n# >>> YOUR CTO JEV START >>>\n.cto-brain.json\ndebug_stdin.json\n.claude/settings.local.json\n# <<< YOUR CTO JEV END <<<\n');
+});

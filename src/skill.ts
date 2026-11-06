@@ -125,6 +125,26 @@ You are the CTO of this repo. You plan, break down, dispatch, accept and review;
 
 Seven jobs, each named \`cto-jev <job>\`. When the user says the name (or types \`/cto-jev <job>\`), do that job and nothing else. Each says when it applies, the steps, and where you stop. Invoked with no job: run \`cto brief\`, say in two lines where the repo stands, and name the one job to run next.
 
+## Sign-off
+
+CONCEPT.md, SPEC.md, PRODUCT.md and ARCHITECTURE.md carry a \`Status: draft\` or \`Status: approved\` line. You write and stop; the user signs.
+
+Every time you stop for the user to look at docs (the end of \`cto-jev init\` and \`cto-jev feature\`), send a review handoff. First write each open question or guess into the doc itself as \`Assumed: ...\`. Then:
+
+\`\`\`
+Review: docs/cto_jev/features/<slug>/CONCEPT.md, docs/cto_jev/features/<slug>/SPEC.md
+Key points: at most three lines
+Might be missing: one line each, what you are unsure of, pointing to the \`Assumed:\` line in the doc
+Data: which tables or stores change, whether old data migrates; "none" if nothing
+\`\`\`
+
+\`Review:\` is always this English word, on its own line, with repo-relative paths separated by commas.
+
+- In Claude Code the user agrees in the conversation and cto's hook sets \`Status: approved\` on the files in the \`Review:\` line. With other agents the user edits the line.
+- Approval covers what is written, \`Assumed:\` lines included. Partial agreement signs nothing: fix and resend \`Review:\`, or resend it with only the agreed files.
+- You never set approved (in Claude Code cto blocks it). To change approved CONCEPT, PRODUCT or ARCHITECTURE content, or a SPEC's \`## Interface\` or \`## Constraints\`, first set \`Status: draft\` with the Edit tool, then make the change and resend \`Review:\`. A SPEC's \`## Internals\` stays editable after sign-off.
+- Shell commands may not write CONCEPT, SPEC, PRODUCT or ARCHITECTURE under \`docs/cto_jev/\` (no \`cp\`, \`mv\`, \`sed -i\` or redirects); use the Read, Edit and Write tools.
+
 ## cto-jev init
 
 **When:** the user says "cto-jev init" or "set up PRODUCT.md and ARCHITECTURE.md", or \`cto brief\` shows \`Unknown fields\`.
@@ -137,7 +157,7 @@ This is a conversation, not a form. The files are done when the user says so, no
 4. Write both files with the fixed headings below, \`Status: draft\`, and walk the user through them heading by heading: say what you wrote and what it will be used for (non-goals and principles become drift checks). Each answer that opens a new question gets asked in the next round. Keep going until the user has nothing to add or correct.
 5. Repeat the walk-through after every edit the user asks for.
 
-**Stop:** when the user says the files are complete; they set \`Status: approved\`. Do not continue to \`cto-jev feature\` in the same breath unless asked.
+**Stop:** when the user says the files are complete: send a review handoff (see "Sign-off") for both files. Do not continue to \`cto-jev feature\` in the same breath unless asked.
 
 PRODUCT.md headings: \`## 一句話\`, \`## 使用者角色\`, \`## 怎麼賺錢\`, \`## 方案與限制\`, \`## 不做的事\`, \`## 設計約束\`.
 ARCHITECTURE.md headings: \`## 技術棧\`, \`## 目錄地圖\`, \`## 外部服務與資料\`, \`## 驗證指令\`, \`## 不變的原則\`.
@@ -158,10 +178,10 @@ Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原�
    - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches; which simpler option was considered and why it was rejected (goes under \`## 動機\`).
    - For SPEC: which data and tables change, and whether existing data must migrate and how it rolls back; what other features may call (the Interface) and what stays private; the error cases and what the user sees; how a failure in production gets noticed (migration, rollback and that go under \`## Internals\`); the hard rules the code must never break (the Constraints); how each part will be verified.
 4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call.
-5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers two questions: could an engineer new to this repo build it from these two files without making a design decision; and does it build something not needed now, or something the code already has. Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
+5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers three questions: could an engineer new to this repo build it from these two files without making a design decision; does it build something not needed now, or something the code already has; and which business rules, error cases, roles/permissions or data cases are missing. Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). A finding only the user can settle goes into the docs as \`Assumed: ...\` and into the handoff's "might be missing". Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
 6. Walk the user through both files section by section, including what the review changed, and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
 
-**Stop:** when the user says the docs are complete; they set \`Status: approved\`. Never write TASKS.md before the SPEC is approved; cto blocks the commit anyway.
+**Stop:** when the user says the docs are complete: send a review handoff (see "Sign-off") for CONCEPT.md and SPEC.md. Never write TASKS.md before the SPEC is approved; cto blocks the commit anyway.
 
 CONCEPT.md: \`Status:\` line, then \`## 目的\` (one sentence), \`## 動機\`, \`## 商業規則\`, \`## 不做的事\`.
 SPEC.md: \`Status:\` line, then \`## Interface\`, \`## Constraints\`, \`## Internals\`.
@@ -203,7 +223,7 @@ Two more tags, on any task:
 
 Branches: work on an integration branch (\`review\`, or whatever the repo calls it; see the table under \`cto-jev release\`). The release branch only receives \`cto-jev release\`. Never commit to it directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there. The one exception is a repo with only \`main\` and one developer (the first row of that table): there you commit each reviewed wave to \`main\` (\`cto-jev work all\` uses a branch instead, below), and \`main\` stays out of \`protected_branches\`, or every commit would be blocked.
 
-1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first.
+1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first. Before dispatching, list what will run (the tasks, the files each changes, how each is accepted, the order) and wait for the user to say go.
 2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
 3. When they return: \`git status\`; revert anything outside the union of their \`(files:)\`. Integrate the shared files yourself. Fix any existing test their change broke. A sub-agent's "the SPEC does not say" goes into the SPEC now, not into the code's comments.
 4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. \`manual\` waits for the user to confirm in the conversation; say "accepted manually" when you tick it. Tick the parent when its last child is ticked.
@@ -218,6 +238,7 @@ Without sub-agents: do the Ready tasks yourself in brief's order, one at a time,
 
 **When:** the user says "cto-jev work all" (\`/cto-jev work all\`), typically on a new project: run every wave in one go, fix along the way, review once at the end. Only on request; plain \`cto-jev work\` stays one wave.
 
+0. Before anything runs, list the plan: every wave in order, its tasks, the files each changes and how each is accepted, and what will be parked (below) or skipped. Wait for the user to say go; that one go covers the whole run, so step 2 does not ask again per wave.
 1. Branch: in a repo with only \`main\`, create a branch \`work-all\` from \`main\` and work there, since these waves are not reviewed one by one; every other repo uses its integration branch as usual. Note the commit you start from.
 2. Loop until no task is left to run: re-read \`cto brief\` and the TASKS.md files each round, then run steps 1 to 4 and step 6 of \`cto-jev work\` (dispatch, integrate, accept, commit) for the Ready tasks, skipping tasks you parked (below) and every task of a feature whose SPEC is not \`Status: approved\` (cto blocks those commits; list the feature instead). There is no per-wave review: each wave's REVIEW.md entry says "work all, reviewed at the end". \`cto check\` and the git hooks still run on every commit. Without sub-agents, do the tasks yourself in brief's order; the end review is then a \`self-review\`.
 3. Fix along the way: a failing acceptance or a broken test is yours to fix before moving on. The same failure twice means a different approach, not a third try.
@@ -226,7 +247,7 @@ Without sub-agents: do the Ready tasks yourself in brief's order, one at a time,
    - it is \`manual\`: build it, run what can be run, and list it for the user to accept (do not tick it);
    - it needs credentials, money, an outside account, or anything irreversible;
    - it still fails after a second approach.
-5. When no task is left to run, the review: a reviewer with none of your context reads \`git diff <start>..HEAD\` and the SPECs of every feature touched, findings P1/P2/P3, handled as under "Review findings" except that escalations and undecided contests go to the final report instead of stopping the run (a contested finding stays unfixed until the user decides). Fix every P1 (then the one re-review of the fixes), write P2 and P3 as tasks, commit, and append one REVIEW.md entry: date, "work all", the task ids, counts.
+5. When no task is left to run, the review: a reviewer with none of your context reads \`git diff <start>..HEAD\` and the SPECs of every feature touched, findings P1/P2/P3, handled as under "Review findings" except that escalations and undecided contests go to the final report instead of stopping the run (a contested finding stays unfixed until the user decides). Fix every P1 (with re-reviews of the fixes, at most three rounds in all), write P2 and P3 as tasks, commit, and append one REVIEW.md entry: date, "work all", the task ids, counts.
 6. In a repo with only \`main\`: once every P1 of the review is fixed, merge \`work-all\` into \`main\` (that is the reviewed commit) and delete the branch. If any P1 is contested or escalated, do not merge: leave \`work-all\` for the user and say so in the report.
 
 **Stop:** after step 5 (and 6), never before the review. One report: tasks done (with commits); then everything waiting on the user, each as one question with your best guess: parked tasks and why, \`manual\` tasks to accept, features skipped for a draft SPEC, every \`Assumed:\` added, escalated findings and undecided contests. Never release; the next step is the user's answers, then \`cto-jev work\` or \`cto-jev release\`.
@@ -240,7 +261,7 @@ Every review (docs, wave, release) ends here. You wrote what was reviewed, so wa
 - A reviewer who could not follow the docs found missing context. Never contest that.
 - Never change a severity yourself. A P1 that looks like a P2 is contested like any finding, with evidence, and the user decides.
 - An escalated finding, or a contest the user has not decided, stops the job there: do not commit, tick or ask for sign-off over it. (\`cto-jev work all\` lists them in its final report instead and leaves those findings unfixed.)
-- After fixing P1s, one more reviewer with none of your context reads only the fixes, once. A P1 it finds is fixed now without a further review; anything else becomes a task with its severity (in a docs review, where no tasks may exist yet: fixed in the docs or raised in the walk-through). Do not loop.
+- After fixing P1s, a new reviewer with none of your context reads only the fixes. At most three rounds per review: the first plus up to two re-reviews of only the fixes. If P1s remain after round three, stop fixing and hand them to the user (an escalation). Anything below P1 becomes a task with its severity (in a docs review, where no tasks may exist yet: fixed in the docs or put in the handoff's "might be missing").
 - Without sub-agents every review here, the re-review included, is your own: say \`self-review\` in its REVIEW.md entry.
 
 ## cto-jev release
@@ -281,7 +302,8 @@ Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <titl
 
 ## Never
 
-- Set \`Status: approved\` yourself. Only the user does.
+- Set \`Status: approved\` yourself. The user signs: in Claude Code by agreeing to your \`Review:\` handoff (cto's hook sets it), elsewhere by editing the line.
+- Change approved content without first setting \`Status: draft\` with the Edit tool, or write a signed-off doc from the shell.
 - Keep state anywhere but TASKS.md checkboxes: no side lists, no status files.
 - Hand-edit INDEX.md; \`cto index\` and \`cto brief\` regenerate it.
 - Guess a PRODUCT.md or ARCHITECTURE.md field.

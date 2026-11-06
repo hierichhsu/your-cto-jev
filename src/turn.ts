@@ -13,7 +13,7 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const NON_CODE = /(\.(md|mdx|txt|rst|adoc|ya?ml)$)|(^|[\\/])\.github[\\/]/i;
 export const isCodeFile = (f: string) => !NON_CODE.test(f);
 
-const isHumanTurn = (j: any) => {
+export const isHumanTurn = (j: any) => {
   // Claude Code writes meta entries (image notes, skill text, compact summaries) as type "user" mid-turn.
   if (j?.type !== 'user' || j.isMeta || j.isCompactSummary) return false;
   const c = j.message?.content;
@@ -30,14 +30,43 @@ const tailOf = (s: string, max: number) => {
   return flat.length > max ? '…' + flat.slice(-max) : flat;
 };
 
-/** Actions since the last human message, oldest first. Unreadable or partial transcripts give what could be parsed. */
-export function turnActions(transcriptPath: string, cwd?: string): Action[] {
-  let lines: any[] = [];
+/** Parsed JSONL entries, skipping broken lines; undefined when the file can't be read. */
+const readTranscript = (path: string): any[] | undefined => {
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n').flatMap((l) => {
+    return readFileSync(path, 'utf8').split('\n').flatMap((l) => {
       try { return l ? [JSON.parse(l)] : []; } catch { return []; }
     });
-  } catch { return []; }
+  } catch { return undefined; }
+};
+
+const textOf = (c: any): string =>
+  typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => String(b.text ?? '')).join('\n') : '';
+// Not typed by the user: the interrupt marker, and what a slash command echoes or prints into the transcript.
+const NOT_TYPED = /^\[Request interrupted by user|<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr)>/;
+const isRealHuman = (j: any) => isHumanTurn(j) && !NOT_TYPED.test(textOf(j.message?.content).trim());
+
+/**
+ * The assistant text the user is answering with `prompt`: every assistant text block after the previous real human
+ * message, up to the current prompt (skipped when the transcript already holds it). Undefined when unreadable or no anchor.
+ */
+export function reviewMessage(transcriptPath: string, prompt: string): string | undefined {
+  const lines = readTranscript(transcriptPath);
+  if (!lines) return undefined;
+  const humans = lines.flatMap((j, i) => (isRealHuman(j) ? [i] : []));
+  let end = lines.length;
+  const last = humans.at(-1);
+  if (last !== undefined && textOf(lines[last].message?.content).trim() === prompt.trim()) end = humans.pop()!;
+  const anchor = humans.at(-1);
+  if (anchor === undefined) return undefined;
+  return lines.slice(anchor + 1, end).flatMap((j) => (j?.type === 'assistant' && Array.isArray(j.message?.content)
+    ? j.message.content.filter((b: any) => b?.type === 'text').map((b: any) => String(b.text ?? ''))
+    : [])).join('\n');
+}
+
+/** Actions since the last human message, oldest first. Unreadable or partial transcripts give what could be parsed. */
+export function turnActions(transcriptPath: string, cwd?: string): Action[] {
+  const lines = readTranscript(transcriptPath);
+  if (!lines) return [];
   let start = 0;
   lines.forEach((j, i) => { if (isHumanTurn(j)) start = i + 1; });
 
