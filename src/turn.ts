@@ -54,13 +54,19 @@ const isRealHuman = (j: any) => isHumanTurn(j) && !NO_REPLY.test(textOf(j.messag
 export function reviewMessage(transcriptPath: string, prompt: string): string | undefined {
   const lines = readTranscript(transcriptPath);
   if (!lines) return undefined;
-  const humans = lines.flatMap((j, i) => (isRealHuman(j) ? [i] : []));
+  // A prompt typed while the assistant was busy is logged as a queued_command attachment; it is the user's move too,
+  // so a Review written after it was typed is not what it answers.
+  const queued = (j: any) => j?.type === 'attachment' && j.attachment?.type === 'queued_command';
+  const humans = lines.flatMap((j, i) => (isRealHuman(j) || queued(j) ? [i] : []));
+  const said = (j: any) => (queued(j) ? String(j.attachment.prompt ?? '') : textOf(j.message?.content));
   let end = lines.length;
   const last = humans.at(-1);
+  // This prompt was typed while the assistant was still working: whatever it answers, it was not the Review written since.
+  if (last !== undefined && queued(lines[last]) && said(lines[last]).trim() === prompt.trim()) return undefined;
   // This prompt is already in the transcript only if the last human entry has its text AND nothing answered it yet;
   // text alone would match an earlier identical reply ("ok" twice) and reach back to an older Review.
   const answered = (i: number) => lines.slice(i + 1).some((j) => j?.type === 'assistant');
-  if (last !== undefined && !answered(last) && textOf(lines[last].message?.content).trim() === prompt.trim()) end = humans.pop()!;
+  if (last !== undefined && !answered(last) && said(lines[last]).trim() === prompt.trim()) end = humans.pop()!;
   const anchor = humans.at(-1);
   if (anchor === undefined) return undefined;
   return lines.slice(anchor + 1, end).flatMap((j) => (j?.type === 'assistant' && Array.isArray(j.message?.content)

@@ -93,6 +93,9 @@ export function guardVerdict(file: string, before: string | undefined, after: st
 
 /** PowerShell gets no write parser: any mention of a sign-off doc together with docs/cto_jev blocks, reads too. */
 export function powershellHitsSignoffDoc(root: string, cwd: string, command: string): boolean {
+  // git add/diff/log on a sign-off doc is how its changes get committed; only git, in every statement, passes.
+  // shortcut: git checkout/restore can still rewrite a doc this way; the pre-commit check is the backstop.
+  if (command.split(/;|&&|\|\||\|/).every((s) => /^\s*git\s/i.test(s))) return false;
   if (inFlow(relative(root, '/', cwd))) return true;
   const cmd = command.replace(/\\/g, '/').toLowerCase();
   return DOC_NAME.test(cmd) && cmd.includes(FLOW_DIR);

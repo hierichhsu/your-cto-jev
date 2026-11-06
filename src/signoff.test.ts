@@ -70,6 +70,15 @@ test('powershellHitsSignoffDoc: cwd under docs/cto_jev, or a sign-off doc name p
   assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs`, 'git status'), false);
 });
 
+test('powershellHitsSignoffDoc: git on a sign-off doc passes; git chained with a writer does not', () => {
+  const root = 'D:\\Github\\repo';
+  assert.equal(powershellHitsSignoffDoc(root, root, 'git add docs\\cto_jev\\features\\x\\SPEC.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, `git diff -- ${F}/CONCEPT.md; git log -1 -- ${F}/CONCEPT.md`), false);
+  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'git diff SPEC.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, `git add ${F}/SPEC.md; Set-Content ${F}/SPEC.md 'Status: approved'`), true);
+  assert.equal(powershellHitsSignoffDoc(root, root, `git show HEAD:${F}/SPEC.md | Out-File ${F}/SPEC.md`), true);
+});
+
 test('shellWritesSignoffDoc: shellWrites targets resolved like the guard; `?` let through', () => {
   const root = '/home/u/repo';
   assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`sed -i 's/draft/approved/' ${F}/SPEC.md`)), true);

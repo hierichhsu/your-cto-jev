@@ -58,6 +58,14 @@ test('reviewMessage: a task notification answered after the Review starts a new 
   assert.equal(reviewMessage(p, 'ok'), 'Background agent found a bug. Want me to fix it?');
 });
 
+test('reviewMessage: a prompt queued while the assistant worked never answers the Review written after it', () => {
+  const queuedOk = { type: 'attachment', attachment: { type: 'queued_command', prompt: 'ok' } };
+  assert.equal(reviewMessage(transcript([user('plan it'), say('Review: a.md'), queuedOk, say('Review: b.md')]), 'ok'), undefined);
+  // An earlier queued prompt is an anchor like any user move: the Review before it is out.
+  const queuedQ = { type: 'attachment', attachment: { type: 'queued_command', prompt: 'also do y' } };
+  assert.equal(reviewMessage(transcript([user('plan it'), say('Review: a.md'), queuedQ, say('done y')]), 'ok'), 'done y');
+});
+
 test('reviewMessage: unreadable file or no anchor is undefined', () => {
   assert.equal(reviewMessage(join(tmpdir(), 'cto-no-such-transcript.jsonl'), 'ok'), undefined);
   assert.equal(reviewMessage(transcript([say('hi'), user('ok')]), 'ok'), undefined);
