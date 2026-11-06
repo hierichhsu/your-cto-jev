@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { agents, promptOutput } from './agents.js';
 import { FLOW_DIR } from './flow.js';
-import { agentGuard, agentPre, agentPrompt } from './hooks.js';
+import { agentGuard, agentPre, agentPrompt, agentStop } from './hooks.js';
 
 process.env.CTO_NO_UPDATE_CHECK = '1';
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read or write the user's real keys and prefs
@@ -122,6 +122,30 @@ test('prompt: no API key -> says so, not "unreachable"', async () => {
     assert.match(JSON.parse(out.stdout!).systemMessage, /還沒設判斷服務的 API key/);
     assert.equal(calls, 0);
   } finally { process.env.OPENROUTER_API_KEY = 'k'; }
+});
+
+test('stop: a doc approved during the turn but not by the hook goes back to draft; signed or pre-approved docs stay', async () => {
+  jev(0.95);
+  const root = repo();
+  const transcriptPath = join(root, 't.jsonl');
+  writeFileSync(transcriptPath, [human('write the spec'), said(`Review: ${X}/CONCEPT.md`), human('好')].join('\n') + '\n');
+  await agentPrompt({ transcriptPath, cwd: root, prompt: '好', sessionId: 'S' }, { root, lang: 'en' });
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/, 'signed by the hook');
+
+  writeFileSync(join(root, X, 'SPEC.md'), 'Status: approved\r\n\r\n## Interface\r\n'); // e.g. sed -i on SPE*.md
+  const stop = (stopHookActive: boolean) => agentStop(agents.claude, { sessionId: 'S', cwd: root, lastMessage: 'ok', stopHookActive }, { root, lang: 'en' });
+  const out = await stop(false);
+  assert.equal(out.code, 2);
+  assert.match(out.stderr.join('\n'), new RegExp(`back to draft: ${X}/SPEC\\.md`));
+  assert.equal(read(root, `${X}/SPEC.md`), 'Status: draft\r\n\r\n## Interface\r\n', 'only the Status value changes');
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/);
+
+  writeFileSync(join(root, X, 'SPEC.md'), 'Status: approved\n');
+  assert.equal((await stop(true)).code, 0, 'after a block the stop goes through');
+  assert.match(read(root, `${X}/SPEC.md`), /Status: draft/, 'but the doc is still reverted');
+
+  writeFileSync(join(root, X, 'SPEC.md'), 'Status: approved\n');
+  assert.equal((await agentStop(agents.claude, { sessionId: 'other', cwd: root, lastMessage: 'ok', stopHookActive: false }, { root, lang: 'en' })).code, 0, 'no baseline: skipped');
 });
 
 const guard = (root: string, toolName: string, toolInput: unknown) => agentGuard(agents.claude, { cwd: root, toolName, toolInput }, { root, lang: 'en' });

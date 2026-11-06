@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FLOW_DIR, docStatus, featureIndex } from './flow.js';
+import { FLOW_DIR, docStatus, featureIndex, listFeatures } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
@@ -452,7 +452,43 @@ const approve = (text: string) => text.replace(/^(Status:[ \t]*)draft(?=[ \t]*\r
  * The user's reply to a Review handoff: when Jev is sure it agrees to every listed draft doc, flip their Status to
  * approved. Fails closed (no sign-off) on anything uncertain; never blocks the prompt.
  */
-export async function agentPrompt(input: PromptInput, { root, lang, now }: Env): Promise<HookOutput> {
+export async function agentPrompt(input: PromptInput, env: Env): Promise<HookOutput> {
+  const out = await signoffReply(input, env);
+  // What the user has signed off as this turn starts; the stop check reverts anything approved beyond it.
+  if (input.sessionId && existsSync(join(env.root, FLOW_DIR))) {
+    const brain = loadBrain(env.root);
+    const kept = Object.entries(brain.signoff_baseline ?? {}).filter(([k]) => k !== input.sessionId).slice(-20);
+    brain.signoff_baseline = Object.fromEntries([...kept, [input.sessionId, approvedDocs(env.root)]]);
+    saveBrain(env.root, brain);
+  }
+  return out;
+}
+
+const signoffDocPaths = (root: string) => [
+  ...['PRODUCT.md', 'ARCHITECTURE.md'].map((f) => `${FLOW_DIR}/${f}`),
+  ...listFeatures(root).flatMap((s) => ['CONCEPT.md', 'SPEC.md'].map((f) => `${FLOW_DIR}/features/${s}/${f}`)),
+];
+const approvedDocs = (root: string) => signoffDocPaths(root).filter((f) => docStatus(readOr(join(root, f))) === 'approved');
+
+/**
+ * At stop: a sign-off doc approved during the turn, but not by the sign-off hook (a glob, a variable, a script the
+ * guard could not see), goes back to draft. Returns the files reverted. Sessions without a baseline are skipped.
+ * shortcut: a Status the user flips by hand in their editor mid-turn is reverted too; they flip it again after the turn.
+ */
+function revertSelfSigned(root: string, sessionId: string | undefined): string[] {
+  const baseline = sessionId ? loadBrain(root).signoff_baseline?.[sessionId] : undefined;
+  if (!baseline) return [];
+  const reverted: string[] = [];
+  for (const f of approvedDocs(root).filter((f) => !baseline.includes(f))) {
+    try {
+      writeFileSync(join(root, f), readOr(join(root, f)).replace(/^(Status:[ \t]*)approved(?=[ \t]*\r?$)/im, '$1draft'));
+      reverted.push(f);
+    } catch { /* fail open: the pre-commit check still requires sign-off */ }
+  }
+  return reverted;
+}
+
+async function signoffReply(input: PromptInput, { root, lang, now }: Env): Promise<HookOutput> {
   if (!existsSync(join(root, FLOW_DIR)) || !input.transcriptPath) return SILENT;
   // A background agent's report arrives as a prompt; its text is agent output, never the user's agreement.
   if (/^\s*<task-notification>/.test(input.prompt)) return SILENT;
@@ -535,6 +571,8 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   const recorded = brain.turn_base?.[turnKey];
   if (recorded) { delete brain.turn_base![turnKey]; saveBrain(root, brain); }
   const base = recorded && (now ?? Date.now)() - recorded.at <= TURN_BASE_TTL_MS && isAncestor(root, recorded.head) ? recorded.head : undefined;
+  const reverted = revertSelfSigned(root, input.sessionId);
+  if (reverted.length && !input.stopHookActive) return agent.block([t(lang, 'signoff_reverted', { files: reverted.join(', ') })]);
   if (input.stopHookActive) return out;
   const lastMessage = input.lastMessage || logged?.reply || '';
   // ponytail: ticks are attributed to the turn that ends after they appear, so a box the user ticked by hand between

@@ -33,6 +33,8 @@ export interface Brain {
   judged_items?: string[];
   /** Per session: HEAD just before the agent's first `git commit` of the turn, so the done check sees ticks it committed. */
   turn_base?: Record<string, { head: string; at: number }>;
+  /** Per session: sign-off docs approved when the user's last prompt was handled; anything approved beyond it at stop is reverted. */
+  signoff_baseline?: Record<string, string[]>;
   decisions?: Decision[];
 }
 
