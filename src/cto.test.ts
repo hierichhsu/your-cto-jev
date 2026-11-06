@@ -1001,6 +1001,11 @@ test('shell edits count as edits: sed -i, redirects, tee, cp/mv/rm, formatters; 
     ['npx prettier --write .', ['?']], ['npx eslint --fix src', ['?']], ['git apply fix.patch', ['?']],
     ['npm test 2>&1 | tail -5', []], ['npm test > /dev/null', []], ['ls -la', []], ['git status', []],
     ['grep -n foo src/a.ts', []], ['npm run build && npm test', []], ['cargo test 2>err.log', []],
+    ['cp a b 2>/dev/null', ['b']], ['mv a b | cat', ['b']], ['cp -r src dst # copy', ['dst']], ['cp a b &', ['b']],
+    ["sed -i 's/a|b/c/' src/x.ts", ['src/x.ts']], ["sed -i 's/a/b # c/' src/x.ts", ['src/x.ts']],
+    ["sed -i 's/a/ &/' src/x.ts", ['src/x.ts']], ["sed -i 's/a/b >x/' src/x.ts", ['src/x.ts']],
+    ["sed -E -i 's/(a |b)/c/' src/x.ts", ['src/x.ts']], ["perl -pi -e 's/a/b #/' lib/a.pm", ['lib/a.pm']],
+    ['echo "a > b" > out.txt', ['out.txt']], ["echo 'x' >\"my file.txt\"", ['my file.txt']],
   ];
   for (const [cmd, want] of cases) assert.deepEqual(shellWrites(cmd), want, cmd);
 

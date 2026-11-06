@@ -34,14 +34,16 @@ export function signoffState(review: string, prompt: string): string {
 }
 
 // Forward slashes, `\\?\` dropped, Git Bash `/d/...` to `d:/...`, `..` resolved without climbing above the drive.
-// An NTFS stream (`SPEC.md::$DATA`, `SPEC.md:x`) is the same file, so everything from a `:` after the drive goes.
 function absolute(cwd: string, p: string): string {
   const slash = (s: string) => s.replace(/\\/g, '/').replace(/^\/\/[?.]\//, '').replace(/^\/([a-z])(?=\/|$)/i, '$1:');
   const q = slash(p);
   const full = /^([a-z]:)?\//i.test(q) ? q : `${slash(cwd)}/${q}`;
   const [, drive = '', rest] = /^([a-z]:)?(.*)$/is.exec(full)!;
-  return drive.toLowerCase() + posix.normalize(rest.replace(/:.*$/s, '')).replace(/\/+$/, '');
+  return drive.toLowerCase() + posix.normalize(rest).replace(/\/+$/, '');
 }
+
+// An NTFS stream (`SPEC.md::$DATA`, `SPEC.md:x`) is the same file. Only the last segment: `:` is legal in POSIX folder names.
+const noStream = (full: string) => full.replace(/(\/[^/:]*):[^/]*$/, '$1');
 
 // 8.3 short names (`ARCHIT~1.MD`) and symlinks: the deepest part that exists becomes its real long path.
 function real(p: string): string {
@@ -56,8 +58,13 @@ function real(p: string): string {
 }
 
 // Repo-relative path, or undefined when it is outside root. Case-insensitive like the file systems it guards.
+// The path as written first, so a symlinked docs/cto_jev or doc stays guarded; then the real paths, for 8.3 names.
 function relative(root: string, cwd: string, p: string): string | undefined {
-  const r = real(absolute('/', root)), full = real(absolute(cwd, p));
+  const r = absolute('/', root), full = noStream(absolute(cwd, p));
+  return inside(r, full) ?? inside(real(r), real(full));
+}
+
+function inside(r: string, full: string): string | undefined {
   if (full.toLowerCase() === r.toLowerCase()) return '';
   return full.toLowerCase().startsWith(r.toLowerCase() + '/') ? full.slice(r.length + 1) : undefined;
 }
@@ -116,20 +123,21 @@ export function powershellHitsSignoffDoc(root: string, cwd: string, command: str
 }
 
 /**
- * For the Bash rule: paths from shellWrites; `?` (target unknown) is let through. A `cd` earlier in the command is
- * invisible here, so a bare sign-off doc name in a command that mentions cto_jev blocks, and so does a folder under
- * docs/cto_jev as the target when the command names a sign-off doc (`cp SPEC.md docs/cto_jev/features/x/`).
+ * For the Bash rule: paths from shellWrites; `?` (target unknown) is let through. Targets resolve against cwd and
+ * every `cd` dir in the command (`cd docs/cto_jev/x && cp a .`). A bare doc name in a command that mentions cto_jev
+ * blocks (a `cd` this cannot follow), and so does a folder under docs/cto_jev as the target when the command names a
+ * sign-off doc (`cp SPEC.md docs/cto_jev/features/x/`).
+ * shortcut: globs (`SPE*.md`), variables and `cd docs/cto_*` still get through; a post-Bash Status check would close them.
  */
 export function shellWritesSignoffDoc(root: string, cwd: string, writtenPaths: string[], command = ''): boolean {
   const cmd = command.replace(/\\/g, '/').toLowerCase();
-  const flowCmd = cmd.includes('cto_jev');
+  let at = cwd; // each cd starts where the previous one left off
+  const bases = [cwd, ...[...command.matchAll(/(?:^|[;&|(]\s*)cd\s+['"]?([^\s;&|'")]+)/g)].map((m) => (at = absolute(at, m[1])))];
   const isDir = (rel: string) => { try { return statSync(posix.join(absolute('/', root), rel)).isDirectory(); } catch { return false; } };
   return writtenPaths.some((p) => {
     if (p === '?') return false;
-    if (signoffDoc(root, cwd, p) !== undefined) return true;
-    const name = p.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop()!.replace(/:.*$/s, '').toLowerCase();
-    if (flowCmd && SIGNOFF_DOCS.some((d) => d.toLowerCase() === name)) return true;
-    const rel = relative(root, cwd, p);
-    return inFlow(rel) && DOC_NAME.test(cmd) && (/[\\/]$/.test(p) || isDir(rel!));
+    if (bases.some((b) => signoffDoc(root, b, p) !== undefined)) return true;
+    if (!/[\\/]/.test(p) && cmd.includes('cto_jev') && SIGNOFF_DOCS.some((d) => d.toLowerCase() === p.replace(/:.*$/s, '').toLowerCase())) return true;
+    return DOC_NAME.test(cmd) && bases.some((b) => { const rel = relative(root, b, p); return inFlow(rel) && (/[\\/.]$/.test(p) || isDir(rel!)); });
   });
 }

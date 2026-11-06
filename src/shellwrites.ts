@@ -8,7 +8,7 @@ const WRITERS: { re: RegExp; target?: RegExp }[] = [
   { re: /\bsed\b[^|;&]*\s-i\b|\bsed\s+-[a-zA-Z]*i/, target: /(\S+)\s*$/ }, // sed -i ... file
   { re: /\bperl\b[^|;&]*\s-[a-zA-Z]*p[a-zA-Z]*i|\bperl\b[^|;&]*\s-[a-zA-Z]*i[a-zA-Z]*p/, target: /(\S+)\s*$/ },
   { re: /\btee\b(?:\s+-a)?\s+(\S+)/ },
-  { re: /\b(?:cp|mv)\b(?:\s+-\S+)*\s+\S+\s+(\S+)/ }, // last argument is the destination
+  { re: /\b(?:cp|mv)\b(?:\s+-\S+)*\s+\S+\s+\S+/, target: /(\S+)\s*$/ }, // last argument is the destination, however many sources
   { re: /\brm\b(?:\s+-\S+)*\s+(\S+)/ },
   { re: /\bgit\s+(?:apply|am|checkout\s+--|restore)\b/ },
   { re: /\bpatch\b\s+(?:-\S+\s+)*(\S+)?/ },
@@ -21,16 +21,29 @@ const REDIRECT = /(?:^|[^\d&>])>>?\s*(?!&|\/dev\/null|\()([^\s;&|<>]+)/g;
 
 const clean = (p: string) => p.replace(/^['"]|['"]$/g, '');
 
+// Quoted text blanked to `_` at the same length, so separators inside a sed script cannot split or cut the command.
+const blankQuotes = (s: string) => s.replace(/'[^']*'|"[^"]*"/g, (q) => q[0] + '_'.repeat(q.length - 2) + q.at(-1));
+
 export function shellWrites(command: string): string[] {
   const files = new Set<string>();
   let unknown = false;
-  // Look at each simple command of a pipeline/list separately.
-  for (const part of command.split(/&&|\|\||;|\n/)) {
-    for (const m of part.matchAll(REDIRECT)) files.add(clean(m[1]));
+  // Look at each simple command of a pipeline/list separately; positions come from the blanked copy.
+  const blank = blankQuotes(command);
+  const parts: string[] = [];
+  let from = 0;
+  for (const m of blank.matchAll(/&&|\|\||;|\n|\|/g)) { parts.push(command.slice(from, m.index)); from = m.index! + m[0].length; }
+  parts.push(command.slice(from));
+  for (const part of parts) {
+    const bp = blankQuotes(part);
+    // A `>` inside quotes is not a redirect; the target itself is read back from the original text.
+    for (const m of bp.matchAll(REDIRECT)) { const end = m.index! + m[0].length; files.add(clean(part.slice(end - m[1].length, end))); }
+    // The command's own words end at a redirect, background `&`, comment or closing paren.
+    const cut = bp.search(/\s(?:\d*>|[&#])|\)\s*$/);
+    const words = cut < 0 ? part : part.slice(0, cut);
     for (const w of WRITERS) {
-      const m = w.re.exec(part);
+      const m = w.re.exec(words);
       if (!m) continue;
-      const t = w.target ? w.target.exec(part)?.[1] : m[1];
+      const t = w.target ? w.target.exec(words)?.[1] : m[1];
       if (t && !t.startsWith('-')) files.add(clean(t)); else unknown = true;
     }
   }

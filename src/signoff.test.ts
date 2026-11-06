@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -101,6 +101,22 @@ test('shellWritesSignoffDoc: a cd into docs/cto_jev or a folder target still blo
   assert.equal(hit(`cp /tmp/TASKS.md ${F}/`), false, 'no sign-off doc named');
   assert.equal(hit(`cd ${F} && echo x >> TASKS.md`), false);
   assert.equal(hit(`sed -i 's/a/b/' SPEC.md`), false, 'a SPEC.md outside docs/cto_jev');
+  assert.equal(hit(`cd ${F} && cp /tmp/SPEC.md .`), true, 'target resolved against the cd dir');
+  assert.equal(hit(`cp /tmp/SPEC.md /tmp/dummy ${F}/`), true, 'several sources: the last argument is the target');
+  assert.equal(hit(`cat ${F}/SPEC.md > /tmp/SPEC.md`), false, 'a copy out of docs/cto_jev is a read');
+  assert.equal(hit(`cp ${F}/SPEC.md ${F}/SPEC.md.bak`), false);
+  for (const tail of [' 2>/dev/null', ' &', ' | cat', ' # done']) assert.equal(hit(`cp /tmp/new ${F}/SPEC.md${tail}`), true, tail);
+  assert.equal(hit(`(cp /tmp/new ${F}/SPEC.md)`), true, 'subshell');
+  assert.equal(hit(`cd docs && cd cto_jev/features/x && sed -i s/draft/approved/ ./SPEC.md`), true, 'chained cd');
+});
+
+test('signoffDoc: a `:` in a POSIX folder name and a symlinked docs/cto_jev stay guarded', () => {
+  assert.equal(signoffDoc('/home/u/proj:v2', '/home/u/proj:v2', `${F}/SPEC.md`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo', `a:b/../${F}/SPEC.md`), `${F}/SPEC.md`);
+  const root = mkdtempSync(join(tmpdir(), 'cto-link-')), outside = mkdtempSync(join(tmpdir(), 'cto-out-'));
+  mkdirSync(join(root, 'docs'));
+  symlinkSync(outside, join(root, 'docs', 'cto_jev'), 'junction');
+  assert.equal(signoffDoc(root, root, 'docs/cto_jev/SPEC.md'), 'docs/cto_jev/SPEC.md');
 });
 
 test('signoffDoc: NTFS streams, \\\\?\\ prefix and 8.3 short names resolve to the doc', () => {
