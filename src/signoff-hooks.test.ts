@@ -116,12 +116,15 @@ test('guard: self-approval and protected edits are blocked; demotion, Internals 
   const spec = `${X}/SPEC.md`;
   const blocked = guard(root, 'Edit', { file_path: join(root, spec), old_string: 'Status: Draft', new_string: 'Status: approved' });
   assert.equal(blocked.code, 2);
-  assert.match(blocked.stderr.join('\n'), /Sign-off is the user's call/);
+  assert.match(blocked.stderr.join('\n'), /only the user can set Status to approved/);
+  assert.doesNotMatch(blocked.stderr.join('\n'), /set Status to draft/, 'the doc is already draft: demoting is no fix');
   assert.equal(guard(root, 'Write', { file_path: `${X}/CONCEPT.md`, content: 'Status: approved\n' }).code, 2, 'relative path resolved from cwd');
 
   writeFileSync(join(root, spec), SPEC_APPROVED);
   assert.equal(guard(root, 'Edit', { file_path: spec, old_string: 'Status: approved', new_string: 'Status: draft' }).code, 0, 'demoting is fine');
-  assert.equal(guard(root, 'Edit', { file_path: spec, old_string: '- never store cards', new_string: '- store cards' }).code, 2, 'Constraints are protected');
+  const prot = guard(root, 'Edit', { file_path: spec, old_string: '- never store cards', new_string: '- store cards' });
+  assert.equal(prot.code, 2, 'Constraints are protected');
+  assert.match(prot.stderr.join('\n'), /first use Edit to set Status to draft/);
   assert.equal(guard(root, 'MultiEdit', { file_path: spec, edits: [{ old_string: '- uses a map', new_string: '- uses a set' }] }).code, 0, 'Internals stay editable');
   assert.equal(guard(root, 'Write', { file_path: 'src/a.ts', content: 'Status: approved\n' }).code, 0, 'not a sign-off doc');
   assert.equal(guard(root, 'Write', { file_path: `${X}/TASKS.md`, content: 'Status: approved\n' }).code, 0, 'TASKS is not signed off');

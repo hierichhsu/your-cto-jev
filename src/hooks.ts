@@ -505,7 +505,8 @@ export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env)
     if (!file) return SILENT;
     const before = existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : undefined;
     const after = afterEdit(before, tool, input.toolInput);
-    return after !== undefined && guardVerdict(file, before, after) !== 'ok' ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    const verdict = after === undefined ? 'ok' : guardVerdict(file, before, after);
+    return verdict === 'ok' ? SILENT : agent.block([t(lang, verdict === 'self_approve' ? 'signoff_self_approve' : 'signoff_guard')]);
   } catch { return SILENT; }
 }
 
