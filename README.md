@@ -268,6 +268,7 @@ What `cto` adds on top, all without a model call unless noted:
 | A feature has tasks but its CONCEPT or SPEC is not approved | `git commit` touching that feature | **Blocks**, naming the unsigned files |
 | The agent sets `Status: approved` itself, or changes signed-off content without going back to draft | Claude Code edit tools and PowerShell | **Blocks** ([sign-off](#sign-off)) |
 | A shell command writes CONCEPT, SPEC, PRODUCT or ARCHITECTURE under `docs/cto_jev/` | every agent's shell command | **Blocks** |
+| A sign-off doc became `approved` during the turn without your reply (however it was written) | Claude Code, when the turn ends | **Reverts** it to `draft` and tells the agent |
 | `architecture_violation` judged against the feature's `## Constraints` and PRODUCT's non-goals instead of a one-line goal | `git commit` (Jev) | Warns |
 | An architecture change with no new decision record | `git commit` (Jev) | Warns |
 | INDEX.md older than the TASKS it is built from; an `(after:)` id nobody defines; a SPEC's `## Interface` changed | `git commit` | Warns, naming dependants |
@@ -284,7 +285,7 @@ Might be missing: what the agent is unsure of, pointing to the `Assumed:` lines 
 Data: which tables or stores change, whether old data migrates; "none" if nothing
 ```
 
-- **Claude Code:** just agree in the chat. cto's `UserPromptSubmit` hook asks Jev whether your reply agrees to every listed file and, if so, sets the listed drafts to `Status: approved` and tells you which files it signed. "OK, but change X", a question or agreeing to only some files signs nothing. When Jev cannot be reached it signs nothing and says so; edit the line yourself.
+- **Claude Code:** just agree in the chat. cto's `UserPromptSubmit` hook asks Jev whether your reply agrees to every listed file and, if so, sets the listed drafts to `Status: approved` and tells you which files it signed. "OK, but change X", a question or agreeing to only some files signs nothing. When Jev cannot sign, it signs nothing and says why: no API key yet (run `cto setup`), the service failed a moment ago and is paused (reply again later), or it is unreachable. In each case you can also edit the line yourself.
 - **Codex, Cursor, Gemini CLI:** edit the `Status:` line yourself.
 
 Agreeing covers what is written, `Assumed:` lines included. A signed-off CONCEPT, PRODUCT or ARCHITECTURE, and a signed-off SPEC's `## Interface` and `## Constraints`, can only change after going back to `Status: draft` and a new Review; a SPEC's `## Internals` stays editable. In Claude Code cto blocks the agent from setting `approved` itself or skipping that step (Edit, Write, MultiEdit; PowerShell may not touch those files at all). For every agent, shell commands may not write them. As a backstop in Claude Code, when a turn ends cto puts any sign-off doc that became `approved` during the turn without your reply back to `draft` and tells the agent, however it was written (a glob, a variable, a script). Codex, Cursor and Gemini edit tools are not guarded yet; there only the skill's rules hold.
