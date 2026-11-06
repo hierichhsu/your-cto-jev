@@ -258,3 +258,23 @@ test('setup .gitignore: a user rule added above an existing block covers an entr
   setup(root, 'en', { agents: [] });
   assert.equal(readFileSync(ignore, 'utf8'), 'node_modules\n*.tmp\n# >>> YOUR CTO JEV START >>>\n.cto-brain.json\ndebug_stdin.json\n.claude/settings.local.json\n# <<< YOUR CTO JEV END <<<\n');
 });
+
+test('refresh on a fresh husky clone (block in .husky/, core.hooksPath not set yet) rewrites .husky/ hooks, not .git/hooks', () => {
+  // the hooks a husky repo commits, from a setup that had core.hooksPath set
+  const ref = repo();
+  execFileSync('git', ['config', 'core.hooksPath', '.husky/_'], { cwd: ref });
+  setup(ref, 'en', { agents: [] });
+  const want = (n: string) => readFileSync(join(ref, '.husky', n), 'utf8');
+
+  const root = repo();
+  mkdirSync(join(root, '.husky'));
+  writeFileSync(join(root, '.husky/pre-commit'), 'npm test\n# >>> YOUR CTO JEV START >>>\nold cto\n# <<< YOUR CTO JEV END <<<\n');
+  writeFileSync(join(root, '.cto.json'), '{}\n');
+  assert.equal(isSetUp(root), true);
+  const res = setup(root, 'en', { agents: [] }); // what --refresh runs when no agent is wired
+  assert.equal(res.code, 0);
+  assert.equal(readFileSync(join(root, '.husky/pre-commit'), 'utf8'), 'npm test\n' + want('pre-commit').replace(/^#!\/bin\/sh\n/, ''));
+  assert.equal(readFileSync(join(root, '.husky/pre-push'), 'utf8'), want('pre-push'));
+  for (const n of ['pre-commit', 'pre-push']) assert.ok(!existsSync(join(root, '.git/hooks', n)), `.git/hooks/${n}`);
+  assert.ok(res.lines.some((l) => l.includes(join('.husky', 'pre-commit'))), res.lines.join('\n'));
+});

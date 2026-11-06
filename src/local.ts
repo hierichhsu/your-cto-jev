@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitFiles } from './diff.js';
-import { danglingAfter, duplicateIds, featureIndex, FLOW_DIR, indexStale, loadTasks } from './flow.js';
+import { danglingAfter, docStatus, duplicateIds, featureIndex, FLOW_DIR, indexStale, loadTasks } from './flow.js';
 import type { CtoConfig } from './brain.js';
 
 // Checks that need no model: they run first, work without any API key, and cost nothing.
@@ -30,7 +30,7 @@ const inScope = (file: string, raw: string) => {
 };
 
 /**
- * Features whose TASKS.md has tasks but whose SPEC.md is not `Status: approved`: no work without sign-off.
+ * Features whose TASKS.md has tasks but whose CONCEPT.md or SPEC.md is not `Status: approved`: no work without sign-off.
  * Only the features this diff touches (their docs folder or a task's `(files:)` scope); any read error means no finding.
  */
 function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
@@ -41,9 +41,10 @@ function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
       const dir = `${FLOW_DIR}/features/${slug}/`;
       const scopes = [dir, ...tasks.filter((t) => t.feature === slug).flatMap((t) => t.files)];
       if (![...touched].some((f) => scopes.some((s) => inScope(f, s)))) continue;
-      let spec = '';
-      try { spec = readFileSync(join(root, dir, 'SPEC.md'), 'utf8'); } catch { /* missing SPEC is not approved */ }
-      if (/^Status:\s*(\w+)\s*$/im.exec(spec)?.[1]?.toLowerCase() !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
+      const read = (f: string) => { try { return readFileSync(join(root, dir, f), 'utf8'); } catch { return ''; } };
+      const unsigned = ['CONCEPT.md', 'SPEC.md'].filter((f) => docStatus(read(f)) !== 'approved');
+      // detail is `slug: files`; the message splits it back so it can name the unsigned files.
+      if (unsigned.length) out.push({ kind: 'flow_signoff', block: true, detail: `${slug}: ${unsigned.join(', ')}` });
     }
     return out;
   } catch { return []; }

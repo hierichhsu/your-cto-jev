@@ -15,28 +15,54 @@ test('flow_signoff: a touched feature with tasks but no approved SPEC blocks; un
   const spec = (status: string) => writeFileSync(join(dir, 'SPEC.md'), `# perm SPEC\n\nStatus: ${status}\n`);
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x/)\n');
   spec('draft');
+  writeFileSync(join(dir, 'CONCEPT.md'), '# perm CONCEPT\n\nStatus: approved\n'); // this test is about SPEC; CONCEPT has its own below
   writeIndex(root); // the index must be fresh, or flow_index_stale joins the findings
   const sec = (p: string) => `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n+x\n`;
   const kinds = (d: string) => localCommitChecks(d, loadConfig(root), root, 'feature').map((f) => `${f.kind}${f.block ? '!' : ''}:${f.detail}`);
 
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'a task file scope');
-  assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/perm/TASKS.md`)), ['flow_signoff!:perm'], 'the feature folder itself');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: SPEC.md'], 'a task file scope');
+  assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/perm/TASKS.md`)), ['flow_signoff!:perm: SPEC.md'], 'the feature folder itself');
   assert.deepEqual(kinds(sec('src/y/b.ts')), [], 'an unrelated commit');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x, src/one.ts)\n');
   assert.deepEqual(kinds(sec('src/xy/a.ts')), [], 'a scope without trailing slash does not claim a sibling directory');
-  assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm'], 'the directory itself and a single-file scope');
+  assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm: SPEC.md'], 'the directory itself and a single-file scope');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src\\x, ./src/z/)\n');
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'backslash scope');
-  assert.deepEqual(kinds(sec('src/z/a.ts')), ['flow_signoff!:perm'], './ scope');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: SPEC.md'], 'backslash scope');
+  assert.deepEqual(kinds(sec('src/z/a.ts')), ['flow_signoff!:perm: SPEC.md'], './ scope');
   spec('Approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), [], 'status is case-insensitive');
   spec('approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), []);
   rmSync(join(dir, 'SPEC.md'));
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'missing SPEC');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: SPEC.md'], 'missing SPEC');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n');
   writeIndex(root);
   assert.deepEqual(kinds(sec('src/x/a.ts') + sec(`${FLOW_DIR}/features/perm/TASKS.md`)), [], 'no task ids, nothing to sign off');
+});
+
+test('flow_signoff: CONCEPT.md must be approved too, and the message names the unsigned files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cto-'));
+  const dir = join(root, FLOW_DIR, 'features', 'perm');
+  mkdirSync(dir, { recursive: true });
+  const doc = (name: string, status: string) => writeFileSync(join(dir, name), `# perm\n\nStatus: ${status}\n`);
+  writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x/)\n');
+  doc('SPEC.md', 'approved');
+  doc('CONCEPT.md', 'draft');
+  writeIndex(root);
+  const diff = 'diff --git a/src/x/a.ts b/src/x/a.ts\n--- a/src/x/a.ts\n+++ b/src/x/a.ts\n+x\n';
+  const kinds = () => localCommitChecks(diff, loadConfig(root), root, 'feature').map((f) => `${f.kind}${f.block ? '!' : ''}:${f.detail}`);
+
+  assert.deepEqual(kinds(), ['flow_signoff!:perm: CONCEPT.md'], 'SPEC approved, CONCEPT draft');
+  doc('CONCEPT.md', 'approved');
+  assert.deepEqual(kinds(), [], 'both approved');
+  rmSync(join(dir, 'CONCEPT.md'));
+  assert.deepEqual(kinds(), ['flow_signoff!:perm: CONCEPT.md'], 'CONCEPT missing');
+  doc('SPEC.md', 'draft');
+  assert.deepEqual(kinds(), ['flow_signoff!:perm: CONCEPT.md, SPEC.md'], 'both unsigned');
+
+  assert.equal(t('en', 'local_flow_signoff', { detail: 'perm: CONCEPT.md, SPEC.md' }),
+    '[cto] perm has a TASKS.md but CONCEPT.md, SPEC.md is not Status: approved. No sign-off, no work: send the user a Review handoff, or remove TASKS.md.');
+  assert.match(t('zh-TW', 'local_flow_signoff', { detail: 'perm: CONCEPT.md, SPEC.md' }), /^\[cto\] perm 已經有 TASKS\.md，但 CONCEPT\.md, SPEC\.md 還不是 Status: approved/);
 });
 
 test('flow_index_stale / flow_dangling_after: warn only on commits that touch the index inputs or the TASKS.md with the bad id', () => {
@@ -44,6 +70,7 @@ test('flow_index_stale / flow_dangling_after: warn only on commits that touch th
   const dir = join(root, FLOW_DIR, 'features', 'perm');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'SPEC.md'), '# perm SPEC\n\nStatus: approved\n');
+  writeFileSync(join(dir, 'CONCEPT.md'), '# perm CONCEPT\n\nStatus: approved\n');
   const tasksMd = `${FLOW_DIR}/features/perm/TASKS.md`;
   writeFileSync(join(root, tasksMd), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x/)\n- [ ] PERM-2 scopes (after: NOPE-1)\n');
   const sec = (p: string) => `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n+x\n`;
@@ -65,6 +92,7 @@ test('flow_interface: warn when a SPEC diff touches the ## Interface section, na
     const dir = join(root, FLOW_DIR, 'features', slug);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'SPEC.md'), `# ${slug} SPEC\n\nStatus: approved\n\n## Interface\n\n- a\n\n## Constraints\n\n- b\n\n## Internals\n\n- c\n`);
+    writeFileSync(join(dir, 'CONCEPT.md'), `# ${slug} CONCEPT\n\nStatus: approved\n`);
     writeFileSync(join(dir, 'TASKS.md'), `# ${slug} TASKS\n\n${tasks}`);
   };
   feat('perm', '- [ ] PERM-1 roles (files: src/x/)\n');

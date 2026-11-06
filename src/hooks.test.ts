@@ -18,6 +18,7 @@ function flowRepo(constraints = '- never store card numbers') {
   const dir = join(root, FLOW_DIR, 'features', 'pay');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'SPEC.md'), `Status: approved\n\n## Interface\n\n- pay()\n\n## Constraints\n${constraints}\n\n## Internals\n\n- x\n`);
+  writeFileSync(join(dir, 'CONCEPT.md'), 'Status: approved\n');
   writeFileSync(join(dir, 'TASKS.md'), '- [ ] PAY-1 charge cards (files: src/pay/)\n');
   writeFileSync(join(root, FLOW_DIR, 'PRODUCT.md'), 'Status: approved\n\n## 目標\n\n- take money\n\n## 不做的事\n\n- no crypto\n');
   writeFileSync(join(root, FLOW_DIR, 'ARCHITECTURE.md'), 'Status: approved\n\n## 技術棧\n\n- node\n\n## 不變的原則\n\n- one database, no queues\n');

@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc } from './signoff.js';
+import { shellWrites } from './shellwrites.js';
+
+const F = 'docs/cto_jev/features/x';
+
+test('reviewPaths: last Review line wins; bold, backticks, quotes, bullets and code fences tolerated', () => {
+  assert.deepEqual(reviewPaths(`Review: ${F}/OLD.md\n重點：x\n\n**Review:** \`${F}/CONCEPT.md\`, '${F}/SPEC.md'，${F}/PRODUCT.md\n重點：y`), [
+    `${F}/CONCEPT.md`, `${F}/SPEC.md`, `${F}/PRODUCT.md`,
+  ]);
+  assert.deepEqual(reviewPaths(`text\n\`\`\`\nReview: ${F}/SPEC.md\n重點：z\n\`\`\``), [`${F}/SPEC.md`]);
+  assert.deepEqual(reviewPaths(`> - **Review**: ${F}/SPEC.md`), [`${F}/SPEC.md`]);
+  assert.deepEqual(reviewPaths('Reviewer: a.md\nplease review: b.md'), []);
+});
+
+test('signoffDoc: resolves against cwd, normalizes, rejects escapes and non-sign-off files', () => {
+  const root = 'D:\\Github\\repo';
+  assert.equal(signoffDoc(root, 'D:\\Github\\repo', `${F}/SPEC.md`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(root, 'D:\\Github\\repo\\docs\\cto_jev\\features', 'x/./CONCEPT.md'), `${F}/CONCEPT.md`);
+  assert.equal(signoffDoc(root, '/d/Github/repo/src', '../docs/cto_jev/PRODUCT.md'), 'docs/cto_jev/PRODUCT.md');
+  assert.equal(signoffDoc(root, '/', 'd:\\github\\REPO\\Docs\\CTO_JEV\\architecture.md'), 'Docs/CTO_JEV/architecture.md');
+  assert.equal(signoffDoc(root, '/c/elsewhere', '/d/Github/repo/docs/cto_jev/features/x/SPEC.md'), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(root, root, `${F}/TASKS.md`), undefined);
+  assert.equal(signoffDoc(root, root, 'SPEC.md'), undefined);
+  assert.equal(signoffDoc(root, root, 'docs/other/SPEC.md'), undefined);
+  assert.equal(signoffDoc(root, root, '../repo2/docs/cto_jev/SPEC.md'), undefined);
+  assert.equal(signoffDoc(root, `${root}\\docs\\cto_jev`, '../../../other/docs/cto_jev/SPEC.md'), undefined);
+  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo/docs', 'cto_jev/SPEC.md'), 'docs/cto_jev/SPEC.md');
+});
+
+test('afterEdit: Edit, replace_all, MultiEdit in order, Write, missing old_string, `$` kept literal', () => {
+  assert.equal(afterEdit('a a', 'Edit', { old_string: 'a', new_string: '$&b' }), '$&b a');
+  assert.equal(afterEdit('a a', 'Edit', { old_string: 'a', new_string: 'b', replace_all: true }), 'b b');
+  assert.equal(afterEdit('abc', 'MultiEdit', { edits: [{ old_string: 'a', new_string: 'x' }, { old_string: 'xb', new_string: 'y' }] }), 'yc');
+  assert.equal(afterEdit('abc', 'Edit', { old_string: 'zz', new_string: 'y' }), undefined);
+  assert.equal(afterEdit('old', 'Write', { content: 'new' }), 'new');
+  assert.equal(afterEdit(undefined, 'Write', { content: 'new' }), 'new');
+});
+
+const spec = (status: string, iface: string, internals: string) =>
+  `# S\n\nStatus: ${status}\n\n## Interface\n\n${iface}\n\n## Constraints\n\n- c\n\n## Internals\n\n${internals}\n`;
+
+test('guardVerdict: self-approval, protected content, demotion and new files', () => {
+  const s = `${F}/SPEC.md`, c = `${F}/CONCEPT.md`;
+  assert.equal(guardVerdict(s, undefined, spec('approved', 'i', 'n')), 'self_approve');
+  assert.equal(guardVerdict(s, undefined, spec('draft', 'i', 'n')), 'ok');
+  const draft = spec('draft', 'i', 'n');
+  assert.equal(guardVerdict(s, draft, afterEdit(draft, 'Edit', { old_string: 'Status: draft', new_string: 'Status: approved' })!), 'self_approve');
+  const ok = spec('approved', 'i', 'n');
+  assert.equal(guardVerdict(s, ok, spec('draft', 'i changed', 'n')), 'ok');
+  assert.equal(guardVerdict(s, ok, spec('approved', 'i', 'n plus Assumed: x')), 'ok');
+  assert.equal(guardVerdict(s, ok, ok.replace('- c', '- c2')), 'protected_edit');
+  assert.equal(guardVerdict(s, ok, spec('approved', 'i2', 'n')), 'protected_edit');
+  assert.equal(guardVerdict(s, ok, ok.replace(/\n/g, '\r\n')), 'ok');
+  const concept = '# C\n\nStatus: approved\n\n## 目的\n\nx\n';
+  assert.equal(guardVerdict(c, concept, concept.replace('x', 'y')), 'protected_edit');
+  assert.equal(guardVerdict(c, concept, concept.replace('approved', 'APPROVED')), 'ok');
+  assert.equal(guardVerdict(c, concept, concept.replace('approved', 'draft').replace('x', 'y')), 'ok');
+});
+
+test('powershellHitsSignoffDoc: cwd under docs/cto_jev, or a sign-off doc name plus docs/cto_jev in the command', () => {
+  const root = 'D:\\Github\\repo';
+  assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content docs\\cto_jev\\features\\x\\SPEC.md`), true);
+  assert.equal(powershellHitsSignoffDoc(root, root, `(gc ${F}/concept.md) -replace 'draft','approved' | sc ${F}/CONCEPT.md`), true);
+  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'ls'), true);
+  assert.equal(powershellHitsSignoffDoc(root, '/d/Github/repo/docs/cto_jev', 'ls'), true);
+  assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content ${F}/TASKS.md`), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, 'Get-Content README.md SPEC.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs`, 'git status'), false);
+});
+
+test('shellWritesSignoffDoc: shellWrites targets resolved like the guard; `?` let through', () => {
+  const root = '/home/u/repo';
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`sed -i 's/draft/approved/' ${F}/SPEC.md`)), true);
+  assert.equal(shellWritesSignoffDoc(root, `${root}/docs/cto_jev`, shellWrites('echo x > features/x/CONCEPT.md')), true);
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cp /tmp/a ${F}/TASKS.md`)), false);
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cat ${F}/SPEC.md`)), false);
+  assert.equal(shellWritesSignoffDoc(root, root, ['?']), false);
+});

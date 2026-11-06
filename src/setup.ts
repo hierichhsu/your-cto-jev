@@ -74,7 +74,13 @@ function missingIgnores(text: string): string[] {
 /** Hooks dir honoring core.hooksPath (via --git-path). Husky's generated .husky/_ is replaced on install, so use .husky. */
 export function hooksDir(root: string): string {
   const dir = git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks');
-  return basename(dir) === '_' && basename(dirname(dir)) === '.husky' ? dirname(dir) : dir;
+  if (basename(dir) === '_' && basename(dirname(dir)) === '.husky') return dirname(dir);
+  // Fresh husky clone: core.hooksPath is set only once husky's prepare runs, but the committed .husky/ hooks already carry the block.
+  let hooksPath = true;
+  try { git(root, 'config', '--get', 'core.hooksPath'); } catch { hooksPath = false; }
+  const husky = join(root, '.husky');
+  const huskyHasBlock = GIT_HOOKS.some(([name]) => existsSync(join(husky, name)) && blockRe.test(readFileSync(join(husky, name), 'utf8')));
+  return !hooksPath && huskyHasBlock ? husky : dir;
 }
 
 /** Agents whose home config dir exists. */
