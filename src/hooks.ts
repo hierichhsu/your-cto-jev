@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FLOW_DIR, featureIndex } from './flow.js';
+import { FLOW_DIR, docStatus, featureIndex } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
-import type { Agent, HookOutput, PostInput, PreInput, ReplyInput, StopInput } from './agents.js';
-import { isCodeFile, manualUnconfirmed, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
+import { isCodeFile, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
+import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
 import { DECISIONS_KEPT, DECISION_STATE_CHARS, freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type Decision, type RecentError } from './brain.js';
 import { chunkDiff, filterDiff, pool } from './diff.js';
@@ -379,6 +380,7 @@ async function sessionNotice(brain: Brain, sessionId: string | undefined, lang: 
 export async function agentPre(agent: Agent, input: PreInput, { root, lang, now }: Env): Promise<HookOutput> {
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
+  if (shellWritesSignoffDoc(root, input.cwd ?? root, shellWrites(command))) return agent.block([t(lang, 'signoff_guard')]);
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
@@ -438,6 +440,71 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
   if (out.code === 0 && notices.size) out = agent.notice([...notices]);
   saveBrain(root, brain);
   return out;
+}
+
+// ---------- sign-off (Claude Code only) ----------
+
+const SILENT: HookOutput = { code: 0, stderr: [] };
+// Only the value of the first Status line changes; its line ending and everything else stay byte for byte.
+const approve = (text: string) => text.replace(/^(Status:[ \t]*)draft(?=[ \t]*\r?$)/im, '$1approved');
+
+/**
+ * The user's reply to a Review handoff: when Jev is sure it agrees to every listed draft doc, flip their Status to
+ * approved. Fails closed (no sign-off) on anything uncertain; never blocks the prompt.
+ */
+export async function agentPrompt(input: PromptInput, { root, lang, now }: Env): Promise<HookOutput> {
+  if (!existsSync(join(root, FLOW_DIR)) || !input.transcriptPath) return SILENT;
+  const review = reviewMessage(input.transcriptPath, input.prompt);
+  if (!review) return SILENT;
+  // Review: paths are repo-relative by contract, whatever folder the session runs in.
+  const docs = reviewPaths(review).map((p) => signoffDoc(root, root, p)).filter((f): f is string => !!f);
+  const files = [...new Set(docs)].filter((f) => docStatus(readOr(join(root, f))) === 'draft');
+  if (!files.length) return SILENT;
+
+  const cfg = loadConfig(root);
+  const brain = loadBrain(root);
+  const state = signoffState(review, input.prompt);
+  const r = await evaluate(
+    { state, questions: { signoff_approved: Q.signoff_approved }, ...(input.sessionId && { session_id: input.sessionId }) },
+    { brain, lang, timeoutMs: AGENT_TIMEOUT_MS, notices: new Set(), now },
+  );
+  if (!r.ok) brain.skipped_attempts++;
+  else { countCheck(brain, now); logDecision(brain, 'prompt', state, r.answers, cfg, now); }
+  saveBrain(root, brain);
+  if (!r.ok) return promptOutput(undefined, t(lang, 'signoff_unavailable'));
+  if (exceeded(r.answers, 'signoff_approved', cfg) === undefined) return SILENT;
+
+  // Jev took a while: sign only if every file is still a draft now.
+  const texts = files.map((f) => readOr(join(root, f)));
+  if (texts.some((x) => docStatus(x) !== 'draft')) return SILENT;
+  const signed: string[] = [];
+  try {
+    files.forEach((f, i) => {
+      const next = approve(texts[i]);
+      if (docStatus(next) !== 'approved') throw new Error(`no plain Status line in ${f}`);
+      writeFileSync(join(root, f), next);
+      signed.push(f);
+    });
+  } catch {
+    return promptOutput(undefined, t(lang, 'signoff_partial', { signed: signed.join(', ') || '-', unsigned: files.slice(signed.length).join(', ') }));
+  }
+  const done = t(lang, 'signoff_done', { detail: files.join(', ') });
+  return promptOutput(done, done);
+}
+
+/** Before Edit/Write/MultiEdit/PowerShell: the CTO cannot approve a sign-off doc or change its protected content. Fails open. */
+export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env): HookOutput {
+  const cwd = input.cwd ?? root;
+  const tool = input.toolName;
+  try {
+    if (tool === 'PowerShell') return powershellHitsSignoffDoc(root, cwd, String(input.toolInput?.command ?? '')) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    if (tool !== 'Edit' && tool !== 'Write' && tool !== 'MultiEdit') return SILENT;
+    const file = signoffDoc(root, cwd, String(input.toolInput?.file_path ?? ''));
+    if (!file) return SILENT;
+    const before = existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : undefined;
+    const after = afterEdit(before, tool, input.toolInput);
+    return after !== undefined && guardVerdict(file, before, after) !== 'ok' ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+  } catch { return SILENT; }
 }
 
 // ---------- stop (end-of-turn "done?" check) ----------

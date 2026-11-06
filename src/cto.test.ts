@@ -249,7 +249,7 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.equal(h.split('YOUR CTO JEV START').length, 2);
   assert.ok(h.startsWith('#!/bin/sh\nnpm run lint\n'));
   const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  assert.equal(s.hooks.PreToolUse.length, 2);
+  assert.equal(s.hooks.PreToolUse.length, 3); // the user's Edit hook, cto's Bash pre, cto's sign-off guard
   assert.equal(s.hooks.PostToolUseFailure[0].hooks[0].command, 'cto --hook claude-post');
   assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /\.cto-brain\.json/);
   assert.ok(existsSync(join(root, '.cto.json')));

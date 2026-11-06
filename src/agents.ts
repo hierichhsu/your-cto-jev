@@ -7,9 +7,11 @@ export interface PostInput { command: string; error: string; cwd?: string; sessi
 /** transcriptPath set: read the turn from the agent's transcript (Claude Code). Unset: use cto's own turn log. */
 export interface StopInput { sessionId?: string; cwd?: string; transcriptPath?: string; lastMessage: string; stopHookActive: boolean }
 export interface ReplyInput { sessionId?: string; cwd?: string; text: string }
+export interface PromptInput { sessionId?: string; cwd?: string; transcriptPath?: string; prompt: string }
+export interface GuardInput { cwd?: string; toolName: string; toolInput: any }
 
 export type AgentName = 'claude' | 'cursor' | 'gemini' | 'codex';
-export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start'] as const;
+export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start', 'prompt', 'guard'] as const;
 export type Phase = (typeof PHASES)[number];
 type Spec = { event: string; matcher?: string };
 
@@ -24,6 +26,10 @@ export interface Agent {
   edit?: Spec; // after a file edit: earlier failures are marked, the turn log gets the edit
   reply?: Spec; // the agent's final text, for agents whose stop event does not carry it (Cursor)
   start?: Spec; // session start: `cto brief` goes into the agent's context (agents whose hook stdout reaches the model)
+  prompt?: Spec; // user prompt: signs off the docs on the CTO's Review line when the user agrees
+  guard?: Spec; // before an edit tool: the CTO cannot approve its own sign-off docs
+  parsePrompt?(i: any): PromptInput;
+  parseGuard?(i: any): GuardInput;
   note?: string; // i18n key printed after install
   /** The done check reads this agent's own transcript instead of cto's turn log. */
   transcriptTurns?: boolean;
@@ -50,6 +56,13 @@ const exit2Block = (lines: string[]): HookOutput => ({ code: 2, stderr: lines })
 const systemMessage = (msgs: string[]): HookOutput => ({ code: 0, stdout: JSON.stringify({ systemMessage: msgs.join('\n') }), stderr: [] });
 const nestedPre = (i: any): PreInput => ({ command: str(i?.tool_input?.command), sessionId: str(i?.session_id), cwd: str(i?.cwd) });
 const sessionId = (i: any) => str(i?.session_id);
+
+/** UserPromptSubmit reply: context reaches Claude, user reaches the user; nothing at all when both are absent. */
+export function promptOutput(context?: string, user?: string): HookOutput {
+  if (!context && !user) return { code: 0, stderr: [] };
+  const out = { ...(context && { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } }), ...(user && { systemMessage: user }) };
+  return { code: 0, stdout: JSON.stringify(out), stderr: [] };
+}
 const cursorCwd = (i: any) => str(i?.cwd) ?? str(i?.workspace_roots?.[0]);
 
 /** Pull a non-zero exit out of free-form tool output ("Exit Code: 1", "exit_code": 2, ...). */
@@ -76,6 +89,10 @@ export const agents: Record<AgentName, Agent> = {
     stop: { event: 'Stop' },
     edit: { event: 'PostToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit' },
     start: { event: 'SessionStart' }, // stdout of a SessionStart hook is added to Claude's context
+    prompt: { event: 'UserPromptSubmit' },
+    guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell' },
+    parsePrompt: (i) => ({ sessionId: sessionId(i), cwd: str(i?.cwd), transcriptPath: str(i?.transcript_path), prompt: String(i?.prompt ?? '') }),
+    parseGuard: (i) => ({ cwd: str(i?.cwd), toolName: String(i?.tool_name ?? ''), toolInput: i?.tool_input ?? {} }),
     parseEdit: (i) => { const p = str(i?.tool_input?.file_path) ?? str(i?.tool_input?.notebook_path); return p ? [p] : undefined; },
     parseStop: (i) => ({
       sessionId: str(i?.session_id),

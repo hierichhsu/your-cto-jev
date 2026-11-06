@@ -18,10 +18,12 @@ function hooksOn(file: string, name: AgentName): { event: string; commands: stri
   try { json = JSON.parse(readFileSync(file, 'utf8')); } catch { return []; }
   const a = agents[name];
   const out: { event: string; commands: string[] }[] = [];
+  const seen = new Set<string>(); // two phases can share one event (claude pre + guard, codex post + edit)
   for (const phase of PHASES) {
     const spec = a[phase];
     const arr = spec && json?.hooks?.[spec.event];
-    if (!spec || !Array.isArray(arr)) continue;
+    if (!spec || !Array.isArray(arr) || seen.has(spec.event)) continue;
+    seen.add(spec.event);
     const commands = arr.flatMap((m: any) => (a.style === 'cursor' ? [m?.command] : (m?.hooks ?? []).map((h: any) => h?.command)))
       .filter((c: unknown): c is string => typeof c === 'string' && !c.startsWith('cto --hook '));
     if (commands.length) out.push({ event: spec.event, commands });
