@@ -473,7 +473,7 @@ export async function agentPrompt(input: PromptInput, { root, lang, now }: Env):
   if (!r.ok) brain.skipped_attempts++;
   else { countCheck(brain, now); logDecision(brain, 'prompt', state, r.answers, cfg, now); }
   saveBrain(root, brain);
-  if (!r.ok) return promptOutput(undefined, t(lang, 'signoff_unavailable'));
+  if (!r.ok) return promptOutput(undefined, t(lang, r.reason === 'no_keys' ? 'signoff_no_keys' : r.reason === 'cooldown' ? 'signoff_paused' : 'signoff_unavailable'));
   if (exceeded(r.answers, 'signoff_approved', cfg) === undefined) return SILENT;
 
   // Jev took a while: sign only if every file is still a draft now.

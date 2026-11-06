@@ -107,6 +107,21 @@ test('prompt: Jev unreachable -> signoff_unavailable only, nothing changes', asy
   assert.deepEqual(JSON.parse(out.stdout!), { systemMessage: '[cto] 沒有簽核：判斷服務連不上，可以手改 Status' });
   assert.equal(out.code, 0);
   assert.match(read(root, `${X}/CONCEPT.md`), /Status: draft/);
+
+  calls = 0;
+  const again = await prompt(root, [human('write the spec'), said(REVIEW)]);
+  assert.deepEqual(JSON.parse(again.stdout!), { systemMessage: '[cto] 沒有簽核：判斷服務剛才失敗，暫停中，稍後再回一次或手改 Status' });
+  assert.equal(calls, 0, 'cooling down: no call, and not reported as unreachable again');
+});
+
+test('prompt: no API key -> says so, not "unreachable"', async () => {
+  jev(0.95);
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    const out = await prompt(repo(), [human('write the spec'), said(REVIEW)]);
+    assert.match(JSON.parse(out.stdout!).systemMessage, /還沒設判斷服務的 API key/);
+    assert.equal(calls, 0);
+  } finally { process.env.OPENROUTER_API_KEY = 'k'; }
 });
 
 const guard = (root: string, toolName: string, toolInput: unknown) => agentGuard(agents.claude, { cwd: root, toolName, toolInput }, { root, lang: 'en' });

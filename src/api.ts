@@ -51,7 +51,7 @@ type CallResult =
 
 export type EvalResult =
   | { ok: true; provider: string; answers: Record<string, JevAnswer> }
-  | { ok: false; reason: 'no_keys' | 'all_failed' | 'bad_request' };
+  | { ok: false; reason: 'no_keys' | 'all_failed' | 'cooldown' | 'bad_request' };
 
 export interface EvalCtx {
   brain: Brain;
@@ -167,5 +167,6 @@ export async function evaluate(req: JevRequest, ctx: EvalCtx): Promise<EvalResul
       detail: t(lang, 'fail_open_detail', { from: providers[lastFail.name].label, reason: t(lang, lastFail.reason), status: lastFail.status }),
     }));
   }
-  return { ok: false, reason: 'all_failed' };
+  // No lastFail: every provider was skipped for a cooldown, nothing was called this time.
+  return { ok: false, reason: lastFail ? 'all_failed' : 'cooldown' };
 }
