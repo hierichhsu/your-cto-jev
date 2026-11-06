@@ -454,6 +454,8 @@ const approve = (text: string) => text.replace(/^(Status:[ \t]*)draft(?=[ \t]*\r
  */
 export async function agentPrompt(input: PromptInput, { root, lang, now }: Env): Promise<HookOutput> {
   if (!existsSync(join(root, FLOW_DIR)) || !input.transcriptPath) return SILENT;
+  // A background agent's report arrives as a prompt; its text is agent output, never the user's agreement.
+  if (/^\s*<task-notification>/.test(input.prompt)) return SILENT;
   const review = reviewMessage(input.transcriptPath, input.prompt);
   if (!review) return SILENT;
   // Review: paths are repo-relative by contract, whatever folder the session runs in.

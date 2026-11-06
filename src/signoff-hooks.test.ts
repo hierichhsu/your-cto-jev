@@ -65,6 +65,18 @@ test('prompt: no Review line or no flow folder -> silent, Jev never called', asy
   assert.equal(calls, 0);
 });
 
+test('prompt: a task notification never signs; a prompt not yet in the transcript still finds the Review', async () => {
+  jev(0.95);
+  const root = repo();
+  const transcriptPath = join(root, 't.jsonl');
+  writeFileSync(transcriptPath, [human('write x'), said(REVIEW)].join('\n') + '\n');
+  assert.deepEqual(await agentPrompt({ transcriptPath, cwd: root, prompt: '<task-notification>\nok\n</task-notification>' }, { root, lang: 'zh-TW' }), { code: 0, stderr: [] });
+  assert.equal(calls, 0);
+  await agentPrompt({ transcriptPath, cwd: root, prompt: 'ok' }, { root, lang: 'zh-TW' });
+  assert.equal(calls, 1);
+  assert.match(read(root, `${X}/SPEC.md`), /^Status: approved\r\n/);
+});
+
 test('prompt: Jev agrees -> listed drafts flip to approved, line endings kept, other files untouched', async () => {
   jev(0.95);
   const root = repo();

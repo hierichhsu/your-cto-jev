@@ -38,6 +38,16 @@ test('reviewMessage: interrupt markers, slash command output and meta entries ar
   assert.equal(reviewMessage(p, 'ok'), 'half\nafter');
 });
 
+test('reviewMessage: the same reply twice, second not yet in the transcript, answers the latest Review only', () => {
+  const p = transcript([user('write it'), say('Review: a.md'), user('ok'), say('Review: b.md')]);
+  assert.equal(reviewMessage(p, 'ok'), 'Review: b.md');
+});
+
+test('reviewMessage: a background task notification is not an anchor', () => {
+  const p = transcript([user('write it'), say('Review: a.md'), user('<task-notification>\n<result>ok</result>\n</task-notification>'), say('noted')]);
+  assert.equal(reviewMessage(p, 'ok'), 'Review: a.md\nnoted');
+});
+
 test('reviewMessage: unreadable file or no anchor is undefined', () => {
   assert.equal(reviewMessage(join(tmpdir(), 'cto-no-such-transcript.jsonl'), 'ok'), undefined);
   assert.equal(reviewMessage(transcript([say('hi'), user('ok')]), 'ok'), undefined);

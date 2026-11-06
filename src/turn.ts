@@ -42,7 +42,7 @@ const readTranscript = (path: string): any[] | undefined => {
 const textOf = (c: any): string =>
   typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => String(b.text ?? '')).join('\n') : '';
 // Not typed by the user: the interrupt marker, and what a slash command echoes or prints into the transcript.
-const NOT_TYPED = /^\[Request interrupted by user|<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr)>/;
+const NOT_TYPED = /^\[Request interrupted by user|<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|task-notification)>/;
 const isRealHuman = (j: any) => isHumanTurn(j) && !NOT_TYPED.test(textOf(j.message?.content).trim());
 
 /**
@@ -55,7 +55,10 @@ export function reviewMessage(transcriptPath: string, prompt: string): string | 
   const humans = lines.flatMap((j, i) => (isRealHuman(j) ? [i] : []));
   let end = lines.length;
   const last = humans.at(-1);
-  if (last !== undefined && textOf(lines[last].message?.content).trim() === prompt.trim()) end = humans.pop()!;
+  // This prompt is already in the transcript only if the last human entry has its text AND nothing answered it yet;
+  // text alone would match an earlier identical reply ("ok" twice) and reach back to an older Review.
+  const answered = (i: number) => lines.slice(i + 1).some((j) => j?.type === 'assistant');
+  if (last !== undefined && !answered(last) && textOf(lines[last].message?.content).trim() === prompt.trim()) end = humans.pop()!;
   const anchor = humans.at(-1);
   if (anchor === undefined) return undefined;
   return lines.slice(anchor + 1, end).flatMap((j) => (j?.type === 'assistant' && Array.isArray(j.message?.content)
