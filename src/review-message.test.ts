@@ -26,16 +26,26 @@ test('reviewMessage: assistant text after the anchor, current prompt skipped, to
   assert.equal(reviewMessage(q, 'ok'), 'Review: a.md');
 });
 
-test('reviewMessage: interrupt markers, slash command output and meta entries are not anchors; an interrupted reply is', () => {
+test('reviewMessage: interrupt markers, command output and meta entries are not anchors; an interrupted reply is', () => {
   const p = transcript([
     user('write the spec'), say('Review: a.md'),
     user('wait'), say('half'), user([{ type: 'text', text: '[Request interrupted by user]' }]),
-    user('<command-name>/cost</command-name>\n<command-message>cost</command-message>'),
     user('<local-command-stdout>$0.12</local-command-stdout>'),
+    user('<bash-input>ls</bash-input>'),
     { type: 'user', isMeta: true, message: { content: 'skill text' } },
     say('after'), user('ok'),
   ]);
   assert.equal(reviewMessage(p, 'ok'), 'half\nafter');
+});
+
+test('reviewMessage: a slash command between the Review and the reply starts a new exchange; the Review is out', () => {
+  const p = transcript([user('write it'), say('Review: a.md'), user('<command-name>/fix</command-name>\n<command-message>fix</command-message>'), say('Found 2 issues. Apply fixes?')]);
+  assert.equal(reviewMessage(p, 'ok'), 'Found 2 issues. Apply fixes?');
+});
+
+test('reviewMessage: a typed message that mentions a tag mid-text is still the user', () => {
+  const p = transcript([user('write it'), say('Review: a.md'), user('what is a <bash-input>?'), say('It is ...')]);
+  assert.equal(reviewMessage(p, 'ok'), 'It is ...');
 });
 
 test('reviewMessage: the same reply twice, second not yet in the transcript, answers the latest Review only', () => {
@@ -43,9 +53,9 @@ test('reviewMessage: the same reply twice, second not yet in the transcript, ans
   assert.equal(reviewMessage(p, 'ok'), 'Review: b.md');
 });
 
-test('reviewMessage: a background task notification is not an anchor', () => {
-  const p = transcript([user('write it'), say('Review: a.md'), user('<task-notification>\n<result>ok</result>\n</task-notification>'), say('noted')]);
-  assert.equal(reviewMessage(p, 'ok'), 'Review: a.md\nnoted');
+test('reviewMessage: a task notification answered after the Review starts a new exchange; the Review is out', () => {
+  const p = transcript([user('write it'), say('Review: a.md'), user('<task-notification>\n<result>found bug</result>\n</task-notification>'), say('Background agent found a bug. Want me to fix it?')]);
+  assert.equal(reviewMessage(p, 'ok'), 'Background agent found a bug. Want me to fix it?');
 });
 
 test('reviewMessage: unreadable file or no anchor is undefined', () => {

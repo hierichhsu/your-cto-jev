@@ -41,9 +41,11 @@ const readTranscript = (path: string): any[] | undefined => {
 
 const textOf = (c: any): string =>
   typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => String(b.text ?? '')).join('\n') : '';
-// Not typed by the user: the interrupt marker, and what a slash command echoes or prints into the transcript.
-const NOT_TYPED = /^\[Request interrupted by user|<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|task-notification)>/;
-const isRealHuman = (j: any) => isHumanTurn(j) && !NOT_TYPED.test(textOf(j.message?.content).trim());
+// Entries the assistant never answers: the interrupt marker and command output. Anything else in a human slot
+// (typed text, a slash command, a task notification) starts a new exchange, so a Review before it is no longer the
+// message being answered.
+const NO_REPLY = /^(?:\[Request interrupted by user|<(?:local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr)>)/;
+const isRealHuman = (j: any) => isHumanTurn(j) && !NO_REPLY.test(textOf(j.message?.content).trim());
 
 /**
  * The assistant text the user is answering with `prompt`: every assistant text block after the previous real human
