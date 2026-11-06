@@ -28,6 +28,7 @@ export const personaDict: Record<Lang, Record<Signal, string>> = {
     architecture_undocumented: '這看起來改了架構，卻沒有決策紀錄。放你過，但去寫 docs/cto_jev/decisions/NNNN-<slug>.md。',
     test_tampering: '程式沒修好，倒先把測試改弱了？Commit 已攔下。去修程式，不是修測試。',
     done_unverified: '說做完了？證據呢？最後一次改程式之後，我沒看到通過的測試或建置，或是你打勾的計畫項目沒有證據。先跑相關的檢查，看到通過再收工；真的跑不了，就老實告訴使用者哪些還沒驗證。',
+    signoff_approved: '使用者點頭了。Review 列的文件我替他簽核，之後要改受保護的內容，先改回 draft 再重發 Review。',
     code_complexity: '複雜度超標，過度工程化。這次不擋，但趕快重構。',
   },
   en: {
@@ -38,6 +39,7 @@ export const personaDict: Record<Lang, Record<Signal, string>> = {
     architecture_undocumented: 'This looks like an architecture change with no decision record. Letting it through, but write docs/cto_jev/decisions/NNNN-<slug>.md.',
     test_tampering: 'Weakening the tests instead of fixing the code? Commit BLOCKED. Fix the code, not the tests.',
     done_unverified: 'Done, you say? Show me. Nothing passing ran after your last code change, or the plan items you checked off have no evidence. Run the relevant tests or build and see them pass before you stop; if you really cannot, tell the user plainly what is still unverified.',
+    signoff_approved: 'The user said yes. I signed off the docs on the Review line; to change protected content later, set them back to draft and resend Review.',
     code_complexity: 'Over-engineered. Not blocking this time, but refactor it.',
   },
 };
@@ -73,6 +75,8 @@ const messages: Record<Lang, Record<string, Msg>> = {
     local_flow_index_stale: (v) => `[cto] TASKS/CONCEPT/SPEC 改了，但 ${v.detail} 沒重新產生。跑 cto index 再 git add；這次不擋。`,
     local_flow_dangling_after: (v) => `[cto] ${v.detail}：這個 after: 指到的任務 ID 不存在。改對 ID，或把那個任務加進 TASKS.md；這次不擋。`,
     local_flow_duplicate_id: (v) => `[cto] ${v.detail}：這個任務 ID 在 TASKS.md 裡出現不只一次，after: 會指錯。改成唯一的 ID；這次不擋。`,
+    signoff_done: (v) => `[cto] 已簽核：${v.detail}`,
+    signoff_unavailable: () => '[cto] 沒有簽核：判斷服務連不上，可以手改 Status',
     done_manual: (v) => `[cto] ${v.detail}：這是要使用者驗收的 task（manual），但你的最後訊息沒說使用者已經確認。先請使用者確認，確認後寫「accepted manually」再打勾；還沒確認就取消打勾，列給使用者。`,
     docs_none: () => 'docs/cto_jev/ 以外沒有過期的規劃文件。',
     docs_group_delete: () => '刪除',
@@ -258,6 +262,8 @@ const messages: Record<Lang, Record<string, Msg>> = {
     local_flow_index_stale: (v) => `[cto] TASKS/CONCEPT/SPEC changed but ${v.detail} was not regenerated. Run cto index and git add it; not blocking.`,
     local_flow_dangling_after: (v) => `[cto] ${v.detail}: that after: id does not exist. Fix the id or add the task to TASKS.md; not blocking.`,
     local_flow_duplicate_id: (v) => `[cto] ${v.detail}: this task id appears more than once in TASKS.md, so after: may point at the wrong one. Make it unique; not blocking.`,
+    signoff_done: (v) => `[cto] Signed off: ${v.detail}`,
+    signoff_unavailable: () => '[cto] Not signed off: the judging service is unreachable. You can edit the Status line by hand',
     done_manual: (v) => `[cto] ${v.detail}: this task is accepted by the user (manual), but your final message does not say the user confirmed it. Ask the user; once they confirm, say "accepted manually" and tick it. Until then untick it and list it for them.`,
     docs_none: () => 'No stale planning documents outside docs/cto_jev/.',
     docs_group_delete: () => 'Delete',

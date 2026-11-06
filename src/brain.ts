@@ -13,7 +13,7 @@ export interface CtoConfig {
 
 export interface RecentError { command: string; error: string; at: string; edited_after?: boolean; warned?: boolean }
 /** One answered yes/no question, with the masked state Jev saw, so `cto report` can turn a wrong call into a calibration case. */
-export interface Decision { at: string; hook: 'commit' | 'check' | 'command' | 'stop'; signal: Signal; value: number; threshold: number; state: string }
+export interface Decision { at: string; hook: 'commit' | 'check' | 'command' | 'stop' | 'prompt'; signal: Signal; value: number; threshold: number; state: string }
 export const DECISIONS_KEPT = 30;
 export const DECISION_STATE_CHARS = 12_000;
 export interface Cooldown { until: number; status: string }
@@ -36,6 +36,10 @@ export interface Brain {
   decisions?: Decision[];
 }
 
+/** Sign-off writes approved for the user, so an agent editing .cto.json may raise this bar but never lower it. */
+export const SIGNOFF_FLOOR = 0.8;
+export const signoffThreshold = (override: unknown) => Math.max(typeof override === 'number' && Number.isFinite(override) ? override : 0, SIGNOFF_FLOOR);
+
 export const DEFAULT_CONFIG: CtoConfig = {
   sprint_goal: '',
   test_command: '',
@@ -49,6 +53,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
     architecture_undocumented: 0.85,
     test_tampering: 0.8,
     done_unverified: 0.6,
+    signoff_approved: SIGNOFF_FLOOR,
     code_complexity: 2,
   },
 };
@@ -79,12 +84,14 @@ function readJson(path: string): any {
 
 export function loadConfig(root: string): CtoConfig {
   const raw = readJson(join(root, '.cto.json')) ?? {};
+  const thresholds = { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) };
+  thresholds.signoff_approved = signoffThreshold(thresholds.signoff_approved);
   return {
     sprint_goal: typeof raw.sprint_goal === 'string' ? raw.sprint_goal : '',
     test_command: typeof raw.test_command === 'string' ? raw.test_command : '',
     protected_branches: Array.isArray(raw.protected_branches) ? raw.protected_branches.filter((b: unknown) => typeof b === 'string') : [],
     flow: raw.flow === true,
-    thresholds: { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) },
+    thresholds,
   };
 }
 

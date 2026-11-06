@@ -2,16 +2,34 @@
 // change is the CTO approving its own doc. The hook wiring (I/O, messages) lives elsewhere.
 import { posix } from 'node:path';
 import { docStatus, FLOW_DIR } from './flow.js';
+import { maskSensitiveState } from './masker.js';
 
 export const SIGNOFF_DOCS = ['CONCEPT.md', 'SPEC.md', 'PRODUCT.md', 'ARCHITECTURE.md'];
 const DOC_NAME = /\b(?:concept|spec|product|architecture)\.md\b/i;
 const REVIEW = /^[\s>*+\-_`]*Review[*_`]*\s*:[*_`]*\s*(.*)$/;
 
+const lastReview = (lines: string[]) => lines.findLastIndex((l) => REVIEW.test(l));
+
 /** Paths on the last `Review:` line of a message; tolerates bold, quotes, bullets, backticks and code fences. */
 export function reviewPaths(message: string): string[] {
-  const line = message.split(/\r?\n/).filter((l) => REVIEW.test(l)).pop();
-  if (!line) return [];
-  return REVIEW.exec(line)![1].split(/[,，]/).map((p) => p.replace(/^[\s`'"*]+|[\s`'"*]+$/g, '')).filter(Boolean);
+  const lines = message.split(/\r?\n/);
+  const i = lastReview(lines);
+  if (i < 0) return [];
+  return REVIEW.exec(lines[i])![1].split(/[,，]/).map((p) => p.replace(/^[\s`'"*]+|[\s`'"*]+$/g, '')).filter(Boolean);
+}
+
+// The handoff sections after the key points (zh and en wording from the skill).
+const AFTER_KEY_POINTS = /^[\s>*+\-_`]*(?:可能漏掉的?|資料|Might be missing|Data)[*_`]*\s*[:：]/i;
+export const SIGNOFF_CTO_CHARS = 800;
+const unquote = (s: string) => maskSensitiveState(s).replace(/"{3,}/g, '"');
+
+/** Jev input for signoff_approved: the last Review line and its key points (capped), then the user's reply; neither can forge the delimiters. */
+export function signoffState(review: string, prompt: string): string {
+  const lines = review.split(/\r?\n/);
+  const start = Math.max(lastReview(lines), 0);
+  const end = lines.findIndex((l, i) => i > start && AFTER_KEY_POINTS.test(l));
+  const cto = unquote(lines.slice(start, end < 0 ? undefined : end).join('\n').trim()).slice(0, SIGNOFF_CTO_CHARS);
+  return `CTO (written by the agent):\n"""\n${cto}\n"""\n\nUSER (the user's reply):\n"""\n${unquote(prompt.trim())}\n"""`;
 }
 
 // Forward slashes, Git Bash `/d/...` to `d:/...`, `..` resolved without climbing above the drive.

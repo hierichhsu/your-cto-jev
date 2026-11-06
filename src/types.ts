@@ -34,4 +34,5 @@ export type Signal =
   | 'architecture_undocumented'
   | 'test_tampering'
   | 'done_unverified'
+  | 'signoff_approved'
   | 'code_complexity';

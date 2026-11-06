@@ -15,6 +15,7 @@ const { applyCredentials, DEFAULT_CONFIG } = await import(new URL('brain.js', di
 const { evaluate, providerOrder } = await import(new URL('api.js', dist));
 const { Q, loopState, driftQ } = await import(new URL('hooks.js', dist));
 const { turnState } = await import(new URL('turn.js', dist));
+const { signoffState } = await import(new URL('signoff.js', dist));
 const { maskDiff, maskSensitiveState } = await import(new URL('masker.js', dist));
 const { pool } = await import(new URL('diff.js', dist));
 
@@ -37,6 +38,7 @@ const STATE = {
   destructive_command: (c) => maskSensitiveState(c.command),
   infinite_loop: (c) => loopState(c.command, c.failures.map((f) => ({ ...f, at: new Date().toISOString() }))),
   done_unverified: (c) => turnState(c.message, c.actions, c.ticked),
+  signoff_approved: (c) => signoffState(c.review, c.prompt),
   architecture_violation: (c) => maskDiff(c.diff),
 };
 // architecture_violation has no fixed question: each case carries the feature's Constraints and PRODUCT non-goals.
