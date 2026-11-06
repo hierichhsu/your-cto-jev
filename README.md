@@ -55,7 +55,7 @@ Some checks need no model at all. They run first, before anything is sent anywhe
 | A `.env` file with values (not `.env.example`) | `git commit` | **Blocks** |
 | A file over 5 MB | `git commit` | Warns |
 | `package.json` dependencies changed, lock file not | `git commit` | Warns |
-| Development flow: a feature with tasks whose SPEC is not `Status: approved` | `git commit` touching that feature | **Blocks** |
+| Development flow: a feature with tasks whose CONCEPT or SPEC is not `Status: approved` | `git commit` touching that feature | **Blocks**, naming the unsigned files |
 | Development flow: INDEX.md older than its inputs, an `(after:)` id nobody defines, a SPEC `## Interface` changed | `git commit` | Warns |
 
 `protected_branches` is empty by default; set it in `.cto.json` (`["main"]`) and the whole team's agents stop committing to main by accident. A commit a local check blocks never reaches Jev.
@@ -251,9 +251,9 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | Say | The agent |
 |---|---|
 | `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
-| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, the simpler option it rejected, data migration and rollback, what other features may call, how a production failure gets noticed, how it will be verified), writes CONCEPT and SPEC, has a zero-context reviewer check that a newcomer could build from them without making design decisions and that nothing unneeded or already in the code gets built, walks you through them, stops for your `Status: approved` |
+| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, the simpler option it rejected, data migration and rollback, what other features may call, how a production failure gets noticed, how it will be verified), writes CONCEPT and SPEC, has a zero-context reviewer check that a newcomer could build from them without making design decisions and that nothing unneeded or already in the code gets built, walks you through them, hands them over with a [Review handoff](#sign-off) and stops for your sign-off |
 | `cto-jev tasks` | breaks an approved SPEC into parent/child tasks with files, dependencies and an acceptance command each |
-| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first (and the fixes reviewed once more), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits that one wave to the review branch and stops |
+| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first (and only the fixes reviewed again, at most three rounds in all; P1s left after that go to you), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits that one wave to the review branch and stops |
 | `cto-jev work all` | for a new project or a big batch: runs every wave in one go, fixes failing acceptance along the way, parks (does not stop for) tasks that need you, then one zero-context review of everything it did with P1s fixed; ends with one report of what is done and every question for you. Never releases |
 | `cto-jev release` | reviews the whole unreleased diff against the SPECs (looking hardest at waves marked `self-review`), files P1/P2/P3 tasks under the same findings rules, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
 | `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
@@ -265,11 +265,31 @@ What `cto` adds on top, all without a model call unless noted:
 
 | Check | Where | What happens |
 |---|---|---|
-| A feature has tasks but its SPEC is not approved | `git commit` touching that feature | **Blocks** |
+| A feature has tasks but its CONCEPT or SPEC is not approved | `git commit` touching that feature | **Blocks**, naming the unsigned files |
+| The agent sets `Status: approved` itself, or changes signed-off content without going back to draft | Claude Code edit tools and PowerShell | **Blocks** ([sign-off](#sign-off)) |
+| A shell command writes CONCEPT, SPEC, PRODUCT or ARCHITECTURE under `docs/cto_jev/` | every agent's shell command | **Blocks** |
 | `architecture_violation` judged against the feature's `## Constraints` and PRODUCT's non-goals instead of a one-line goal | `git commit` (Jev) | Warns |
 | An architecture change with no new decision record | `git commit` (Jev) | Warns |
 | INDEX.md older than the TASKS it is built from; an `(after:)` id nobody defines; a SPEC's `## Interface` changed | `git commit` | Warns, naming dependants |
 | Missing feature files, dead `(files:)` paths, `src/` directories owned by no feature, missing headings | `cto brief`, `cto doctor` | Listed |
+
+### Sign-off
+
+CONCEPT, SPEC, PRODUCT and ARCHITECTURE are signed off when their `Status:` line says `approved`, and only you decide that. Each time the agent wants you to read them it ends with a Review handoff:
+
+```text
+Review: docs/cto_jev/features/<slug>/CONCEPT.md, docs/cto_jev/features/<slug>/SPEC.md
+Key points: at most three lines
+Might be missing: what the agent is unsure of, pointing to the `Assumed:` lines in the docs
+Data: which tables or stores change, whether old data migrates; "none" if nothing
+```
+
+- **Claude Code:** just agree in the chat. cto's `UserPromptSubmit` hook asks Jev whether your reply agrees to every listed file and, if so, sets the listed drafts to `Status: approved` and tells you which files it signed. "OK, but change X", a question or agreeing to only some files signs nothing. When Jev cannot be reached it signs nothing and says so; edit the line yourself.
+- **Codex, Cursor, Gemini CLI:** edit the `Status:` line yourself.
+
+Agreeing covers what is written, `Assumed:` lines included. A signed-off CONCEPT, PRODUCT or ARCHITECTURE, and a signed-off SPEC's `## Interface` and `## Constraints`, can only change after going back to `Status: draft` and a new Review; a SPEC's `## Internals` stays editable. In Claude Code cto blocks the agent from setting `approved` itself or skipping that step (Edit, Write, MultiEdit; PowerShell may not touch those files at all). For every agent, shell commands may not write them. Codex, Cursor and Gemini edit tools are not guarded yet; there only the skill's rules hold.
+
+**Upgrading.** `cto update` refreshes the repo you run it from and adds the new Claude Code sign-off hooks; elsewhere run `cto setup --refresh` (`cto doctor` reports missing hooks). The commit check now wants CONCEPT signed off as well as SPEC, so a feature whose SPEC is approved but CONCEPT is still `draft` is blocked at commit until you approve its CONCEPT.
 
 `cto docs` deals with the rest of the repo: it finds markdown outside `docs/cto_jev/` that looks like an old plan (tool output under `.planning/`, `specs/`, `.kiro/`, fully ticked `TODO.md`s, checklists untouched for a month), asks Jev about the ambiguous ones, and prints merge / archive / delete suggestions. It changes nothing; the agent acts only after you decide.
 
@@ -384,6 +404,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 - **A lesson's fix is the edit between a failure and the next pass of a command with the same first two words.** A fix that was verified by a different command (`npm test` fails, `npx vitest run` passes) is not recorded, and a turn that edits files for other reasons in between credits them to the fix as well.
 - **Loop detection knows about edits, but only through the agent's edit tools.** A first re-run after a code edit is a new attempt, while the same error coming back across repeated fixes still counts as a loop; each loop is blocked once, so the agent can still verify its next fix. A file changed only through a shell command is not seen as an edit, and failures expire after 15 minutes.
 - **The development flow reads exact headings and prefixes.** `## Interface`, `## Constraints`, `Status: approved` and the PRODUCT/ARCHITECTURE field headings must match the skeleton as written; a reworded heading is "missing" in `cto brief` and silently skipped by the checks. A commit maps to a feature by `(files:)` prefix, so a task written as `src/` claims everything and `./src/x/` claims nothing. The two Jev questions look at the first diff chunk only.
+- **The sign-off guard has gaps.** Shell writes it cannot resolve (paths in variables, scripts such as `node -e`, `git checkout --`, `git apply`) get through, and so do Codex, Cursor and Gemini edit tools. The hook signs only the reply right after a Review handoff, and keeps no record: a hook sign-off and a hand edit look the same in git.
 - **Each agent shell command waits for one Jev request.** OpenRouter answered in about 0.3 s in our tests, Cloudflare in about 0.9 s with occasional spikes past 3 s. Agent checks wait up to 5 s before failing open.
 
 ## Development

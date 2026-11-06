@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { loadConfig } from './brain.js';
 import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
 import { FLOW_SKELETON, docsPublisher, isSetUp, planSetup, setup } from './setup.js';
+import { missingHooks, wiredAgents } from './setup.js';
 import { setupUI } from './setupui.js';
 
 // a developer's global core.hooksPath or commit.gpgsign must not reach the temp repos; child git inherits process.env
@@ -277,4 +278,60 @@ test('refresh on a fresh husky clone (block in .husky/, core.hooksPath not set y
   assert.equal(readFileSync(join(root, '.husky/pre-push'), 'utf8'), want('pre-push'));
   for (const n of ['pre-commit', 'pre-push']) assert.ok(!existsSync(join(root, '.git/hooks', n)), `.git/hooks/${n}`);
   assert.ok(res.lines.some((l) => l.includes(join('.husky', 'pre-commit'))), res.lines.join('\n'));
+});
+
+// FLOW-11.6: Claude's sign-off hooks (UserPromptSubmit + the Edit guard)
+const claudeSettings = (root: string) => JSON.parse(readFileSync(join(root, '.claude/settings.local.json'), 'utf8'));
+const entries = (s: any, event: string, command: string) => (s.hooks?.[event] ?? []).filter((m: any) => m.hooks?.some((h: any) => h.command === command));
+const GUARD = 'Edit|Write|MultiEdit|PowerShell';
+
+test('setup claude: UserPromptSubmit runs the prompt hook, a PreToolUse Edit guard sits beside the Bash one; re-run adds no duplicates', () => {
+  const root = repo();
+  for (let i = 0; i < 2; i++) {
+    assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
+    const s = claudeSettings(root);
+    const prompt = entries(s, 'UserPromptSubmit', 'cto --hook claude-prompt');
+    assert.equal(prompt.length, 1, `run ${i + 1}: one prompt entry`);
+    assert.equal(prompt[0].matcher, undefined);
+    const guard = entries(s, 'PreToolUse', 'cto --hook claude-guard');
+    assert.equal(guard.length, 1, `run ${i + 1}: one guard entry`);
+    assert.equal(guard[0].matcher, GUARD);
+    const pre = entries(s, 'PreToolUse', 'cto --hook claude-pre');
+    assert.equal(pre.length, 1);
+    assert.equal(pre[0].matcher, 'Bash');
+    assert.equal(s.hooks.PreToolUse.length, 2, 'Bash and the guard, nothing else');
+    assert.equal(s.hooks.UserPromptSubmit.length, 1);
+  }
+  assert.deepEqual(missingHooks(root), []);
+});
+
+test('an old repo without the prompt and guard hooks: missingHooks names exactly those two; refresh adds them', () => {
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'] });
+  const s = claudeSettings(root);
+  delete s.hooks.UserPromptSubmit;
+  s.hooks.PreToolUse = entries(s, 'PreToolUse', 'cto --hook claude-pre');
+  writeFileSync(join(root, '.claude/settings.local.json'), JSON.stringify(s, null, 2) + '\n');
+  assert.deepEqual(missingHooks(root).sort(), ['cto --hook claude-guard', 'cto --hook claude-prompt']);
+  // what `cto setup --refresh` does: setup again for the agents already wired
+  assert.deepEqual(wiredAgents(root), ['claude']);
+  assert.equal(setup(root, 'en', { agents: wiredAgents(root) }).code, 0);
+  assert.deepEqual(missingHooks(root), []);
+  const after = claudeSettings(root);
+  assert.equal(entries(after, 'UserPromptSubmit', 'cto --hook claude-prompt').length, 1);
+  assert.equal(entries(after, 'PreToolUse', 'cto --hook claude-guard')[0]?.matcher, GUARD);
+  assert.equal(entries(after, 'PreToolUse', 'cto --hook claude-pre').length, 1);
+});
+
+test('setup codex, cursor, gemini: no prompt hook, no edit guard', () => {
+  const root = repo();
+  assert.equal(setup(root, 'en', { agents: ['codex', 'cursor', 'gemini'] }).code, 0);
+  for (const p of ['.codex/hooks.json', '.cursor/hooks.json', '.gemini/settings.json']) {
+    const text = readFileSync(join(root, p), 'utf8');
+    assert.match(text, /cto --hook /, `${p} is wired`);
+    assert.doesNotMatch(text, /UserPromptSubmit|-prompt"|-guard"/, p);
+    assert.ok(!text.includes(GUARD), p);
+  }
+  assert.ok(!existsSync(join(root, '.claude/settings.local.json')));
+  assert.deepEqual(missingHooks(root), []);
 });

@@ -116,7 +116,13 @@ if (args[0] === '--hook' && args[1]) {
   if (args.includes('--refresh')) {
     // Re-write everything cto manages for the agents already wired here; choices stay as they are.
     chosen = root ? wiredAgents(root) : [];
-    if (root && !isSetUp(root)) { console.log(t(lang, 'refresh_none')); process.exit(0); }
+    let setUp = true;
+    // isSetUp runs git with --path-format, which git < 2.31 rejects (same case the post-update refresh skips).
+    try { setUp = !root || isSetUp(root); } catch {
+      console.error(t(lang, 'refresh_old_git', { version: spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim() || '?' }));
+      process.exit(1);
+    }
+    if (!setUp) { console.log(t(lang, 'refresh_none')); process.exit(0); }
   } else if (list) chosen = list.split(',').map((s) => s.trim()).filter((s): s is AgentName => (agentNames as string[]).includes(s));
   else if (!uninstall && root && process.stdin.isTTY && process.stdout.isTTY && !args.includes('--yes')) {
     // Interactive: start from what is actually set up now, so re-running setup edits instead of starting over.
