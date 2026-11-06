@@ -141,7 +141,8 @@ Data: which tables or stores change, whether old data migrates; "none" if nothin
 \`Review:\` is always this English word, on its own line, with repo-relative paths separated by commas.
 
 - In Claude Code the user agrees in the conversation and cto's hook sets \`Status: approved\` on the files in the \`Review:\` line. With other agents the user edits the line.
-- End every handoff, and answer "how do I approve?", with how to sign, the real paths filled in: in Claude Code, reply in agreement (e.g. "ok"); by hand, with any agent, this command for the user to type while you are not working (never run it yourself):
+- In Claude Code, end every handoff with one line: reply "ok" to sign. Nothing else about signing.
+- Only with another agent, after cto says it did not sign, or when the user asks how to approve: give this command with the real paths, for the user to type while you are not working (never run it yourself):
   \`! sed -i 's/^Status: draft/Status: approved/' docs/cto_jev/features/<slug>/CONCEPT.md docs/cto_jev/features/<slug>/SPEC.md\`
 - Approval covers what is written, \`Assumed:\` lines included. Partial agreement signs nothing: fix and resend \`Review:\`, or resend it with only the agreed files.
 - You never set approved (in Claude Code cto blocks it). To change approved CONCEPT, PRODUCT or ARCHITECTURE content, or a SPEC's \`## Interface\` or \`## Constraints\`, first set \`Status: draft\` with the Edit tool, then make the change and resend \`Review:\`. A SPEC's \`## Internals\` stays editable after sign-off.

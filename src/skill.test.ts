@@ -26,7 +26,7 @@ test('work runs one wave; work all runs every wave, parks instead of stopping, r
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
   const t = FLOW_SKILL_TEXT;
   assert.match(t, /^Review: docs\/cto_jev\/\S+, /m, 'a standalone Review: line with comma-separated repo paths');
-  for (const s of ['Key points:', 'Might be missing:', 'Data:', 'Assumed: ...', 'Partial agreement signs nothing', "cto's hook sets", 'the user edits the line', 'first set \`Status: draft\` with the Edit tool', 'Shell commands may not write', 'before both CONCEPT and SPEC are approved', "! sed -i 's/^Status: draft/Status: approved/'", 'never run it yourself', 'whose CONCEPT or SPEC is not']) assert.ok(t.includes(s), s);
+  for (const s of ['Key points:', 'Might be missing:', 'Data:', 'Assumed: ...', 'Partial agreement signs nothing', "cto's hook sets", 'the user edits the line', 'first set \`Status: draft\` with the Edit tool', 'Shell commands may not write', 'before both CONCEPT and SPEC are approved', "! sed -i 's/^Status: draft/Status: approved/'", 'never run it yourself', 'reply "ok" to sign', 'Only with another agent', 'whose CONCEPT or SPEC is not']) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('they set \`Status: approved\`'), 'the user no longer hand-sets approved in Claude Code');
   assert.equal(t.match(/complete: send a review handoff/g)?.length, 2, 'init and feature both stop with a handoff');
   assert.ok(t.includes('which business rules, error cases, roles/permissions or data cases are missing'), 'docs review third question');
