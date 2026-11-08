@@ -5,7 +5,7 @@ import { FLOW_DIR, docStatus, featureIndex, listFeatures } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { isCodeFile, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { isCodeFile, isDropped, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -585,7 +585,7 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   // A manual task ticked without the user's confirmation is a text fact, not a judgement: cto blocks it itself. Jev
   // still judges everything else in the turn, since this stop's block is the only one it gets.
   const manual = manualUnconfirmed(ticked, lastMessage);
-  const manualLines = manual.slice(0, 5).map((m) => t(lang, 'done_manual', { detail: m.text.slice(0, 80) }));
+  const manualLines = manual.slice(0, 5).map((m) => t(lang, isDropped(m) ? 'done_dropped' : 'done_manual', { detail: m.text.slice(0, 80) }));
   const rest = ticked.filter((x) => !manual.includes(x));
   if (!rest.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) {
     brain.blocked_attempts++;

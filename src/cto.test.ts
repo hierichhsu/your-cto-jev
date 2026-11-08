@@ -1154,7 +1154,7 @@ test('done check: plan checklist items newly ticked in markdown are claims, judg
 });
 
 test('done check: ticks the agent committed this turn are still judged, with computed facts about each acceptance command', async () => {
-  const { tickedItems, turnState } = await import('./turn.js');
+  const { manualUnconfirmed, tickedItems, turnState } = await import('./turn.js');
   const { agentPre, agentStop } = await import('./hooks.js');
   const { loadBrain } = await import('./brain.js');
   const plan = [
@@ -1189,6 +1189,15 @@ test('done check: ticks the agent committed this turn are still judged, with com
     assert.match(turnState(m, [], t2), /does not say the user accepted it/, m);
   }
   assert.doesNotMatch(turnState('', [edit], [{ file: 'T.md', text: 'x', children: [] }]), /acceptance command/);
+  // A dropped task needs no acceptance, only a final message that reports the drop.
+  const t3 = [{ file: 'T.md', text: 'A-5 Badge page (dropped: page deleted)', children: [], accept: 'manual' }];
+  const t4 = [{ file: 'T.md', text: 'A-6 API (dropped: out of scope)', children: [], accept: 'npm test -- a' }];
+  assert.deepEqual(manualUnconfirmed([...t3, ...t4], 'A-5 dropped: the page is gone. A-6 dropped.'), []);
+  for (const m of ['A-5 accepted manually. A-6 done.', 'A-5 not dropped yet; A-6 not dropped', 'A-1 dropped.']) {
+    assert.equal(manualUnconfirmed([...t3, ...t4], m).length, 2, m);
+  }
+  assert.match(turnState('A-6 dropped.', [], t4), /"A-6 API \(dropped: out of scope\)" is dropped .*reports it as dropped: nothing to accept/);
+  assert.match(turnState('A-6 done.', [], t4), /does not report it as dropped/);
 
   setKeys();
   process.env.CTO_PROVIDER = 'openrouter';
@@ -1235,6 +1244,12 @@ test('done check: ticks the agent committed this turn are still judged, with com
   assert.match(jev, /"A-5 Search": its acceptance command `npm test -- s` did not run this turn/);
   assert.doesNotMatch(jev, /A-6 Help page/, 'the manual tick is reported by cto, not sent to Jev');
   assert.match(out.stderr.join('\n'), /A-6 Help page: this task is accepted by the user/);
+
+  // A dropped manual task whose drop the final message does not report gets the dropped message, not the manual one.
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-7 Old page (dropped: page deleted)\n      accept: manual\n');
+  out = await agentStop(agents.codex, { sessionId: 'D', cwd: root, lastMessage: 'Cleaned up.', stopHookActive: false }, env);
+  assert.equal(out.code, 2);
+  assert.match(out.stderr.join('\n'), /A-7 Old page \(dropped: page deleted\): this task is marked dropped/);
 
   // A base older than a turn (an interrupted turn left it) is replaced, and a rewritten one is ignored.
   const { saveBrain } = await import('./brain.js');

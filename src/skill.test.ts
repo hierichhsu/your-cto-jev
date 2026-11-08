@@ -21,6 +21,7 @@ test('work runs one wave; work all runs every wave, parks instead of stopping, r
   assert.ok(FLOW_SKILL_TEXT.includes('**Stop:** after one wave is committed'));
   for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', 'never before the review', 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
+  assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
 });
 
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {

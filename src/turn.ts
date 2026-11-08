@@ -166,16 +166,26 @@ const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 const MANUAL = /^manual\b/i;
 const TASK_ID = /^[A-Z][A-Z0-9]*-\d+(?:\.\d+)*\b/;
 
-/** The final message says this task was accepted manually: the phrase, not negated, in a line naming the task's id. */
+/** A task closed without doing it: `(dropped: reason)` on its line, then ticked. */
+export const isDropped = (t: Ticked) => /\(dropped\b/i.test(t.text);
+
+/**
+ * The final message reports how this task closed: "accepted manually", or "dropped" for a dropped task; the phrase,
+ * not negated, in a line naming the task's id. Reported in the message so the user sees every drop.
+ */
 function acceptedManually(t: Ticked, lastMessage: string): boolean {
   const id = TASK_ID.exec(t.text)?.[0];
+  const word = isDropped(t) ? 'dropped' : 'accepted manually';
   return lastMessage.split(/\r?\n|(?<=[.。;；])\s*/).some((s) =>
-    /accepted manually/i.test(s) && !/\bnot\s+(?:yet\s+)?accepted manually/i.test(s) && (!id || s.includes(id)));
+    new RegExp(word, 'i').test(s) && !new RegExp(`\\bnot\\s+(?:yet\\s+)?${word}`, 'i').test(s) && (!id || s.includes(id)));
 }
 
-/** Ticked `manual` tasks the final message does not report as accepted by the user: a text check, so no model judges it. */
+/**
+ * Ticked `manual` tasks the final message does not report as accepted by the user, and dropped tasks it does not
+ * report as dropped: a text check, so no model judges it.
+ */
 export const manualUnconfirmed = (ticked: Ticked[], lastMessage: string) =>
-  ticked.filter((t) => MANUAL.test(squash(t.accept ?? '')) && !acceptedManually(t, lastMessage));
+  ticked.filter((t) => (isDropped(t) || MANUAL.test(squash(t.accept ?? ''))) && !acceptedManually(t, lastMessage));
 
 /** `cmd` run as a command of its own: at a command boundary, and not with its failure swallowed (`|| true`). */
 const runsCommand = (command: string, cmd: string) => {
@@ -191,6 +201,11 @@ function acceptFacts(ticked: Ticked[], actions: Action[], lastEdit: number, last
   const lines = ticked.filter((t) => t.accept).slice(0, 20).map((t) => {
     const name = oneLine(t.text, 60);
     const cmd = squash(t.accept!);
+    if (isDropped(t)) {
+      return acceptedManually(t, lastMessage)
+        ? `"${name}" is dropped (closed without doing it), and the final message reports it as dropped: nothing to accept.`
+        : `"${name}" is dropped (closed without doing it), but the final message does not report it as dropped.`;
+    }
     if (MANUAL.test(cmd)) {
       return acceptedManually(t, lastMessage)
         ? `"${name}" is accepted by the user (manual), and the final message says it was accepted manually.`
