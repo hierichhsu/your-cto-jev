@@ -37,11 +37,12 @@ Jev judges meaning and answers with probabilities, not prose. It costs about $0.
 | `done_unverified` | an agent ending a turn that edited code or checked off plan items | **Sends it back to work** until the change is verified or the gap is disclosed |
 | `architecture_violation` | `git commit`, once you set a sprint goal, or when the [development flow](#the-development-flow-optional) maps the commit to a feature's SPEC | Warns only |
 | `architecture_undocumented` | `git commit` under the development flow, when code changes and no decision record is added | Warns only |
+| `manual_measurable` | `git commit` under the development flow, when it adds a task accepted `manual` that a script could check instead | Warns only |
 | `code_complexity` | every `git commit` | Warns only |
 
 `test_tampering` catches the classic agent shortcut: making a red test green by skipping it, deleting its assertions, loosening the expectation, or lowering the coverage bar, instead of fixing the code. It lets through real fixes, new or tighter tests, refactors, and tests removed together with their feature.
 
-`done_unverified` catches the other classic shortcut: "Done, all tests pass!" when nothing ran after the last edit, the last run failed, or the claim is not backed by anything the agent actually did. It lets through turns that ran a passing check after the last edit, turns that changed only docs or CI config, and turns where the agent honestly says what it could not verify. Checked-off items count even when the agent committed them in the same turn. For a task with an acceptance line (`accept:` or `驗收:`), cto itself works out whether that exact command ran and passed after the last edit and tells Jev, and a `manual` task ticked without the final message saying the user accepted it is sent back without asking Jev at all. It blocks at most once per stop, so it cannot loop.
+`done_unverified` catches the other classic shortcut: "Done, all tests pass!" when nothing ran after the last edit, the last run failed, or the claim is not backed by anything the agent actually did. It lets through turns that ran a passing check after the last edit, turns that changed only docs or CI config, and turns where the agent honestly says what it could not verify. Checked-off items count even when the agent committed them in the same turn. For a task with an acceptance line (`accept:` or `驗收:`), cto itself works out whether that exact command ran and passed after the last edit and tells Jev, and a `manual` task ticked without the final message saying the user accepted it (or a `(dropped: ...)` task the final message does not report as dropped) is sent back without asking Jev at all. It blocks at most once per stop, so it cannot loop.
 
 Checking off a plan item is the same claim. Whatever planning tool you use (spec-kit, GSD, Kiro, specOS, a hand-written `TODO.md`), plans end up as markdown checklists, so `cto` reads the uncommitted `- [ ]` to `- [x]` changes in tracked `.md` files and asks whether the turn backs them up. A phase or parent item counts as backed when everything nested under it is checked, or when the turn ran a passing check that covers it. Each tick is judged once. A turn that only ticks boxes, without doing the work, is checked too.
 
@@ -168,6 +169,7 @@ The rules also tell the agent to run `cto check` before committing, and never to
   test_tampering             0.03   blocks above 0.8  ok
   architecture_violation     not checked: no sprint_goal in .cto.json and no feature Constraints for these files
   architecture_undocumented  not checked: no docs/cto_jev/ flow, or this commit adds a decision record
+  manual_measurable          not checked: this commit adds no task accepted manually
   code_complexity            2.02   warns above 2  would warn
 [cto] Good to commit.
 ```
@@ -217,7 +219,7 @@ docs/cto_jev/
   decisions/NNNN-<slug>.md decision records, append-only
   features/<slug>/
     CONCEPT.md             why: purpose, business rules, non-goals
-    SPEC.md                how: ## Interface (what other features may use), ## Constraints, ## Internals
+    SPEC.md                how: ## Interface (what other features may use), ## Constraints, ## Acceptance, ## Internals
     TASKS.md               the only state: a checklist with ids, dependencies and an acceptance command
     REVIEW.md              what a zero-context reviewer found, and which tasks it became
 ```
@@ -228,9 +230,13 @@ A task is one checklist line, and everything else is computed from it:
 - [ ] CUST-1 Customer list
   - [x] CUST-1.1 List API, filtered by role (after: PERM-2) (files: src/customers/api/)
         accept: npm test -- customers/api
-  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/)
+  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/, e2e/customers.spec.ts)
+        accept: npx playwright test e2e/customers.spec.ts
+  - [ ] CUST-1.3 List matches the brand (look) (after: CUST-1.2) (files: src/customers/ui/)
         accept: manual
 ```
+
+You confirm what is expected, not what was built. A SPEC's `## Acceptance` lists each scenario as steps and a result a script can compare ("at 375px wide: no horizontal scroll"), and it is signed with the SPEC, so the agent cannot quietly change it. A task you would see is accepted by the end-to-end test written from those lines before the code; if the agent thinks an expectation is wrong, it asks you and changes the SPEC, not the test. `manual` is left for taste (does it look right, does it match the brand), and the agent shows you screenshots at each width before you say yes. A task that will not be done is closed with `(dropped: <reason>)` on its line, and the agent must say "<id> dropped" in its final message.
 
 `(after:)` says what must be ticked first, across features too; `(files:)` says what the task changes. Two optional tags: `(P1)`/`(P2)`/`(P3)` for priority (P1 first and nothing releases while one is open; no tag means P2; P3 last) and `(seq)` for a task that must run alone (migrations, shared types). From that, `cto brief` lists what is ready in priority order, what can run at the same time (no overlapping files, not `(seq)`), what is blocked and on whom:
 
@@ -238,12 +244,12 @@ A task is one checklist line, and everything else is computed from it:
 Features · 2 · 1 active · 1 planned · sign-off pending: billing (spec draft)
 
 Ready · 3 (run together: CUST-1.2, PERM-3)
-  CUST-1.2  P1 List UI  files src/customers/ui/  accept: manual
+  CUST-1.2  P1 List UI  files src/customers/ui/, e2e/customers.spec.ts  accept: npx playwright test e2e/customers.spec.ts
   PERM-3    Role cache  files src/auth/cache/  accept: npm test -- auth
-  CUST-2    Export  files src/customers/  accept: manual  (overlaps CUST-1.2: run after)
+  CUST-2    Export  files src/customers/  accept: npm test -- export  (overlaps CUST-1.2: run after)
 
 Blocked · 1
-  CUST-1.3  Shared types              waiting on PERM-9 (missing), CUST-1.2
+  CUST-1.4  Shared types              waiting on PERM-9 (missing), CUST-1.2
 ```
 
 The skill gives the agent seven named jobs, so they cannot be confused with another skill's steps. In Claude Code type `/cto-jev <job>` (for example `/cto-jev init`); bare `/cto-jev` runs `cto brief` and names the job to run next. In other agents say the name, for example "cto-jev init" (Codex also takes `$cto-jev`):
@@ -251,7 +257,7 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | Say | The agent |
 |---|---|
 | `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
-| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, the simpler option it rejected, data migration and rollback, what other features may call, how a production failure gets noticed, how it will be verified), writes CONCEPT and SPEC, has a zero-context reviewer check that a newcomer could build from them without making design decisions and that nothing unneeded or already in the code gets built, walks you through them, hands them over with a [Review handoff](#sign-off) and stops for your sign-off |
+| `cto-jev feature` | talks the request through first (who it is for, business rules, what is out of scope, the simpler option it rejected, data migration and rollback, what other features may call, how a production failure gets noticed, the acceptance scenarios you will confirm), writes CONCEPT and SPEC, has a zero-context reviewer check that a newcomer could build from them without making design decisions, that nothing unneeded or already in the code gets built and that every acceptance scenario has a result a script can check, walks you through them, hands them over with a [Review handoff](#sign-off) and stops for your sign-off |
 | `cto-jev tasks` | breaks an approved SPEC into parent/child tasks with files, dependencies and an acceptance command each |
 | `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first (and only the fixes reviewed again, at most three rounds in all; P1s left after that go to you), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits that one wave to the review branch and stops |
 | `cto-jev work all` | for a new project or a big batch: runs every wave in one go, fixes failing acceptance along the way, parks (does not stop for) tasks that need you, then one zero-context review of everything it did with P1s fixed; ends with one report of what is done and every question for you. Never releases |
@@ -375,7 +381,7 @@ Nothing else is uploaded, and nothing is logged unless you set `CTO_DEBUG=1`. Th
 }
 ```
 
-Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `architecture_undocumented` 0.85, `code_complexity` 2.
+Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6, `test_tampering` 0.8, `done_unverified` 0.6, `architecture_violation` 0.85, `architecture_undocumented` 0.85, `manual_measurable` 0.85 (not calibrated yet), `code_complexity` 2.
 
 - **`sprint_goal`**: fill it in to enable the architecture check, for example `"Ship Stripe billing, no new services"`. Under the development flow a commit that falls inside a feature's code scope is judged against that feature's SPEC instead; the goal is the fallback.
 - **`flow`**: `true` turns on the [development flow](#the-development-flow-optional). `cto setup --flow` / `--no-flow` set it; `cto setup --refresh` follows the saved value. `--no-flow` removes the cto-jev skill, `/cto-jev` and its rule but keeps `docs/cto_jev/`; while `docs/cto_jev/features/` exists, the sign-off, index and drift checks keep running. Delete or archive that folder to stop them.

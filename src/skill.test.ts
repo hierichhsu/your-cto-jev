@@ -21,6 +21,8 @@ test('work runs one wave; work all runs every wave, parks instead of stopping, r
   assert.ok(FLOW_SKILL_TEXT.includes('**Stop:** after one wave is committed'));
   for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', 'never before the review', 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
+  for (const s of ['Never drop a task to get past a block', 'never drop in this run', 'names no end-to-end command', 'never how you accept', '\`manual\` only for a \`(look)\` line', 'written from them first and seen failing', "that is the user's call", 'screenshots at each width', 'the expectation, not the code, is wrong']) assert.ok(FLOW_SKILL_TEXT.includes(s), s);
+  assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
 });
 
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
@@ -30,6 +32,11 @@ test('the flow skill hands docs over with a Review: line, signs via hook or the 
   assert.ok(!t.includes('they set \`Status: approved\`'), 'the user no longer hand-sets approved in Claude Code');
   assert.equal(t.match(/complete: send a review handoff/g)?.length, 2, 'init and feature both stop with a handoff');
   assert.ok(t.includes('which business rules, error cases, roles/permissions or data cases are missing'), 'docs review third question');
+  for (const s of ['\`## Constraints\`, \`## Acceptance\`, \`## Internals\`', 'expected result a script can check', '(look)', 'not your guess', 'end-to-end test command']) assert.ok(t.includes(s), s);
+  const between = (a: string, b: string) => t.slice(t.indexOf(a), t.indexOf(b));
+  for (const [a, b] of [['## Sign-off', '## cto-jev init'], ['## cto-jev feature', '## cto-jev tasks'], ['### cto-jev work all', '## Review findings']]) {
+    assert.ok(between(a, b).includes('\`## Acceptance\`'), `${a} protects Acceptance`);
+  }
   assert.ok(t.includes('At most three rounds per review') && t.includes('If P1s remain after round three') && !t.includes('Do not loop'));
   const work = t.slice(t.indexOf('## cto-jev work'), t.indexOf('### cto-jev work all'));
   const all = t.slice(t.indexOf('### cto-jev work all'), t.indexOf('## Review findings'));

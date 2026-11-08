@@ -906,6 +906,11 @@ test('cto check: previews the commit checks on staged or working-tree changes, w
   assert.equal(r.code, 0);
   assert.match(r.lines.join('\n'), /test_tampering\s+not checked: no test files changed/);
   assert.match(r.lines.join('\n'), /Good to commit/);
+
+  // Asked but left unanswered: say so, not that the question did not apply.
+  g('add', 'new.test.ts');
+  r = await runCheck(repo, 'en');
+  assert.match(r.lines.join('\n'), /test_tampering\s+not checked: request failed/);
   setKeys(false);
 });
 
@@ -1154,7 +1159,7 @@ test('done check: plan checklist items newly ticked in markdown are claims, judg
 });
 
 test('done check: ticks the agent committed this turn are still judged, with computed facts about each acceptance command', async () => {
-  const { tickedItems, turnState } = await import('./turn.js');
+  const { manualUnconfirmed, tickedItems, turnState } = await import('./turn.js');
   const { agentPre, agentStop } = await import('./hooks.js');
   const { loadBrain } = await import('./brain.js');
   const plan = [
@@ -1189,6 +1194,33 @@ test('done check: ticks the agent committed this turn are still judged, with com
     assert.match(turnState(m, [], t2), /does not say the user accepted it/, m);
   }
   assert.doesNotMatch(turnState('', [edit], [{ file: 'T.md', text: 'x', children: [] }]), /acceptance command/);
+  // A dropped task needs no acceptance, only a final message that reports the drop.
+  const t3 = [{ file: 'T.md', text: 'A-5 Badge page (dropped: page deleted)', children: [], accept: 'manual' }];
+  const t4 = [{ file: 'T.md', text: 'A-6 API (dropped: out of scope)', children: [], accept: 'npm test -- a' }];
+  assert.deepEqual(manualUnconfirmed([...t3, ...t4], 'A-5 dropped: the page is gone. A-6 dropped.'), []);
+  for (const m of ['A-5 accepted manually. A-6 done.', 'A-5 not dropped yet; A-6 not dropped', 'A-1 dropped.']) {
+    assert.equal(manualUnconfirmed([...t3, ...t4], m).length, 2, m);
+  }
+  assert.match(turnState('A-6 dropped.', [], t4), /"A-6 API \(dropped: out of scope\)" is dropped .*reports it as dropped: nothing to accept/);
+  assert.match(turnState('A-6 done.', [], t4), /does not report it as dropped/);
+  const net = [{ file: 'T.md', text: 'NET-2 Retry on (dropped connections)', children: [], accept: 'npm test -- net' }];
+  assert.doesNotMatch(turnState('NET-2 now handles dropped connections.', [], net), /is dropped/, 'only "(dropped: reason)" marks a drop');
+  assert.equal(manualUnconfirmed([{ ...t3[0], text: 'A-5 X (dropped:)' }], 'A-5 dropped.').length, 1, 'an empty reason is not a drop');
+  const dotted = [{ file: 'T.md', text: 'FLOW-12.6 Fix', children: [], accept: 'manual' }];
+  assert.deepEqual(manualUnconfirmed(dotted, 'FLOW-12.6 accepted manually.'), [], 'an id with a dot stays one token');
+  assert.equal(manualUnconfirmed(t2, 'A-22 accepted manually.').length, 1, 'A-22 does not name A-2');
+  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually。A-2 built.').length, 1, '。 ends a sentence');
+  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually;A-2 waits').length, 1, '; ends a sentence without a space');
+  for (const m of ['A-1, A-2 accepted manually.', '**A-2** accepted manually', '`A-2` was accepted manually', '(A-2) accepted manually', 'Accepted manually:\n- A-1\n- A-2\n', 'A-1 和 A-2 accepted manually。']) {
+    assert.deepEqual(manualUnconfirmed(t2, m), [], m);
+  }
+  for (const m of ['A-1 accepted manually, A-2 still waiting.', 'A-1 accepted manually，A-2 還沒', 'A-2 has not been accepted manually.', "A-2 wasn't accepted manually", 'A-2 is never accepted manually', 'Not accepted manually: A-2', 'Accepted manually: A-1. A-2 waits.']) {
+    assert.equal(manualUnconfirmed(t2, m).length, 1, m);
+  }
+  const noId = [{ file: 'plan.md', text: 'Badge page copy (dropped: page deleted)', children: [] }];
+  assert.equal(manualUnconfirmed(noId, 'Dropped: none.').length, 1, 'a task without an id must be named by its words');
+  assert.deepEqual(manualUnconfirmed(noId, 'Badge page copy dropped: the page is gone.'), []);
+  assert.deepEqual(manualUnconfirmed([{ ...t3[0], text: 'A-5 X （dropped：重複）' }], 'A-5 dropped。'), [], 'full-width marks');
 
   setKeys();
   process.env.CTO_PROVIDER = 'openrouter';
@@ -1225,7 +1257,7 @@ test('done check: ticks the agent committed this turn are still judged, with com
   let out = await agentStop(agents.codex, { sessionId: 'M', cwd: root, lastMessage: 'Copy done.', stopHookActive: false }, env);
   assert.equal(sent, undefined, 'no Jev call');
   assert.equal(out.code, 2);
-  assert.match(out.stderr.join('\n'), /A-4 Copy text: this task is accepted by the user \(manual\)/);
+  assert.match(out.stderr.join('\n'), /A-4 Copy text: this task is accepted by the user \(manual\).*say "A-4 accepted manually"/);
 
   // With another tick in the same turn, Jev still judges that one: the manual block does not swallow it.
   writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual\n- [x] A-6 Help page\n      accept: manual\n- [x] A-5 Search\n      accept: npm test -- s\n');
@@ -1235,6 +1267,12 @@ test('done check: ticks the agent committed this turn are still judged, with com
   assert.match(jev, /"A-5 Search": its acceptance command `npm test -- s` did not run this turn/);
   assert.doesNotMatch(jev, /A-6 Help page/, 'the manual tick is reported by cto, not sent to Jev');
   assert.match(out.stderr.join('\n'), /A-6 Help page: this task is accepted by the user/);
+
+  // A dropped manual task whose drop the final message does not report gets the dropped message, not the manual one.
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-7 Old page (dropped: page deleted)\n      accept: manual\n');
+  out = await agentStop(agents.codex, { sessionId: 'D', cwd: root, lastMessage: 'Cleaned up.', stopHookActive: false }, env);
+  assert.equal(out.code, 2);
+  assert.match(out.stderr.join('\n'), /A-7 Old page \(dropped: page deleted\): this task is marked dropped, but your final message does not say "A-7 dropped"/);
 
   // A base older than a turn (an interrupted turn left it) is replaced, and a rewritten one is ignored.
   const { saveBrain } = await import('./brain.js');

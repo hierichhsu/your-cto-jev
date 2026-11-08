@@ -53,6 +53,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
     infinite_loop: 0.6,
     architecture_violation: 0.85,
     architecture_undocumented: 0.85,
+    manual_measurable: 0.85, // not calibrated yet; warns only
     test_tampering: 0.8,
     done_unverified: 0.6,
     signoff_approved: SIGNOFF_FLOOR,

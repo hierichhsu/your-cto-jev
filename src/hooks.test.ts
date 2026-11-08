@@ -102,3 +102,41 @@ test('git-commit: architecture_undocumented asked for code changes in a flow rep
   assert.equal(out.code, 0, 'warning only');
   assert.ok(out.stderr.some((l) => l.includes('architecture change with no decision record') && l.includes('docs/cto_jev/decisions/NNNN-<slug>.md')), out.stderr.join('\n'));
 });
+
+test('git-commit: manual_measurable asks about new manual tasks only, and only warns', async () => {
+  process.env.OPENROUTER_API_KEY = 'k';
+  process.env.CTO_PROVIDER = 'openrouter';
+  const root = flowRepo();
+  let sent: any;
+  let score = noul(0.1);
+  globalThis.fetch = (async (_u: string, init: any) => {
+    sent = JSON.parse(init.body);
+    return new Response(JSON.stringify(answers({ credential_leak: noul(0.1), code_complexity: { type: 'score', score: 0.5 }, manual_measurable: score })));
+  }) as any;
+  const T = `${FLOW_DIR}/features/cust/TASKS.md`;
+  const tasks = (...lines: string[]) => `diff --git a/${T} b/${T}\n+++ b/${T}\n${lines.join('\n')}\n`;
+
+  await gitCommit(tasks('+- [ ] C-1 Settings page fits 375px', '+      驗收: manual', '+- [ ] C-2 API', '+      驗收: npm test'), { root, lang: 'en' });
+  const q = sent.questions.manual_measurable;
+  assert.ok(q && q.instructions.includes('- C-1 Settings page fits 375px') && !q.instructions.includes('C-2'), 'lists only the manual task');
+
+  await gitCommit(tasks(' - [ ] C-1 Old', '-      驗收: npm test', '+      驗收: manual'), { root, lang: 'en' });
+  assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-1 Old'), 'an existing task switched to manual');
+  await gitCommit(tasks('+- [ ] C-5 Crlf\r', '+      驗收: manual\r'), { root, lang: 'en' });
+  assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-5 Crlf'), 'CRLF TASKS.md');
+
+  for (const [d, why] of [
+    [tasks(' - [ ] C-1 Old', '       驗收: manual', '+- [ ] C-6 New', '+      驗收: npm test'), 'an unchanged manual task'],
+    [tasks('-- [ ] C-7 Gone', '+      驗收: manual'), 'the task line was removed'],
+    [tasks('+- [ ] C-3 Badge', '+      驗收: npm test -- badge'), 'command acceptance'],
+    [`diff --git a/plan.md b/plan.md\n+++ b/plan.md\n+- [ ] C-4 X\n+      驗收: manual\n`, 'not a flow TASKS.md'],
+  ] as const) {
+    await gitCommit(d, { root, lang: 'en' });
+    assert.equal(sent.questions.manual_measurable, undefined, why);
+  }
+
+  score = noul(0.95);
+  const out = await gitCommit(tasks('+- [ ] C-1 Settings page fits 375px', '+      accept: manual'), { root, lang: 'en' });
+  assert.equal(out.code, 0, 'warning only');
+  assert.ok(out.stderr.some((l) => l.includes('A new manual task describes something a script could check')), out.stderr.join('\n'));
+});
