@@ -1198,6 +1198,15 @@ test('done check: ticks the agent committed this turn are still judged, with com
   }
   assert.match(turnState('A-6 dropped.', [], t4), /"A-6 API \(dropped: out of scope\)" is dropped .*reports it as dropped: nothing to accept/);
   assert.match(turnState('A-6 done.', [], t4), /does not report it as dropped/);
+  const net = [{ file: 'T.md', text: 'NET-2 Retry on (dropped connections)', children: [], accept: 'npm test -- net' }];
+  assert.doesNotMatch(turnState('NET-2 now handles dropped connections.', [], net), /is dropped/, 'only "(dropped: reason)" marks a drop');
+  assert.equal(manualUnconfirmed([{ ...t3[0], text: 'A-5 X (dropped:)' }], 'A-5 dropped.').length, 1, 'an empty reason is not a drop');
+  const dotted = [{ file: 'T.md', text: 'FLOW-12.6 Fix', children: [], accept: 'manual' }];
+  assert.deepEqual(manualUnconfirmed(dotted, 'FLOW-12.6 accepted manually.'), [], 'an id with a dot stays one token');
+  assert.equal(manualUnconfirmed(t2, 'A-22 accepted manually.').length, 1, 'A-22 does not name A-2');
+  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually。A-2 built.').length, 1, '。 ends a sentence');
+  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually;A-2 waits').length, 1, '; ends a sentence without a space');
+  assert.deepEqual(manualUnconfirmed([{ ...t3[0], text: 'A-5 X （dropped：重複）' }], 'A-5 dropped。'), [], 'full-width marks');
 
   setKeys();
   process.env.CTO_PROVIDER = 'openrouter';

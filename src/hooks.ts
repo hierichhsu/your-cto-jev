@@ -5,7 +5,7 @@ import { FLOW_DIR, docStatus, featureIndex, listFeatures } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { isCodeFile, isDropped, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, BOX, isCodeFile, isDropped, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -197,6 +197,37 @@ export function adrQuestion(root: string, paths: string[]): JevQuestion | undefi
   };
 }
 
+/**
+ * New `manual` tasks in a flow TASKS.md: an added task line followed by an added `驗收: manual` line. Manual is for
+ * what only taste can judge; ask whether a script could accept any of them instead. Undefined when none were added.
+ */
+export function manualQuestion(files: string[]): JevQuestion | undefined {
+  const tasks: string[] = [];
+  for (const f of files) {
+    if (!/^diff --git a\/.+? b\/docs\/cto_jev\/features\/[^/]+\/TASKS\.md$/m.test(f)) continue;
+    // The task above an added `manual` line, whether the task line itself is added or unchanged context: switching an
+    // existing task from a command to manual is the change worth asking about.
+    let last = '';
+    for (const line of f.split(/\r?\n/)) {
+      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) { last = ''; continue; }
+      const box = BOX.exec(line.slice(1));
+      if (box) { last = line[0] === '-' ? '' : box[3].trim(); continue; }
+      const acc = line[0] === '+' ? ACCEPT.exec(line.slice(1)) : null;
+      if (acc && last && /^manual\b/i.test(acc[1])) { tasks.push(last); last = ''; }
+    }
+  }
+  if (!tasks.length) return undefined;
+  return {
+    type: 'noul',
+    instructions:
+      `These new plan tasks are accepted manually, by a human looking at the result:\n${tasks.slice(0, 15).map((x) => `- ${x.slice(0, 200)}`).join('\n')}\n\n` +
+      'Manual acceptance is meant only for what taste must judge: whether it looks good, feels right or matches the brand. ' +
+      'Behaviour, text, sizes, layout at given screen widths, overflow and error messages can be checked by a script (an end-to-end or unit test). ' +
+      'Could at least one of these tasks be accepted by such a script instead?',
+    criteria: { true: 'At least one task describes something a script could check', false: 'Every task needs human taste to judge' },
+  };
+}
+
 const diffPaths = (files: string[]) => files.map((f) => /^diff --git a\/.+? b\/(.+)$/m.exec(f)?.[1]).filter((p): p is string => !!p);
 
 const value = (a?: JevAnswer) => (a?.type === 'noul' ? a.noul : a?.type === 'score' ? a.score : undefined);
@@ -281,6 +312,8 @@ export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, 
   else if (cfg.sprint_goal.trim()) soft.architecture_violation = architectureQ(cfg.sprint_goal.trim());
   const adr = root ? adrQuestion(root, paths) : undefined;
   if (adr) soft.architecture_undocumented = adr;
+  const manual = root ? manualQuestion(files) : undefined;
+  if (manual) soft.manual_measurable = manual;
 
   const notices = new Set<string>();
   const asked = new Set<Signal>();
@@ -314,7 +347,7 @@ export async function reviewDiff(rawDiff: string, cfg: CtoConfig, brain: Brain, 
 }
 
 export const BLOCKING_COMMIT: Signal[] = ['credential_leak', 'test_tampering'];
-export const WARNING_COMMIT: Signal[] = ['architecture_violation', 'architecture_undocumented', 'code_complexity'];
+export const WARNING_COMMIT: Signal[] = ['architecture_violation', 'architecture_undocumented', 'manual_measurable', 'code_complexity'];
 const over = (v: number | undefined, s: Signal, cfg: CtoConfig) => v !== undefined && v > cfg.thresholds[s];
 
 export const localLines = (lang: Lang, findings: LocalFinding[]) => findings.map((f) => t(lang, `local_${f.kind}`, { detail: f.detail }));

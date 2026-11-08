@@ -32,6 +32,7 @@ export type Signal =
   | 'infinite_loop'
   | 'architecture_violation'
   | 'architecture_undocumented'
+  | 'manual_measurable'
   | 'test_tampering'
   | 'done_unverified'
   | 'signoff_approved'

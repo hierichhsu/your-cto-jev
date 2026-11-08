@@ -145,7 +145,7 @@ Data: which tables or stores change, whether old data migrates; "none" if nothin
 - Only with another agent, after cto says it did not sign, or when the user asks how to approve: give this command with the real paths, for the user to type while you are not working (never run it yourself):
   \`! sed -i 's/^Status: draft/Status: approved/' docs/cto_jev/features/<slug>/CONCEPT.md docs/cto_jev/features/<slug>/SPEC.md\`
 - Approval covers what is written, \`Assumed:\` lines included. Partial agreement signs nothing: fix and resend \`Review:\`, or resend it with only the agreed files.
-- You never set approved (in Claude Code cto blocks it). To change approved CONCEPT, PRODUCT or ARCHITECTURE content, or a SPEC's \`## Interface\` or \`## Constraints\`, first set \`Status: draft\` with the Edit tool, then make the change and resend \`Review:\`. A SPEC's \`## Internals\` stays editable after sign-off.
+- You never set approved (in Claude Code cto blocks it). To change approved CONCEPT, PRODUCT or ARCHITECTURE content, or a SPEC's \`## Interface\`, \`## Constraints\` or \`## Acceptance\`, first set \`Status: draft\` with the Edit tool, then make the change and resend \`Review:\`. A SPEC's \`## Internals\` stays editable after sign-off.
 - Shell commands may not write CONCEPT, SPEC, PRODUCT or ARCHITECTURE under \`docs/cto_jev/\` (no \`cp\`, \`mv\`, \`sed -i\` or redirects); use the Read, Edit and Write tools.
 
 ## cto-jev init
@@ -164,7 +164,7 @@ This is a conversation, not a form. The files are done when the user says so, no
 
 PRODUCT.md headings: \`## 一句話\`, \`## 使用者角色\`, \`## 怎麼賺錢\`, \`## 方案與限制\`, \`## 不做的事\`, \`## 設計約束\`.
 ARCHITECTURE.md headings: \`## 技術棧\`, \`## 目錄地圖\`, \`## 外部服務與資料\`, \`## 驗證指令\`, \`## 不變的原則\`.
-Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原則\` feed the drift checks: one rule per line.
+Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原則\` feed the drift checks: one rule per line. In a repo with a UI, \`## 驗證指令\` names the end-to-end test command (Playwright or similar) that Acceptance scenarios run under, or says there is none yet; ask before adding one.
 
 ## cto-jev feature
 
@@ -173,21 +173,21 @@ Short bullets or a table per heading. \`## 不做的事\` and \`## 不變的原�
 1. Run \`cto-jev docs\` first when it has not run this session; bring its suggestions to the user before opening a feature.
 2. Read \`docs/cto_jev/INDEX.md\` and classify:
    - Inside an existing feature, within its Constraints: add tasks to its TASKS.md (\`cto-jev tasks\`). No new docs.
-   - Changes a feature's \`## Constraints\` or \`## Interface\`: edit its SPEC.md, set \`Status: draft\`, run the docs review (step 5), stop for sign-off.
+   - Changes a feature's \`## Constraints\`, \`## Interface\` or \`## Acceptance\`: edit its SPEC.md, set \`Status: draft\`, run the docs review (step 5), stop for sign-off.
    - A new module: \`features/<slug>/\` with the four files below.
-   - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with the three sections), \`Status: draft\`, before any task on it.
+   - An existing module with no feature folder yet: create its folder describing what exists today (short CONCEPT, SPEC with its sections; Acceptance lists what the code does today), \`Status: draft\`, before any task on it.
    - Infrastructure (CI, build, deploy, dependency upgrades): a task under \`features/platform/\`.
 3. Talk before you write. Restate the request in two sentences and ask until every question below has an answer or an explicit "not relevant". At most five questions per message, each with your best guess; an installed interview skill may run the rounds, the questions below are what must be answered. Do not write CONCEPT.md until the first group is settled, nor SPEC.md until the second.
    - For CONCEPT: who uses this and what changes for them; which business rules apply, including what happens on failure, limits, roles and paid tiers; what is explicitly out of scope; which existing features it touches; which simpler option was considered and why it was rejected (goes under \`## 動機\`).
-   - For SPEC: which data and tables change, and whether existing data must migrate and how it rolls back; what other features may call (the Interface) and what stays private; the error cases and what the user sees; how a failure in production gets noticed (migration, rollback and that go under \`## Internals\`); the hard rules the code must never break (the Constraints); how each part will be verified.
-4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call.
-5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers three questions: could an engineer new to this repo build it from these two files without making a design decision; does it build something not needed now, or something the code already has; and which business rules, error cases, roles/permissions or data cases are missing. Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). A finding only the user can settle goes into the docs as \`Assumed: ...\` and into the handoff's "might be missing". Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
+   - For SPEC: which data and tables change, and whether existing data must migrate and how it rolls back; what other features may call (the Interface) and what stays private; the error cases and what the user sees; how a failure in production gets noticed (migration, rollback and that go under \`## Internals\`); the hard rules the code must never break (the Constraints); how each part will be verified, and for what the user sees, the acceptance scenarios (the Acceptance): the steps, the expected result a script can compare, and the screen widths. The user confirms what is expected here, so a check you write later compares against their answer, not your guess.
+4. Write CONCEPT.md, then SPEC.md. Constraints are testable rules ("a refund always writes an audit row"), not aspirations. Interface is only what other features may call. Acceptance is one line per scenario, step → expected result, measurable ("at 375px wide: no horizontal scroll, Save visible without scrolling"; "empty email: 'Email required' under the field, nothing sent"), never "looks right". What only taste can judge (is it pleasing, does it match the brand) is one line marked \`(look)\`; that line becomes a \`manual\` task.
+5. **Review the docs before the user does.** Dispatch a reviewer with none of your context, which may read and search the code. It reads CONCEPT.md and SPEC.md and answers four questions: could an engineer new to this repo build it from these two files without making a design decision; does it build something not needed now, or something the code already has; which business rules, error cases, roles/permissions or data cases are missing; and does every Acceptance scenario have an expected result a script can check (a vague one, or a \`(look)\` line that could be measured, is a finding). Findings are P1 or P2; handle them as under "Review findings" below, fixing both P1 and P2 in the docs now (the docs are cheap to change). A finding only the user can settle goes into the docs as \`Assumed: ...\` and into the handoff's "might be missing". Append one REVIEW.md entry: date, "docs", counts, what was contested or escalated.
 6. Walk the user through both files section by section, including what the review changed, and ask what is wrong or missing. Edit, walk through again, until they have nothing to add.
 
 **Stop:** when the user says the docs are complete: send a review handoff (see "Sign-off") for CONCEPT.md and SPEC.md. Never write TASKS.md before both CONCEPT and SPEC are approved; cto blocks the commit anyway.
 
 CONCEPT.md: \`Status:\` line, then \`## 目的\` (one sentence), \`## 動機\`, \`## 商業規則\`, \`## 不做的事\`.
-SPEC.md: \`Status:\` line, then \`## Interface\`, \`## Constraints\`, \`## Internals\`.
+SPEC.md: \`Status:\` line, then \`## Interface\`, \`## Constraints\`, \`## Acceptance\`, \`## Internals\`, in this order; keep Acceptance above Internals.
 REVIEW.md: created empty with one line saying it is pending.
 
 ## cto-jev tasks
@@ -195,7 +195,7 @@ REVIEW.md: created empty with one line saying it is pending.
 **When:** the user says "cto-jev tasks", or CONCEPT.md and SPEC.md are both \`Status: approved\` and TASKS.md is empty or the request adds work.
 
 1. One parent per deliverable, children small enough for one sub-agent and one acceptance command.
-2. Every child gets \`(files:)\` (the directories it changes, never bare \`src/\`), \`(after:)\` for anything that must be ticked first (across features too), and an acceptance line: a runnable command, or \`manual\` when only a human can judge.
+2. Every child gets \`(files:)\` (the directories it changes, never bare \`src/\`), \`(after:)\` for anything that must be ticked first (across features too), and an acceptance line: a runnable command. A task the user sees is accepted by the end-to-end test of the SPEC's Acceptance scenarios it covers (named in the task line), e.g. \`npx playwright test e2e/customers.spec.ts\`; driving a browser by hand is how you write that test, never how you accept. If ARCHITECTURE.md \`## 驗證指令\` names no end-to-end command, ask the user, and plan the harness as a \`(seq)\` task under \`features/platform/\` that the UI tasks wait on. \`manual\` only for a \`(look)\` line: what taste must judge, not sizes or behaviour a script can measure.
 3. Shared files (route tables, shared types, migrations, a single test file, the CLI entry point) get their own sequential task; take them out of the other tasks' \`(files:)\`.
 4. Run \`cto index\` and read \`cto brief\`: Ready should list the first wave; nothing should be Blocked on a missing id.
 
@@ -203,7 +203,9 @@ REVIEW.md: created empty with one line saying it is pending.
 - [ ] CUST-1 Customer list
   - [ ] CUST-1.1 List API, filtered by role (after: PERM-2) (files: src/customers/api/)
         驗收: npm test -- customers/api
-  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/)
+  - [ ] CUST-1.2 List UI: Acceptance "filter by role", "375px no horizontal scroll" (after: CUST-1.1) (files: src/customers/ui/, e2e/customers.spec.ts)
+        驗收: npx playwright test e2e/customers.spec.ts
+  - [ ] CUST-1.3 List matches the brand (look) (after: CUST-1.2) (files: src/customers/ui/)
         驗收: manual
 \`\`\`
 
@@ -216,8 +218,8 @@ Two more tags, on any task:
 \`\`\`md
 - [ ] CUST-3 Add customer_tier column (P1) (seq) (files: db/migrations/)
       驗收: npm run migrate:test
-- [ ] CUST-4 Tier badge in the list (P3) (after: CUST-3) (files: src/customers/ui/)
-      驗收: manual
+- [ ] CUST-4 Tier badge in the list (P3) (after: CUST-3) (files: src/customers/ui/, e2e/tier.spec.ts)
+      驗收: npx playwright test e2e/tier.spec.ts
 \`\`\`
 
 ## cto-jev work
@@ -227,9 +229,9 @@ Two more tags, on any task:
 Branches: work on an integration branch (\`review\`, or whatever the repo calls it; see the table under \`cto-jev release\`). The release branch only receives \`cto-jev release\`. Never commit to it directly; ask the user to add it to \`protected_branches\` in \`.cto.json\` if it is not there. The one exception is a repo with only \`main\` and one developer (the first row of that table): there you commit each reviewed wave to \`main\` (\`cto-jev work all\` uses a branch instead, below), and \`main\` stays out of \`protected_branches\`, or every commit would be blocked.
 
 1. \`cto brief\`. Dispatch only Ready tasks; the "run together" set is safe to run at once. P1 tasks go first. Before dispatching, list what will run (the tasks, the files each changes, how each is accepted, the order) and wait for the user to say go.
-2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one.
+2. One sub-agent per task. Give it only: the task line, the feature's SPEC.md, the \`## Interface\` of each feature it depends on, the list of files it may touch, and "do not edit anything else, write nothing outside this repo (no notes, no lesson logs), no git commands; report what you changed and what you found ambiguous". Each sub-agent writes its own new test file; nobody appends to a shared one. A task accepted by an end-to-end test also gets the Acceptance lines it covers: the test is written from them first and seen failing, then the code.
 3. When they return: \`git status\`; revert anything outside the union of their \`(files:)\`. Integrate the shared files yourself. Fix any existing test their change broke. A sub-agent's "the SPEC does not say" goes into the SPEC now, not into the code's comments.
-4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. \`manual\` waits for the user to confirm in the conversation; say "accepted manually" when you tick it. A task that will not be done (the user decided, or what it checks is gone): add \`(dropped: <reason>)\` to its line, tick it, and say "<id> dropped" in your final message. Tick the parent when its last child is ticked.
+4. Accept by running the task's acceptance command yourself; never trust the report. Tick only on a pass. A failing end-to-end test means the code is wrong; if you think the expectation is, that is the user's call: say so, and change it only in the SPEC's Acceptance (draft, \`Review:\`), then the test. \`manual\` waits for the user to confirm in the conversation: show them screenshots at each width the Acceptance names, so they judge from the picture; say "accepted manually" when you tick it. A task that will not be done (the user decided, or what it checks is gone): add \`(dropped: <reason>)\` to its line, tick it, and say "<id> dropped" in your final message. Never drop a task to get past a block or an unconfirmed \`manual\`. A dropped task counts as closed, so the tasks that wait on it (\`(after:)\`) become Ready: drop or re-plan them first. Tick the parent when its last child is ticked.
 5. **Review before you commit.** Dispatch a reviewer with none of your context: it reads the feature's CONCEPT.md and SPEC.md and the uncommitted diff, and returns findings each marked P1 (wrong, unsafe, breaks a Constraint or the Interface) or P2 (should improve, can wait). Handle them as under "Review findings": fix every P1 now and re-run acceptance; write every P2 as a \`(P2)\` task in TASKS.md. Append one entry to REVIEW.md: date, scope (the task ids of the wave), how many P1/P2, which task ids they became, what was contested or escalated.
 6. \`cto check\`, then commit the wave to the review branch.
 
@@ -246,8 +248,10 @@ Without sub-agents: do the Ready tasks yourself in brief's order, one at a time,
 2. Loop until no task is left to run: re-read \`cto brief\` and the TASKS.md files each round, then run steps 1 to 4 and step 6 of \`cto-jev work\` (dispatch, integrate, accept, commit) for the Ready tasks, skipping tasks you parked (below) and every task of a feature whose CONCEPT or SPEC is not \`Status: approved\` (cto blocks those commits; list the feature instead). There is no per-wave review: each wave's REVIEW.md entry says "work all, reviewed at the end". \`cto check\` and the git hooks still run on every commit. Without sub-agents, do the tasks yourself in brief's order; the end review is then a \`self-review\`.
 3. Fix along the way: a failing acceptance or a broken test is yours to fix before moving on. The same failure twice means a different approach, not a third try.
 4. Never stop for the user mid-run: park the task instead. Parked means unticked, never dispatched again in this run, and its dependants wait too (they are not Ready while it is unticked). The parked ids live only in this conversation; the final report lists them, and the next run starts without them. Park a task when:
-   - it needs a decision that would change a SPEC's \`## Interface\` or \`## Constraints\`. Do not edit those sections or the \`Status:\` line. A gap that only touches \`## Internals\` you decide yourself: add it under \`## Internals\` as \`Assumed: ...\` and leave \`Status:\` as it is;
-   - it is \`manual\`: build it, run what can be run, and list it for the user to accept (do not tick it);
+   - it needs a decision that would change a SPEC's \`## Interface\`, \`## Constraints\` or \`## Acceptance\`. Do not edit those sections or the \`Status:\` line. A gap that only touches \`## Internals\` you decide yourself: add it under \`## Internals\` as \`Assumed: ...\` and leave \`Status:\` as it is;
+   - it is \`manual\`: build it, run what can be run, and list it for the user to accept with screenshots (do not tick it);
+   - its end-to-end test fails and you believe the expectation, not the code, is wrong;
+   - you think it should be dropped (never drop in this run; the user decides);
    - it needs credentials, money, an outside account, or anything irreversible;
    - it still fails after a second approach.
 5. When no task is left to run, the review: a reviewer with none of your context reads \`git diff <start>..HEAD\` and the SPECs of every feature touched, findings P1/P2/P3, handled as under "Review findings" except that escalations and undecided contests go to the final report instead of stopping the run (a contested finding stays unfixed until the user decides). Fix every P1 (with re-reviews of the fixes, at most three rounds in all), write P2 and P3 as tasks, commit, and append one REVIEW.md entry: date, "work all", the task ids, counts.

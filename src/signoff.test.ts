@@ -56,6 +56,8 @@ test('guardVerdict: self-approval, protected content, demotion and new files', (
   assert.equal(guardVerdict(s, ok, ok.replace('- c', '- c2')), 'protected_edit');
   assert.equal(guardVerdict(s, ok, spec('approved', 'i2', 'n')), 'protected_edit');
   assert.equal(guardVerdict(s, ok, ok.replace(/\n/g, '\r\n')), 'ok');
+  const acc = ok.replace('## Internals', '## Acceptance\n\n- 375px: no horizontal scroll\n\n## Internals');
+  assert.equal(guardVerdict(s, acc, acc.replace('375px', '320px')), 'protected_edit', 'the user-confirmed expectations are signed too');
   const concept = '# C\n\nStatus: approved\n\n## 目的\n\nx\n';
   assert.equal(guardVerdict(c, concept, concept.replace('x', 'y')), 'protected_edit');
   assert.equal(guardVerdict(c, concept, concept.replace('approved', 'APPROVED')), 'ok');
