@@ -5,6 +5,17 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc } from './signoff.js';
 import { shellWrites } from './shellwrites.js';
+import { docStatus, setStatus } from './flow.js';
+
+test('docStatus and setStatus: one line only, NBSP counts as a blank, line endings kept', () => {
+  assert.equal(docStatus('Status:\napproved\n'), 'missing', 'a Status line does not run onto the next line');
+  assert.equal(docStatus('Status:\n\nStatus: draft\n'), 'draft');
+  assert.equal(docStatus('Status: approved\r\n'), 'approved');
+  assert.equal(docStatus('status: Approved \t\n'), 'approved');
+  assert.equal(setStatus('# S\r\n\r\nStatus: approved\r\n', 'approved', 'draft'), '# S\r\n\r\nStatus: draft\r\n');
+  assert.equal(setStatus('Status: draft\nStatus: draft\n', 'draft', 'approved'), 'Status: approved\nStatus: draft\n', 'first line only');
+  assert.equal(setStatus('Status: drafty\n', 'draft', 'approved'), 'Status: drafty\n');
+});
 
 const F = 'docs/cto_jev/features/x';
 

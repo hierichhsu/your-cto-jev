@@ -140,6 +140,10 @@ test('stop: a doc approved during the turn but not by the hook goes back to draf
   assert.equal(read(root, `${X}/SPEC.md`), 'Status: draft\r\n\r\n## Interface\r\n', 'only the Status value changes');
   assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/);
 
+  writeFileSync(join(root, X, 'SPEC.md'), 'Status: approved\n');
+  assert.equal((await stop(false)).code, 2, 'a no-break space after the colon is still caught');
+  assert.equal(read(root, `${X}/SPEC.md`), 'Status: draft\n');
+
   writeFileSync(join(root, X, 'SPEC.md'), 'Status: approved\n');
   assert.equal((await stop(true)).code, 0, 'after a block the stop goes through');
   assert.match(read(root, `${X}/SPEC.md`), /Status: draft/, 'but the doc is still reverted');

@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FLOW_DIR, docStatus, featureIndex, listFeatures } from './flow.js';
+import { FLOW_DIR, docStatus, featureIndex, listFeatures, setStatus } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { ACCEPT, BOX, isCodeFile, isDropped, manualUnconfirmed, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, BOX, isCodeFile, isDropped, manualUnconfirmed, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -479,7 +479,7 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
 
 const SILENT: HookOutput = { code: 0, stderr: [] };
 // Only the value of the first Status line changes; its line ending and everything else stay byte for byte.
-const approve = (text: string) => text.replace(/^(Status:[ \t]*)draft(?=[ \t]*\r?$)/im, '$1approved');
+const approve = (text: string) => setStatus(text, 'draft', 'approved');
 
 /**
  * The user's reply to a Review handoff: when Jev is sure it agrees to every listed draft doc, flip their Status to
@@ -514,7 +514,7 @@ function revertSelfSigned(root: string, sessionId: string | undefined): string[]
   const reverted: string[] = [];
   for (const f of approvedDocs(root).filter((f) => !baseline.includes(f))) {
     try {
-      writeFileSync(join(root, f), readOr(join(root, f)).replace(/^(Status:[ \t]*)approved(?=[ \t]*\r?$)/im, '$1draft'));
+      writeFileSync(join(root, f), setStatus(readOr(join(root, f)), 'approved', 'draft'));
       reverted.push(f);
     } catch { /* fail open: the pre-commit check still requires sign-off */ }
   }
@@ -618,7 +618,7 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   // A manual task ticked without the user's confirmation is a text fact, not a judgement: cto blocks it itself. Jev
   // still judges everything else in the turn, since this stop's block is the only one it gets.
   const manual = manualUnconfirmed(ticked, lastMessage);
-  const manualLines = manual.slice(0, 5).map((m) => t(lang, isDropped(m) ? 'done_dropped' : 'done_manual', { detail: m.text.slice(0, 80) }));
+  const manualLines = manual.slice(0, 5).map((m) => t(lang, isDropped(m) ? 'done_dropped' : 'done_manual', { detail: m.text.slice(0, 80), id: taskName(m) }));
   const rest = ticked.filter((x) => !manual.includes(x));
   if (!rest.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) {
     brain.blocked_attempts++;

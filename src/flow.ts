@@ -142,7 +142,13 @@ export interface FeatureRow {
 
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return undefined; } };
 /** A sign-off doc's state: the first `Status: draft|approved` line (any case); no such line is 'missing'. */
-export const docStatus = (text: string): Signoff => (/^Status:\s*(draft|approved)\s*$/im.exec(text)?.[1]?.toLowerCase() as Signoff | undefined) ?? 'missing';
+// Blanks on a Status line: space, tab, or the no-break space some editors and IMEs type; never a line break.
+const SP = '[ \\t\\u00a0]';
+export const docStatus = (text: string): Signoff =>
+  (new RegExp(`^Status:${SP}*(draft|approved)${SP}*\\r?$`, 'im').exec(text)?.[1]?.toLowerCase() as Signoff | undefined) ?? 'missing';
+/** `text` with its first `Status: <from>` line set to `to`, keeping the blanks and line ending. */
+export const setStatus = (text: string, from: Signoff, to: Signoff) =>
+  text.replace(new RegExp(`^(Status:${SP}*)${from}(?=${SP}*\\r?$)`, 'im'), `$1${to}`);
 const signoff = (path: string): Signoff => docStatus(readOr(path) ?? '');
 
 function purpose(concept: string): string {

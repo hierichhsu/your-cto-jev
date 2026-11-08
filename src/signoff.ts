@@ -96,7 +96,7 @@ export function afterEdit(before: string | undefined, toolName: 'Edit' | 'Write'
 
 // CONCEPT/PRODUCT/ARCHITECTURE: everything but the Status line. SPEC: `## Interface` up to `## Internals`.
 function protectedText(file: string, text: string): string {
-  let lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => !/^Status:\s*(draft|approved)\s*$/i.test(l));
+  let lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => docStatus(l) === 'missing');
   if (/(^|\/)spec\.md$/i.test(file.replace(/\\/g, '/'))) {
     const start = lines.findIndex((l) => /^##\s+Interface\b/.test(l));
     const end = lines.findIndex((l) => /^##\s+Internals\b/.test(l));

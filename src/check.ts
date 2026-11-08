@@ -54,7 +54,8 @@ export async function runCheck(root: string, lang: Lang, base?: string): Promise
     const v = review.scores[s];
     const name = s.padEnd(width);
     if (v === undefined) {
-      const why = s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : s === 'architecture_undocumented' ? 'check_why_adr' : s === 'manual_measurable' ? 'check_why_manual' : s === 'code_complexity' && base ? 'check_why_release' : 'check_why_failed';
+      // Asked but unanswered means the request failed, not that the question did not apply.
+      const why = review.asked.has(s) ? 'check_why_failed' : s === 'test_tampering' ? 'check_why_tests' : s === 'architecture_violation' ? 'check_why_goal' : s === 'architecture_undocumented' ? 'check_why_adr' : s === 'manual_measurable' ? 'check_why_manual' : s === 'code_complexity' && base ? 'check_why_release' : 'check_why_failed';
       lines.push(`  ${name}  ${t(lang, why)}`);
       continue;
     }
