@@ -19,7 +19,7 @@ export interface Task {
   children: string[];
   after: string[];
   files: string[];
-  accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual" means a human confirms
+  accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual: <what> @ <where>" is for the user to look at and blocks nothing
   priority?: 'P1' | 'P2' | 'P3'; // P1 first and before any release, P2 (the default when absent) normal, P3 when nothing else is left
   seq?: boolean; // (seq): never run alongside another task, whatever its (files:) say
 }
@@ -137,7 +137,7 @@ export interface FeatureRow {
   status: 'planned' | 'active' | 'done';
   code: string[]; // union of (files:), without entries another entry already covers
   dependsOn: string[]; // other features that an (after:) points into
-  signoff: { concept: Signoff; spec: Signoff };
+  signoff: Signoff; // CONCEPT.md's Status; SPEC.md is not signed
 }
 
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return undefined; } };
@@ -174,7 +174,7 @@ export function featureIndex(root: string): FeatureRow[] {
       status: !mine.length ? 'planned' : leaves.every((t) => t.done) ? 'done' : 'active',
       code: files.filter((f) => !files.some((o) => o !== f && f.startsWith(o))),
       dependsOn: uniqSorted(mine.flatMap((t) => t.after).map((id) => featureOf.get(id)).filter((f): f is string => !!f && f !== slug)),
-      signoff: { concept: signoff(join(dir, 'CONCEPT.md')), spec: signoff(join(dir, 'SPEC.md')) },
+      signoff: signoff(join(dir, 'CONCEPT.md')),
     };
   });
 }
@@ -182,7 +182,7 @@ export function featureIndex(root: string): FeatureRow[] {
 export function renderIndex(rows: FeatureRow[]): string {
   const cell = (s: string) => s.replace(/\|/g, '\\|');
   const line = (r: FeatureRow) =>
-    `| ${r.slug} | ${r.status} | ${cell(r.purpose)} | ${r.code.join(', ')} | ${r.dependsOn.join(', ')} | ${r.signoff.concept}/${r.signoff.spec} |`;
+    `| ${r.slug} | ${r.status} | ${cell(r.purpose)} | ${r.code.join(', ')} | ${r.dependsOn.join(', ')} | ${r.signoff} |`;
   return [
     '# INDEX',
     '',

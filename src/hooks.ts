@@ -5,7 +5,7 @@ import { FLOW_DIR, docStatus, featureIndex, listFeatures, setStatus } from './fl
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { ACCEPT, BOX, isCodeFile, isDropped, manualUnconfirmed, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, BOX, droppedUnreported, isCodeFile, isDropped, isManual, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -499,7 +499,7 @@ export async function agentPrompt(input: PromptInput, env: Env): Promise<HookOut
 
 const signoffDocPaths = (root: string) => [
   ...['PRODUCT.md', 'ARCHITECTURE.md'].map((f) => `${FLOW_DIR}/${f}`),
-  ...listFeatures(root).flatMap((s) => ['CONCEPT.md', 'SPEC.md'].map((f) => `${FLOW_DIR}/features/${s}/${f}`)),
+  ...listFeatures(root).map((s) => `${FLOW_DIR}/features/${s}/CONCEPT.md`),
 ];
 const approvedDocs = (root: string) => signoffDocPaths(root).filter((f) => docStatus(readOr(join(root, f))) === 'approved');
 
@@ -574,7 +574,7 @@ export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env)
     if (!file) return SILENT;
     const before = existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : undefined;
     const after = afterEdit(before, tool, input.toolInput);
-    const verdict = after === undefined ? 'ok' : guardVerdict(file, before, after);
+    const verdict = after === undefined ? 'ok' : guardVerdict(before, after);
     return verdict === 'ok' ? SILENT : agent.block([t(lang, verdict === 'self_approve' ? 'signoff_self_approve' : 'signoff_guard')]);
   } catch { return SILENT; }
 }
@@ -615,16 +615,24 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
     .filter((t) => !judged.has(tickedKey(t)));
   if (!ticked.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) return out;
 
-  // A manual task ticked without the user's confirmation is a text fact, not a judgement: cto blocks it itself. Jev
+  // A dropped task the final message does not report is a text fact, not a judgement: cto blocks it itself. Jev
   // still judges everything else in the turn, since this stop's block is the only one it gets.
-  const manual = manualUnconfirmed(ticked, lastMessage);
-  const manualLines = manual.slice(0, 5).map((m) => t(lang, isDropped(m) ? 'done_dropped' : 'done_manual', { detail: m.text.slice(0, 80), id: taskName(m) }));
-  const rest = ticked.filter((x) => !manual.includes(x));
+  const dropped = droppedUnreported(ticked, lastMessage);
+  const droppedLines = dropped.slice(0, 5).map((m) => t(lang, 'done_dropped', { detail: m.text.slice(0, 80), id: taskName(m) }));
+  // A manual task never blocks and has nothing for Jev to judge: the user is told what to look at, with the text, not just the id.
+  // shortcut: no reminder when this stop blocks for another reason (the tick is not reminded later); the release report lists them.
+  const looks = ticked.filter((x) => isManual(x) && !isDropped(x));
+  const lookLines = looks.slice(0, 5).map((m) => t(lang, 'manual_look', { detail: lookText(m).slice(0, 200), id: taskName(m) }));
+  // Every wave of a run can end in one stop: the ids past the fifth are still named, so none is silently skipped.
+  if (looks.length > 5) lookLines.push(`[cto] … ${looks.slice(5).map(taskName).join(', ')}`);
+  const remind = () => (lookLines.length ? agent.notice(lookLines) : out);
+  const rest = ticked.filter((x) => !dropped.includes(x) && !looks.includes(x));
+  const textOnly = [...dropped, ...looks].map(tickedKey);
   if (!rest.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) {
-    brain.blocked_attempts++;
-    brain.judged_items = [...judged, ...manual.map(tickedKey)].slice(-300);
+    if (dropped.length) brain.blocked_attempts++;
+    brain.judged_items = [...judged, ...textOnly].slice(-300);
     saveBrain(root, brain);
-    return agent.stopBlock(manualLines);
+    return dropped.length ? agent.stopBlock(droppedLines) : remind();
   }
 
   const cfg = loadConfig(root);
@@ -635,18 +643,18 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   );
   if (!r.ok) {
     brain.skipped_attempts++;
-    if (manual.length) brain.judged_items = [...judged, ...manual.map(tickedKey)].slice(-300);
+    if (textOnly.length) brain.judged_items = [...judged, ...textOnly].slice(-300);
   } else {
     countCheck(brain, now);
     logDecision(brain, 'stop', state, r.answers, cfg, now);
     brain.judged_items = [...judged, ...ticked.map(tickedKey)].slice(-300);
   }
   const v = r.ok ? exceeded(r.answers, 'done_unverified', cfg) : undefined;
-  const lines = [...manualLines, ...(v !== undefined ? verdict(lang, 'done_unverified', v, cfg, null) : [])];
+  const lines = [...droppedLines, ...(v !== undefined ? verdict(lang, 'done_unverified', v, cfg, null) : [])];
   if (lines.length) {
     brain.blocked_attempts++;
     out = agent.stopBlock(lines);
-  }
+  } else out = remind();
   saveBrain(root, brain);
   return out;
 }

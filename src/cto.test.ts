@@ -1159,7 +1159,7 @@ test('done check: plan checklist items newly ticked in markdown are claims, judg
 });
 
 test('done check: ticks the agent committed this turn are still judged, with computed facts about each acceptance command', async () => {
-  const { manualUnconfirmed, tickedItems, turnState } = await import('./turn.js');
+  const { droppedUnreported, isManual, lookText, tickedItems, turnState } = await import('./turn.js');
   const { agentPre, agentStop } = await import('./hooks.js');
   const { loadBrain } = await import('./brain.js');
   const plan = [
@@ -1188,39 +1188,45 @@ test('done check: ticks the agent committed this turn are still judged, with com
   for (const c of ['npm test -- api', 'echo "npm test -- a"', 'npm test -- a || true']) {
     assert.match(turnState('', [edit, run(c)], t1), /did not run this turn/, c);
   }
-  const t2 = [{ file: 'T.md', text: 'A-2 Badge', children: [], accept: 'manual' }];
-  assert.match(turnState('A-2 accepted manually.', [], t2), /says it was accepted manually/);
-  for (const m of ['A-2 done.', 'A-2 is not accepted manually yet.', 'A-1 accepted manually. A-2 built.']) {
-    assert.match(turnState(m, [], t2), /does not say the user accepted it/, m);
-  }
+  // A manual task waits on nobody: no phrase is required, and the reminder carries what to look at.
+  const look = [{ file: 'T.md', text: 'A-2 Badge', children: [], accept: 'manual' }];
+  assert.match(turnState('A-2 done.', [], look), /"A-2 Badge" is for the user to look at later \(manual\): it has no acceptance command to run/);
+  assert.equal(isManual(look[0]), true);
+  assert.equal(isManual(t1[0]), false);
+  assert.equal(lookText(look[0]), 'Badge', 'a bare manual falls back to the task\'s words, without the id');
+  assert.equal(lookText({ ...look[0], accept: 'manual: 375px 不橫向捲動 @ http://localhost:3000/list' }), '375px 不橫向捲動 @ http://localhost:3000/list');
+  assert.equal(lookText({ ...look[0], accept: 'Manual：badge colour' }), 'badge colour');
   assert.doesNotMatch(turnState('', [edit], [{ file: 'T.md', text: 'x', children: [] }]), /acceptance command/);
+  const t2 = [{ file: 'T.md', text: 'A-2 Badge (dropped: gone)', children: [], accept: 'manual' }];
   // A dropped task needs no acceptance, only a final message that reports the drop.
   const t3 = [{ file: 'T.md', text: 'A-5 Badge page (dropped: page deleted)', children: [], accept: 'manual' }];
   const t4 = [{ file: 'T.md', text: 'A-6 API (dropped: out of scope)', children: [], accept: 'npm test -- a' }];
-  assert.deepEqual(manualUnconfirmed([...t3, ...t4], 'A-5 dropped: the page is gone. A-6 dropped.'), []);
+  assert.deepEqual(droppedUnreported([...t3, ...t4], 'A-5 dropped: the page is gone. A-6 dropped.'), []);
   for (const m of ['A-5 accepted manually. A-6 done.', 'A-5 not dropped yet; A-6 not dropped', 'A-1 dropped.']) {
-    assert.equal(manualUnconfirmed([...t3, ...t4], m).length, 2, m);
+    assert.equal(droppedUnreported([...t3, ...t4], m).length, 2, m);
   }
+  assert.deepEqual(droppedUnreported(look, 'Done.'), [], 'a manual task that is not dropped needs no report');
   assert.match(turnState('A-6 dropped.', [], t4), /"A-6 API \(dropped: out of scope\)" is dropped .*reports it as dropped: nothing to accept/);
   assert.match(turnState('A-6 done.', [], t4), /does not report it as dropped/);
   const net = [{ file: 'T.md', text: 'NET-2 Retry on (dropped connections)', children: [], accept: 'npm test -- net' }];
   assert.doesNotMatch(turnState('NET-2 now handles dropped connections.', [], net), /is dropped/, 'only "(dropped: reason)" marks a drop');
-  assert.equal(manualUnconfirmed([{ ...t3[0], text: 'A-5 X (dropped:)' }], 'A-5 dropped.').length, 1, 'an empty reason is not a drop');
-  const dotted = [{ file: 'T.md', text: 'FLOW-12.6 Fix', children: [], accept: 'manual' }];
-  assert.deepEqual(manualUnconfirmed(dotted, 'FLOW-12.6 accepted manually.'), [], 'an id with a dot stays one token');
-  assert.equal(manualUnconfirmed(t2, 'A-22 accepted manually.').length, 1, 'A-22 does not name A-2');
-  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually。A-2 built.').length, 1, '。 ends a sentence');
-  assert.equal(manualUnconfirmed(t2, 'A-1 accepted manually;A-2 waits').length, 1, '; ends a sentence without a space');
-  for (const m of ['A-1, A-2 accepted manually.', '**A-2** accepted manually', '`A-2` was accepted manually', '(A-2) accepted manually', 'Accepted manually:\n- A-1\n- A-2\n', 'A-1 和 A-2 accepted manually。']) {
-    assert.deepEqual(manualUnconfirmed(t2, m), [], m);
+  assert.equal(droppedUnreported([{ ...t3[0], text: 'A-5 X (dropped:)' }], 'A-5 dropped.').length, 0, 'an empty reason is not a drop, so there is nothing to report');
+  // How a report names its task: the same matcher the "accepted manually" phrase used before 0.12.
+  const dotted = [{ file: 'T.md', text: 'FLOW-12.6 Fix (dropped: moot)', children: [], accept: 'manual' }];
+  assert.deepEqual(droppedUnreported(dotted, 'FLOW-12.6 dropped.'), [], 'an id with a dot stays one token');
+  assert.equal(droppedUnreported(t2, 'A-22 dropped.').length, 1, 'A-22 does not name A-2');
+  assert.equal(droppedUnreported(t2, 'A-1 dropped。A-2 built.').length, 1, '。 ends a sentence');
+  assert.equal(droppedUnreported(t2, 'A-1 dropped;A-2 waits').length, 1, '; ends a sentence without a space');
+  for (const m of ['A-1, A-2 dropped.', '**A-2** dropped', '`A-2` was dropped', '(A-2) dropped', 'Dropped:\n- A-1\n- A-2\n', 'A-1 和 A-2 dropped。']) {
+    assert.deepEqual(droppedUnreported(t2, m), [], m);
   }
-  for (const m of ['A-1 accepted manually, A-2 still waiting.', 'A-1 accepted manually，A-2 還沒', 'A-2 has not been accepted manually.', "A-2 wasn't accepted manually", 'A-2 is never accepted manually', 'Not accepted manually: A-2', 'Accepted manually: A-1. A-2 waits.']) {
-    assert.equal(manualUnconfirmed(t2, m).length, 1, m);
+  for (const m of ['A-1 dropped, A-2 still waiting.', 'A-1 dropped，A-2 還沒', 'A-2 has not been dropped.', "A-2 wasn't dropped", 'A-2 is never dropped', 'Not dropped: A-2', 'Dropped: A-1. A-2 waits.']) {
+    assert.equal(droppedUnreported(t2, m).length, 1, m);
   }
   const noId = [{ file: 'plan.md', text: 'Badge page copy (dropped: page deleted)', children: [] }];
-  assert.equal(manualUnconfirmed(noId, 'Dropped: none.').length, 1, 'a task without an id must be named by its words');
-  assert.deepEqual(manualUnconfirmed(noId, 'Badge page copy dropped: the page is gone.'), []);
-  assert.deepEqual(manualUnconfirmed([{ ...t3[0], text: 'A-5 X （dropped：重複）' }], 'A-5 dropped。'), [], 'full-width marks');
+  assert.equal(droppedUnreported(noId, 'Dropped: none.').length, 1, 'a task without an id must be named by its words');
+  assert.deepEqual(droppedUnreported(noId, 'Badge page copy dropped: the page is gone.'), []);
+  assert.deepEqual(droppedUnreported([{ ...t3[0], text: 'A-5 X （dropped：重複）' }], 'A-5 dropped。'), [], 'full-width marks');
 
   setKeys();
   process.env.CTO_PROVIDER = 'openrouter';
@@ -1244,35 +1250,55 @@ test('done check: ticks the agent committed this turn are still judged, with com
   await agentPre(agents.codex, { sessionId: 'W', command: 'git add -A && git commit -m wave' }, env);
   assert.equal(loadBrain(root).turn_base?.W?.head, before, 'HEAD recorded before the commit runs');
   git('add', '.'); git('commit', '-qm', 'wave');
-  await agentStop(agents.codex, { sessionId: 'W', cwd: root, lastMessage: 'Wave committed; the user saw A-2, accepted manually.', stopHookActive: false }, env);
+  let out = await agentStop(agents.codex, { sessionId: 'W', cwd: root, lastMessage: 'Wave committed.', stopHookActive: false }, env);
   assert.ok(sent, 'committed ticks reach the done check');
   assert.match(sent.state, /TASKS\.md: A-1 List API/);
   assert.match(sent.state, /"A-1 List API": its acceptance command `npm test -- a` ran after the last code edit and passed/);
-  assert.match(sent.state, /"A-2 Badge" is accepted by the user \(manual\), and the final message says it was accepted manually/);
+  assert.doesNotMatch(sent.state, /A-2 Badge/, 'a manual tick is not sent to Jev');
+  assert.equal(out.code, 0);
+  assert.equal(JSON.parse(out.stdout!).systemMessage, '[cto] For you to look at: Badge (A-2)', 'the user is told what to look at; nothing is blocked');
   assert.equal(loadBrain(root).turn_base?.W, undefined, 'the base is used once');
 
-  // A manual tick the user did not confirm is blocked by cto itself, without asking Jev.
+  // A manual tick alone: no block, no Jev call, and the reminder prints the text after "manual:", with the id last.
   sent = undefined;
-  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual\n');
-  let out = await agentStop(agents.codex, { sessionId: 'M', cwd: root, lastMessage: 'Copy done.', stopHookActive: false }, env);
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual: 375px no horizontal scroll @ http://localhost:3000/copy\n');
+  out = await agentStop(agents.codex, { sessionId: 'M', cwd: root, lastMessage: 'Copy done.', stopHookActive: false }, env);
   assert.equal(sent, undefined, 'no Jev call');
-  assert.equal(out.code, 2);
-  assert.match(out.stderr.join('\n'), /A-4 Copy text: this task is accepted by the user \(manual\).*say "A-4 accepted manually"/);
+  assert.equal(out.code, 0);
+  assert.equal(JSON.parse(out.stdout!).systemMessage, '[cto] For you to look at: 375px no horizontal scroll @ http://localhost:3000/copy (A-4)');
+  assert.deepEqual(await agentStop(agents.codex, { sessionId: 'M', cwd: root, lastMessage: 'Copy done.', stopHookActive: false }, env), { code: 0, stderr: [] }, 'reminded once per tick');
 
-  // With another tick in the same turn, Jev still judges that one: the manual block does not swallow it.
-  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual\n- [x] A-6 Help page\n      accept: manual\n- [x] A-5 Search\n      accept: npm test -- s\n');
+  // With another tick in the same turn, Jev judges that one; the manual tick still only reminds.
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-4 Copy text\n      accept: manual: 375px no horizontal scroll @ http://localhost:3000/copy\n- [x] A-6 Help page\n      accept: manual\n- [x] A-5 Search\n      accept: npm test -- s\n');
   out = await agentStop(agents.codex, { sessionId: 'N', cwd: root, lastMessage: 'Done.', stopHookActive: false }, env);
-  assert.equal(out.code, 2, 'A-6 (manual, unconfirmed) still blocks; A-4 was judged in the previous stop');
   const jev = String((sent as any)?.state ?? '');
   assert.match(jev, /"A-5 Search": its acceptance command `npm test -- s` did not run this turn/);
-  assert.doesNotMatch(jev, /A-6 Help page/, 'the manual tick is reported by cto, not sent to Jev');
-  assert.match(out.stderr.join('\n'), /A-6 Help page: this task is accepted by the user/);
+  assert.doesNotMatch(jev, /A-6 Help page/, 'the manual tick is not sent to Jev');
+  assert.equal(out.code, 0, 'Jev (stubbed at 0.1) does not block, and A-6 never does');
+  assert.equal(JSON.parse(out.stdout!).systemMessage, '[cto] For you to look at: Help page (A-6)', 'A-4 was reminded in the previous stop');
 
   // A dropped manual task whose drop the final message does not report gets the dropped message, not the manual one.
   writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-7 Old page (dropped: page deleted)\n      accept: manual\n');
   out = await agentStop(agents.codex, { sessionId: 'D', cwd: root, lastMessage: 'Cleaned up.', stopHookActive: false }, env);
   assert.equal(out.code, 2);
   assert.match(out.stderr.join('\n'), /A-7 Old page \(dropped: page deleted\): this task is marked dropped, but your final message does not say "A-7 dropped"/);
+
+  // An unreported drop next to an ordinary tick: Jev judges the tick, and the drop still blocks whatever Jev says.
+  sent = undefined;
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + '- [x] A-8 Gone (dropped: page deleted)\n      accept: npm test -- g\n- [x] A-9 Filter\n      accept: npm test -- f\n- [x] A-10 Banner\n      accept: manual: banner colour @ /home\n');
+  out = await agentStop(agents.codex, { sessionId: 'E', cwd: root, lastMessage: 'Filter done.', stopHookActive: false }, env);
+  assert.match(String((sent as any)?.state ?? ''), /A-9 Filter/);
+  assert.equal(out.code, 2, 'Jev at 0.1 would let it through; the drop does not');
+  assert.match(out.stderr.join('\n'), /does not say "A-8 dropped"/);
+  assert.doesNotMatch(out.stderr.join('\n'), /A-10|A-9/, 'a block carries no manual reminder');
+
+  // Six manual ticks in one stop: five with their text, the sixth still named.
+  writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + [11, 12, 13, 14, 15, 16].map((n) => `- [x] A-${n} Page ${n}\n      accept: manual: page ${n} @ /p${n}\n`).join(''));
+  out = await agentStop(agents.codex, { sessionId: 'F', cwd: root, lastMessage: 'Pages done.', stopHookActive: false }, env);
+  const reminder = JSON.parse(out.stdout!).systemMessage.split('\n');
+  assert.equal(reminder.length, 6);
+  assert.equal(reminder[4], '[cto] For you to look at: page 15 @ /p15 (A-15)');
+  assert.equal(reminder[5], '[cto] … A-16');
 
   // A base older than a turn (an interrupted turn left it) is replaced, and a rewritten one is ignored.
   const { saveBrain } = await import('./brain.js');

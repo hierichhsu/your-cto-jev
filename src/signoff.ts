@@ -5,8 +5,9 @@ import { posix } from 'node:path';
 import { docStatus, FLOW_DIR } from './flow.js';
 import { maskSensitiveState } from './masker.js';
 
-export const SIGNOFF_DOCS = ['CONCEPT.md', 'SPEC.md', 'PRODUCT.md', 'ARCHITECTURE.md'];
-const DOC_NAME = /\b(?:concept|spec|product|architecture)\.md\b/i;
+// SPEC.md is not here: the CTO derives it from the signed CONCEPT, and tests and reviews judge it, not the user.
+export const SIGNOFF_DOCS = ['CONCEPT.md', 'PRODUCT.md', 'ARCHITECTURE.md'];
+const DOC_NAME = /\b(?:concept|product|architecture)\.md\b/i;
 const REVIEW = /^[\s>*+\-_`]*Review[*_`]*\s*:[*_`]*\s*(.*)$/;
 
 const lastReview = (lines: string[]) => lines.findLastIndex((l) => REVIEW.test(l));
@@ -42,7 +43,7 @@ function absolute(cwd: string, p: string): string {
   return drive.toLowerCase() + posix.normalize(rest).replace(/\/+$/, '');
 }
 
-// An NTFS stream (`SPEC.md::$DATA`, `SPEC.md:x`) is the same file. Only the last segment: `:` is legal in POSIX folder names.
+// An NTFS stream (`CONCEPT.md::$DATA`, `CONCEPT.md:x`) is the same file. Only the last segment: `:` is legal in POSIX folder names.
 const noStream = (full: string) => full.replace(/(\/[^/:]*):[^/]*$/, '$1');
 
 // 8.3 short names (`ARCHIT~1.MD`) and symlinks: the deepest part that exists becomes its real long path.
@@ -94,22 +95,14 @@ export function afterEdit(before: string | undefined, toolName: 'Edit' | 'Write'
   return text;
 }
 
-// CONCEPT/PRODUCT/ARCHITECTURE: everything but the Status line. SPEC: `## Interface` up to `## Internals`.
-function protectedText(file: string, text: string): string {
-  let lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => docStatus(l) === 'missing');
-  if (/(^|\/)spec\.md$/i.test(file.replace(/\\/g, '/'))) {
-    const start = lines.findIndex((l) => /^##\s+Interface\b/.test(l));
-    const end = lines.findIndex((l) => /^##\s+Internals\b/.test(l));
-    lines = lines.slice(Math.max(start, 0), end < 0 ? undefined : end);
-  }
-  return lines.join('\n');
-}
+// Everything but the Status line.
+const protectedText = (text: string) => text.replace(/\r\n/g, '\n').split('\n').filter((l) => docStatus(l) === 'missing').join('\n');
 
-/** before undefined = new file. Demoting to draft is always ok. */
-export function guardVerdict(file: string, before: string | undefined, after: string): 'ok' | 'self_approve' | 'protected_edit' {
+/** For a sign-off doc. before undefined = new file. Demoting to draft is always ok. */
+export function guardVerdict(before: string | undefined, after: string): 'ok' | 'self_approve' | 'protected_edit' {
   if (docStatus(after) !== 'approved') return 'ok';
   if (before === undefined || docStatus(before) !== 'approved') return 'self_approve';
-  return protectedText(file, before) === protectedText(file, after) ? 'ok' : 'protected_edit';
+  return protectedText(before) === protectedText(after) ? 'ok' : 'protected_edit';
 }
 
 /** PowerShell gets no write parser: any mention of a sign-off doc together with docs/cto_jev blocks, reads too. */
@@ -126,8 +119,8 @@ export function powershellHitsSignoffDoc(root: string, cwd: string, command: str
  * For the Bash rule: paths from shellWrites; `?` (target unknown) is let through. Targets resolve against cwd and
  * every `cd` dir in the command (`cd docs/cto_jev/x && cp a .`). A bare doc name in a command that mentions cto_jev
  * blocks (a `cd` this cannot follow), and so does a folder under docs/cto_jev as the target when the command names a
- * sign-off doc (`cp SPEC.md docs/cto_jev/features/x/`).
- * shortcut: globs (`SPE*.md`), variables and `cd docs/cto_*` still get through; a post-Bash Status check would close them.
+ * sign-off doc (`cp CONCEPT.md docs/cto_jev/features/x/`).
+ * shortcut: globs (`CONC*.md`), variables and `cd docs/cto_*` still get through; a post-Bash Status check would close them.
  */
 export function shellWritesSignoffDoc(root: string, cwd: string, writtenPaths: string[], command = ''): boolean {
   const cmd = command.replace(/\\/g, '/').toLowerCase();

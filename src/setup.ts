@@ -167,7 +167,7 @@ export const FLOW_SKELETON: Record<string, string> = {
   'docs/cto_jev/PRODUCT.md': `# PRODUCT\n\nStatus: draft\n\n${fields(['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'])}`,
   'docs/cto_jev/ARCHITECTURE.md': `# ARCHITECTURE\n\nStatus: draft\n\n${fields(['技術棧', '目錄地圖', '外部服務與資料', '驗證指令', '不變的原則'])}`,
   'docs/cto_jev/features/platform/CONCEPT.md': '# platform\n\nStatus: approved\n\n## 目的\n\nInfrastructure: CI, build, deploy, dependencies\n\n## 動機\n\n## 商業規則\n\n## 不做的事\n',
-  'docs/cto_jev/features/platform/SPEC.md': '# platform SPEC\n\nStatus: approved\n\n## Interface\n\n## Constraints\n\n## Internals\n',
+  'docs/cto_jev/features/platform/SPEC.md': '# platform SPEC\n\n## Interface\n\n## Constraints\n\n## Internals\n',
   'docs/cto_jev/features/platform/TASKS.md': '# platform TASKS\n',
   'docs/cto_jev/features/platform/REVIEW.md': '# platform REVIEW\n\nNot reviewed yet.\n',
   'docs/cto_jev/decisions/.gitkeep': '',

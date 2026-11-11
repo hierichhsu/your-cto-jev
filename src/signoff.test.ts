@@ -30,17 +30,17 @@ test('reviewPaths: last Review line wins; bold, backticks, quotes, bullets and c
 
 test('signoffDoc: resolves against cwd, normalizes, rejects escapes and non-sign-off files', () => {
   const root = 'D:\\Github\\repo';
-  assert.equal(signoffDoc(root, 'D:\\Github\\repo', `${F}/SPEC.md`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(root, 'D:\\Github\\repo', `${F}/CONCEPT.md`), `${F}/CONCEPT.md`);
   assert.equal(signoffDoc(root, 'D:\\Github\\repo\\docs\\cto_jev\\features', 'x/./CONCEPT.md'), `${F}/CONCEPT.md`);
   assert.equal(signoffDoc(root, '/d/Github/repo/src', '../docs/cto_jev/PRODUCT.md'), 'docs/cto_jev/PRODUCT.md');
   assert.equal(signoffDoc(root, '/', 'd:\\github\\REPO\\Docs\\CTO_JEV\\architecture.md'), 'Docs/CTO_JEV/architecture.md');
-  assert.equal(signoffDoc(root, '/c/elsewhere', '/d/Github/repo/docs/cto_jev/features/x/SPEC.md'), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(root, '/c/elsewhere', '/d/Github/repo/docs/cto_jev/features/x/CONCEPT.md'), `${F}/CONCEPT.md`);
   assert.equal(signoffDoc(root, root, `${F}/TASKS.md`), undefined);
-  assert.equal(signoffDoc(root, root, 'SPEC.md'), undefined);
-  assert.equal(signoffDoc(root, root, 'docs/other/SPEC.md'), undefined);
-  assert.equal(signoffDoc(root, root, '../repo2/docs/cto_jev/SPEC.md'), undefined);
-  assert.equal(signoffDoc(root, `${root}\\docs\\cto_jev`, '../../../other/docs/cto_jev/SPEC.md'), undefined);
-  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo/docs', 'cto_jev/SPEC.md'), 'docs/cto_jev/SPEC.md');
+  assert.equal(signoffDoc(root, root, 'CONCEPT.md'), undefined);
+  assert.equal(signoffDoc(root, root, 'docs/other/CONCEPT.md'), undefined);
+  assert.equal(signoffDoc(root, root, '../repo2/docs/cto_jev/CONCEPT.md'), undefined);
+  assert.equal(signoffDoc(root, `${root}\\docs\\cto_jev`, '../../../other/docs/cto_jev/CONCEPT.md'), undefined);
+  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo/docs', 'cto_jev/CONCEPT.md'), 'docs/cto_jev/CONCEPT.md');
 });
 
 test('afterEdit: Edit, replace_all, MultiEdit in order, Write, missing old_string, `$` kept literal', () => {
@@ -52,55 +52,53 @@ test('afterEdit: Edit, replace_all, MultiEdit in order, Write, missing old_strin
   assert.equal(afterEdit(undefined, 'Write', { content: 'new' }), 'new');
 });
 
-const spec = (status: string, iface: string, internals: string) =>
-  `# S\n\nStatus: ${status}\n\n## Interface\n\n${iface}\n\n## Constraints\n\n- c\n\n## Internals\n\n${internals}\n`;
+const concept = (status: string, rule: string) => `# C\n\nStatus: ${status}\n\n## 目的\n\nx\n\n## 商業規則\n\n- ${rule}\n`;
 
 test('guardVerdict: self-approval, protected content, demotion and new files', () => {
-  const s = `${F}/SPEC.md`, c = `${F}/CONCEPT.md`;
-  assert.equal(guardVerdict(s, undefined, spec('approved', 'i', 'n')), 'self_approve');
-  assert.equal(guardVerdict(s, undefined, spec('draft', 'i', 'n')), 'ok');
-  const draft = spec('draft', 'i', 'n');
-  assert.equal(guardVerdict(s, draft, afterEdit(draft, 'Edit', { old_string: 'Status: draft', new_string: 'Status: approved' })!), 'self_approve');
-  const ok = spec('approved', 'i', 'n');
-  assert.equal(guardVerdict(s, ok, spec('draft', 'i changed', 'n')), 'ok');
-  assert.equal(guardVerdict(s, ok, spec('approved', 'i', 'n plus Assumed: x')), 'ok');
-  assert.equal(guardVerdict(s, ok, ok.replace('- c', '- c2')), 'protected_edit');
-  assert.equal(guardVerdict(s, ok, spec('approved', 'i2', 'n')), 'protected_edit');
-  assert.equal(guardVerdict(s, ok, ok.replace(/\n/g, '\r\n')), 'ok');
-  const acc = ok.replace('## Internals', '## Acceptance\n\n- 375px: no horizontal scroll\n\n## Internals');
-  assert.equal(guardVerdict(s, acc, acc.replace('375px', '320px')), 'protected_edit', 'the user-confirmed expectations are signed too');
-  const concept = '# C\n\nStatus: approved\n\n## 目的\n\nx\n';
-  assert.equal(guardVerdict(c, concept, concept.replace('x', 'y')), 'protected_edit');
-  assert.equal(guardVerdict(c, concept, concept.replace('approved', 'APPROVED')), 'ok');
-  assert.equal(guardVerdict(c, concept, concept.replace('approved', 'draft').replace('x', 'y')), 'ok');
+  assert.equal(guardVerdict(undefined, concept('approved', 'r')), 'self_approve');
+  assert.equal(guardVerdict(undefined, concept('draft', 'r')), 'ok');
+  const draft = concept('draft', 'r');
+  assert.equal(guardVerdict(draft, afterEdit(draft, 'Edit', { old_string: 'Status: draft', new_string: 'Status: approved' })!), 'self_approve');
+  const ok = concept('approved', 'r');
+  assert.equal(guardVerdict(ok, concept('draft', 'r changed')), 'ok');
+  assert.equal(guardVerdict(ok, concept('approved', 'r2')), 'protected_edit', 'every line but Status is signed');
+  assert.equal(guardVerdict(ok, ok.replace(/\n/g, '\r\n')), 'ok');
+  assert.equal(guardVerdict(ok, ok.replace('approved', 'APPROVED')), 'ok');
+});
+
+test('SPEC.md is not a sign-off doc: no path, shell or PowerShell rule applies to it', () => {
+  const root = 'D:\\Github\\repo';
+  assert.equal(signoffDoc(root, root, `${F}/SPEC.md`), undefined);
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`sed -i 's/a/b/' ${F}/SPEC.md`), `sed -i 's/a/b/' ${F}/SPEC.md`), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, `Set-Content ${F}/SPEC.md 'x'`), false);
 });
 
 test('powershellHitsSignoffDoc: cwd under docs/cto_jev, or a sign-off doc name plus docs/cto_jev in the command', () => {
   const root = 'D:\\Github\\repo';
-  assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content docs\\cto_jev\\features\\x\\SPEC.md`), true);
+  assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content docs\\cto_jev\\features\\x\\CONCEPT.md`), true);
   assert.equal(powershellHitsSignoffDoc(root, root, `(gc ${F}/concept.md) -replace 'draft','approved' | sc ${F}/CONCEPT.md`), true);
   assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'ls'), true);
   assert.equal(powershellHitsSignoffDoc(root, '/d/Github/repo/docs/cto_jev', 'ls'), true);
   assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content ${F}/TASKS.md`), false);
-  assert.equal(powershellHitsSignoffDoc(root, root, 'Get-Content README.md SPEC.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, 'Get-Content README.md CONCEPT.md'), false);
   assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs`, 'git status'), false);
 });
 
 test('powershellHitsSignoffDoc: git on a sign-off doc passes; git chained with a writer does not', () => {
   const root = 'D:\\Github\\repo';
-  assert.equal(powershellHitsSignoffDoc(root, root, 'git add docs\\cto_jev\\features\\x\\SPEC.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, 'git add docs\\cto_jev\\features\\x\\CONCEPT.md'), false);
   assert.equal(powershellHitsSignoffDoc(root, root, `git diff -- ${F}/CONCEPT.md; git log -1 -- ${F}/CONCEPT.md`), false);
-  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'git diff SPEC.md'), false);
-  assert.equal(powershellHitsSignoffDoc(root, root, `git add ${F}/SPEC.md; Set-Content ${F}/SPEC.md 'Status: approved'`), true);
-  assert.equal(powershellHitsSignoffDoc(root, root, `git show HEAD:${F}/SPEC.md | Out-File ${F}/SPEC.md`), true);
+  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'git diff CONCEPT.md'), false);
+  assert.equal(powershellHitsSignoffDoc(root, root, `git add ${F}/CONCEPT.md; Set-Content ${F}/CONCEPT.md 'Status: approved'`), true);
+  assert.equal(powershellHitsSignoffDoc(root, root, `git show HEAD:${F}/CONCEPT.md | Out-File ${F}/CONCEPT.md`), true);
 });
 
 test('shellWritesSignoffDoc: shellWrites targets resolved like the guard; `?` let through', () => {
   const root = '/home/u/repo';
-  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`sed -i 's/draft/approved/' ${F}/SPEC.md`)), true);
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`sed -i 's/draft/approved/' ${F}/CONCEPT.md`)), true);
   assert.equal(shellWritesSignoffDoc(root, `${root}/docs/cto_jev`, shellWrites('echo x > features/x/CONCEPT.md')), true);
   assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cp /tmp/a ${F}/TASKS.md`)), false);
-  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cat ${F}/SPEC.md`)), false);
+  assert.equal(shellWritesSignoffDoc(root, root, shellWrites(`cat ${F}/CONCEPT.md`)), false);
   assert.equal(shellWritesSignoffDoc(root, root, ['?']), false);
 });
 
@@ -108,39 +106,39 @@ test('shellWritesSignoffDoc: a cd into docs/cto_jev or a folder target still blo
   const root = mkdtempSync(join(tmpdir(), 'cto-sw-'));
   mkdirSync(join(root, F), { recursive: true });
   const hit = (c: string) => shellWritesSignoffDoc(root, root, shellWrites(c), c);
-  assert.equal(hit(`cd ${F} && sed -i 's/draft/approved/' SPEC.md`), true);
-  assert.equal(hit(`cp /tmp/SPEC.md ${F}/`), true);
-  assert.equal(hit(`cp /tmp/SPEC.md ${F}`), true, 'existing folder, no trailing slash');
+  assert.equal(hit(`cd ${F} && sed -i 's/draft/approved/' CONCEPT.md`), true);
+  assert.equal(hit(`cp /tmp/CONCEPT.md ${F}/`), true);
+  assert.equal(hit(`cp /tmp/CONCEPT.md ${F}`), true, 'existing folder, no trailing slash');
   assert.equal(hit(`cp /tmp/TASKS.md ${F}/`), false, 'no sign-off doc named');
   assert.equal(hit(`cd ${F} && echo x >> TASKS.md`), false);
-  assert.equal(hit(`sed -i 's/a/b/' SPEC.md`), false, 'a SPEC.md outside docs/cto_jev');
-  assert.equal(hit(`cd ${F} && cp /tmp/SPEC.md .`), true, 'target resolved against the cd dir');
-  assert.equal(hit(`cp /tmp/SPEC.md /tmp/dummy ${F}/`), true, 'several sources: the last argument is the target');
-  assert.equal(hit(`cat ${F}/SPEC.md > /tmp/SPEC.md`), false, 'a copy out of docs/cto_jev is a read');
-  assert.equal(hit(`cp ${F}/SPEC.md ${F}/SPEC.md.bak`), false);
-  for (const tail of [' 2>/dev/null', ' &', ' | cat', ' # done']) assert.equal(hit(`cp /tmp/new ${F}/SPEC.md${tail}`), true, tail);
-  assert.equal(hit(`(cp /tmp/new ${F}/SPEC.md)`), true, 'subshell');
-  assert.equal(hit(`cd docs && cd cto_jev/features/x && sed -i s/draft/approved/ ./SPEC.md`), true, 'chained cd');
+  assert.equal(hit(`sed -i 's/a/b/' CONCEPT.md`), false, 'a CONCEPT.md outside docs/cto_jev');
+  assert.equal(hit(`cd ${F} && cp /tmp/CONCEPT.md .`), true, 'target resolved against the cd dir');
+  assert.equal(hit(`cp /tmp/CONCEPT.md /tmp/dummy ${F}/`), true, 'several sources: the last argument is the target');
+  assert.equal(hit(`cat ${F}/CONCEPT.md > /tmp/CONCEPT.md`), false, 'a copy out of docs/cto_jev is a read');
+  assert.equal(hit(`cp ${F}/CONCEPT.md ${F}/CONCEPT.md.bak`), false);
+  for (const tail of [' 2>/dev/null', ' &', ' | cat', ' # done']) assert.equal(hit(`cp /tmp/new ${F}/CONCEPT.md${tail}`), true, tail);
+  assert.equal(hit(`(cp /tmp/new ${F}/CONCEPT.md)`), true, 'subshell');
+  assert.equal(hit(`cd docs && cd cto_jev/features/x && sed -i s/draft/approved/ ./CONCEPT.md`), true, 'chained cd');
 });
 
 test('signoffDoc: a `:` in a POSIX folder name and a symlinked docs/cto_jev stay guarded', () => {
-  assert.equal(signoffDoc('/home/u/proj:v2', '/home/u/proj:v2', `${F}/SPEC.md`), `${F}/SPEC.md`);
-  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo', `a:b/../${F}/SPEC.md`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc('/home/u/proj:v2', '/home/u/proj:v2', `${F}/CONCEPT.md`), `${F}/CONCEPT.md`);
+  assert.equal(signoffDoc('/home/u/repo', '/home/u/repo', `a:b/../${F}/CONCEPT.md`), `${F}/CONCEPT.md`);
   const root = mkdtempSync(join(tmpdir(), 'cto-link-')), outside = mkdtempSync(join(tmpdir(), 'cto-out-'));
   mkdirSync(join(root, 'docs'));
   symlinkSync(outside, join(root, 'docs', 'cto_jev'), 'junction');
-  assert.equal(signoffDoc(root, root, 'docs/cto_jev/SPEC.md'), 'docs/cto_jev/SPEC.md');
+  assert.equal(signoffDoc(root, root, 'docs/cto_jev/CONCEPT.md'), 'docs/cto_jev/CONCEPT.md');
 });
 
 test('signoffDoc: NTFS streams, \\\\?\\ prefix and 8.3 short names resolve to the doc', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'cto-ads-'));
   mkdirSync(join(tmp, F), { recursive: true });
-  writeFileSync(join(tmp, F, 'SPEC.md'), 'Status: approved\n');
+  writeFileSync(join(tmp, F, 'CONCEPT.md'), 'Status: approved\n');
   const long = realpathSync.native(tmp);
-  assert.equal(signoffDoc(long, long, `${F}/SPEC.md::$DATA`), `${F}/SPEC.md`);
-  assert.equal(signoffDoc(long, long, `${F}/SPEC.md:x`), `${F}/SPEC.md`);
-  assert.equal(signoffDoc(long, '/', `\\\\?\\${join(long, F, 'SPEC.md')}`), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(long, long, `${F}/CONCEPT.md::$DATA`), `${F}/CONCEPT.md`);
+  assert.equal(signoffDoc(long, long, `${F}/CONCEPT.md:x`), `${F}/CONCEPT.md`);
+  assert.equal(signoffDoc(long, '/', `\\\\?\\${join(long, F, 'CONCEPT.md')}`), `${F}/CONCEPT.md`);
   // os.tmpdir() is a short name on some Windows machines (C:\Users\ERICHS~1); the long root must still match.
-  assert.equal(signoffDoc(long, '/', join(tmp, F, 'SPEC.md')), `${F}/SPEC.md`);
-  assert.equal(signoffDoc(tmp, '/', join(long, F, 'SPEC.md')), `${F}/SPEC.md`);
+  assert.equal(signoffDoc(long, '/', join(tmp, F, 'CONCEPT.md')), `${F}/CONCEPT.md`);
+  assert.equal(signoffDoc(tmp, '/', join(long, F, 'CONCEPT.md')), `${F}/CONCEPT.md`);
 });

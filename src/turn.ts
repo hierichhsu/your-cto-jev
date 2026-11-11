@@ -179,26 +179,27 @@ const ANY_ID = '[A-Z][A-Z0-9]*-\\d+(?:\\.\\d+)*';
 const JOIN = `(?:[ \\t,，、:：*\`()（）]|\\band\\b|和|與|${ANY_ID})*(?:\\b(?:was|were|is|are|has been|have been|both|now)\\s+)*`;
 const LIST = `(?:[\\s,，、*\`()（）-]|\\band\\b|${ANY_ID})*`;
 
+/** A task only a person can judge: `驗收: manual`, or `manual: <what to look at> @ <where>`. */
+export const isManual = (t: Ticked) => MANUAL.test(squash(t.accept ?? ''));
+/** What the user is asked to look at: the text after `manual:`, or the task's own words when the line says nothing. */
+export const lookText = (t: Ticked) => squash(t.accept ?? '').replace(/^manual\s*[:：]?\s*/i, '') || squash(t.text.replace(TASK_ID, ''));
+
 /**
- * The final message reports how this task closed: "accepted manually", or "dropped" for a dropped task. Either the
- * task's name then the phrase ("A-1, A-2 accepted manually"), or the phrase then a list naming it ("Accepted
- * manually:\n- A-1"). Reported in the message so the user sees every drop.
+ * The final message reports a dropped task as "dropped". Either the task's name then the word ("A-1, A-2 dropped"),
+ * or the word then a list naming it ("Dropped:\n- A-1"). Reported in the message so the user sees every drop.
  */
-function acceptedManually(t: Ticked, lastMessage: string): boolean {
+function reportedDropped(t: Ticked, lastMessage: string): boolean {
   const id = TASK_ID.exec(t.text)?.[0];
-  const word = isDropped(t) ? 'dropped' : 'accepted manually';
+  const word = 'dropped';
   // The id as a whole token: "A-12" or "A-1.2" does not name A-1, while "A-1." at a sentence end does.
   const me = id ? `(?<![\\w.-])${esc(id)}(?![\\w]|\\.\\d)` : esc(taskName(t));
   return new RegExp(`${me}${JOIN}${word}`, 'i').test(lastMessage)
     || new RegExp(`(?<!\\bnot\\s|\\bnever\\s|n't\\s)${word}\\s*[:：]${LIST}${me}`, 'i').test(lastMessage);
 }
 
-/**
- * Ticked `manual` tasks the final message does not report as accepted by the user, and dropped tasks it does not
- * report as dropped: a text check, so no model judges it.
- */
-export const manualUnconfirmed = (ticked: Ticked[], lastMessage: string) =>
-  ticked.filter((t) => (isDropped(t) || MANUAL.test(squash(t.accept ?? ''))) && !acceptedManually(t, lastMessage));
+/** Ticked dropped tasks the final message does not report as dropped: a text check, so no model judges it. */
+export const droppedUnreported = (ticked: Ticked[], lastMessage: string) =>
+  ticked.filter((t) => isDropped(t) && !reportedDropped(t, lastMessage));
 
 /** `cmd` run as a command of its own: at a command boundary, and not with its failure swallowed (`|| true`). */
 const runsCommand = (command: string, cmd: string) => {
@@ -208,22 +209,18 @@ const runsCommand = (command: string, cmd: string) => {
 
 /**
  * Computed, not judged: for each ticked task with an acceptance line, whether that exact command ran and passed after
- * the last code edit, or for `manual`, whether the final message says the user accepted it.
+ * the last code edit. A `manual` task has no command: the user looks at it later, and nothing waits on that.
  */
 function acceptFacts(ticked: Ticked[], actions: Action[], lastEdit: number, lastMessage: string): string {
   const lines = ticked.filter((t) => t.accept).slice(0, 20).map((t) => {
     const name = oneLine(t.text, 60);
     const cmd = squash(t.accept!);
     if (isDropped(t)) {
-      return acceptedManually(t, lastMessage)
+      return reportedDropped(t, lastMessage)
         ? `"${name}" is dropped (closed without doing it), and the final message reports it as dropped: nothing to accept.`
         : `"${name}" is dropped (closed without doing it), but the final message does not report it as dropped.`;
     }
-    if (MANUAL.test(cmd)) {
-      return acceptedManually(t, lastMessage)
-        ? `"${name}" is accepted by the user (manual), and the final message says it was accepted manually.`
-        : `"${name}" is accepted by the user (manual), but the final message does not say the user accepted it.`;
-    }
+    if (MANUAL.test(cmd)) return `"${name}" is for the user to look at later (manual): it has no acceptance command to run.`;
     const runs = actions.flatMap((a, i) => (a.kind === 'run' && runsCommand(squash(a.command), cmd) ? [{ i, ok: a.ok }] : []));
     if (runs.some((r) => r.i > lastEdit && r.ok)) return `"${name}": its acceptance command \`${cmd}\` ran after the last code edit and passed.`;
     if (runs.some((r) => r.ok)) return `"${name}": its acceptance command \`${cmd}\` passed, but only before the last code edit.`;
