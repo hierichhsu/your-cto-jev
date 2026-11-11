@@ -186,7 +186,7 @@ test('stop: a doc approved during the turn but not by the hook goes back to draf
 
 const guard = (root: string, toolName: string, toolInput: unknown) => agentGuard(agents.claude, { cwd: root, toolName, toolInput }, { root, lang: 'en' });
 
-test('guard: self-approval and protected edits are blocked; demotion, SPEC and other files pass', async () => {
+test('guard: self-approval and protected edits are blocked; demotion, SPEC and other files pass', () => {
   const root = repo();
   const concept = `${X}/CONCEPT.md`;
   const blocked = guard(root, 'Edit', { file_path: join(root, concept), old_string: 'Status: draft', new_string: 'Status: approved' });
@@ -207,20 +207,6 @@ test('guard: self-approval and protected edits are blocked; demotion, SPEC and o
   assert.equal(guard(root, 'MultiEdit', { file_path: spec, edits: [{ old_string: '- run()', new_string: '- walk()' }] }).code, 0, 'the Interface is the CTO\'s to change');
   assert.equal(guard(root, 'Write', { file_path: 'src/a.ts', content: 'Status: approved\n' }).code, 0, 'not a sign-off doc');
 
-  // .cto-brain.json holds the baseline the stop check reverts against: the agent cannot rewrite or delete it.
-  for (const [tool, input] of [['Write', { file_path: join(root, '.cto-brain.json'), content: '{}' }], ['Edit', { file_path: '.cto-brain.json', old_string: 'a', new_string: 'b' }], ['PowerShell', { command: 'Remove-Item .cto-brain.json' }]] as const) {
-    const b = guard(root, tool, input);
-    assert.equal(b.code, 2, tool);
-    assert.match(b.stderr.join('\n'), /cto's own record/);
-  }
-  const pre = (command: string) => agentPre(agents.claude, { cwd: root, command }, { root, lang: 'en' });
-  assert.equal((await pre('rm -f .cto-brain.json')).code, 2, 'rm');
-  assert.equal((await pre(`echo '{}' > ./.cto-brain.json`)).code, 2, 'redirect');
-  assert.equal((await pre('mv .cto-brain.json /tmp/x')).code, 2, 'the brain as the source of a move');
-  assert.equal((await pre(`node -e "require('fs').unlinkSync('.cto-brain.json')"`)).code, 2, 'a script');
-  assert.equal((await pre('grep -n signoff_baseline .cto-brain.json')).code, 0, 'reading it passes');
-  assert.equal((await pre('grep -rn cto-brain src/ > out.txt')).code, 0, 'a grep that names it, redirected elsewhere');
-  assert.equal((await pre('git commit -m "fix rm of cto-brain"')).code, 0, 'a commit message that names it');
   assert.equal(guard(root, 'Write', { file_path: `${X}/TASKS.md`, content: 'Status: approved\n' }).code, 0, 'TASKS is not signed off');
 });
 

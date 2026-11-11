@@ -419,12 +419,6 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
   const written = shellWrites(command);
-  // Writes shellWrites cannot name (mv with the brain as source, node -e, python -c): a command whose own program is a
-  // writer and that names the brain. Reads, greps and commit messages that mention it pass.
-  // shortcut: a split or globbed name (`.cto-b*`, '.cto-'+'brain') gets through, like any route the doc guard misses.
-  const WRITER = /^\s*(?:sudo\s+)?(?:node|python3?|perl|ruby|deno|bun|mv|cp|rm|sed|tee|truncate|dd|install|ln)\b/;
-  const segments = command.split(/;|&&|\|\||\|/);
-  if (written.some(isBrainFile) || segments.some((s) => /cto-brain/i.test(s) && WRITER.test(s))) return agent.block([t(lang, 'brain_guard')]);
   if (shellWritesSignoffDoc(root, input.cwd ?? root, written, command)) return agent.block([t(lang, 'signoff_guard')]);
 
   const cfg = loadConfig(root);
@@ -588,24 +582,13 @@ async function signoffReply(input: PromptInput, { root, lang, now }: Env): Promi
   return promptOutput(done, done);
 }
 
-// cto's own record (sign-off baseline, judged ticks, turn bases): an agent that rewrites it switches the stop checks off.
-const isBrainFile = (p: string) => /(?:^|[\\/])\.cto-brain\.json(?:\.[^\\/]*)?$/i.test(p.replace(/['"]/g, ''));
-
-/**
- * Before Edit/Write/MultiEdit/PowerShell: the CTO cannot approve a sign-off doc or change its protected content, nor
- * touch .cto-brain.json, which holds the baseline the stop check reverts against. Fails open.
- */
+/** Before Edit/Write/MultiEdit/PowerShell: the CTO cannot approve a sign-off doc or change its protected content. Fails open. */
 export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env): HookOutput {
   const cwd = input.cwd ?? root;
   const tool = input.toolName;
   try {
-    if (tool === 'PowerShell') {
-      const command = String(input.toolInput?.command ?? '');
-      if (/cto-brain\.json/i.test(command)) return agent.block([t(lang, 'brain_guard')]); // no write parser: any mention
-      return powershellHitsSignoffDoc(root, cwd, command) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
-    }
+    if (tool === 'PowerShell') return powershellHitsSignoffDoc(root, cwd, String(input.toolInput?.command ?? '')) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
     if (tool !== 'Edit' && tool !== 'Write' && tool !== 'MultiEdit') return SILENT;
-    if (isBrainFile(String(input.toolInput?.file_path ?? ''))) return agent.block([t(lang, 'brain_guard')]);
     const file = signoffDoc(root, cwd, String(input.toolInput?.file_path ?? ''));
     if (!file) return SILENT;
     const before = existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : undefined;
