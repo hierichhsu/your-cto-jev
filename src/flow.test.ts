@@ -21,6 +21,16 @@ test('openTasks: after: on a parent waits for its children, not its own box; ful
   assert.deepEqual(duplicateIds(tasks), ['A-2']);
 });
 
+test('parseTasks reads the acceptance line as the stop check does: indented under its own item, first one only', () => {
+  const accept = (...lines: string[]) => Object.fromEntries(parseTasks(lines.join('\n'), 'a', 'TASKS.md').map((t) => [t.id, t.accept ?? '-']));
+  assert.deepEqual(accept('- [ ] A-1 one', '  驗收: `manual: badge @ /list`'), { 'A-1': 'manual: badge @ /list' }, 'backticks off');
+  assert.deepEqual(accept('- [ ] A-1 one', '驗收: npm test'), { 'A-1': '-' }, 'not indented: not its line');
+  assert.deepEqual(accept('- [ ] A-1 one', '  - [ ] no id', '    驗收: npm test'), { 'A-1': '-' }, 'under an item without an id');
+  assert.deepEqual(accept('- [ ] A-1 one', '  accept: ``', '  accept: npm test'), { 'A-1': '-' }, 'an empty first line is the line');
+  assert.deepEqual(accept('- [ ] A-1 one', '  note', '  驗收: npm test'), { 'A-1': 'npm test' }, 'prose before it is skipped');
+  assert.deepEqual(accept('- [ ] A-1 one', '```', 'x', '```', '  驗收: npm test'), { 'A-1': '-' }, 'a fence at the item\'s depth ends it');
+});
+
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'cto-index-'));
   const feature = (slug: string, files: Record<string, string>) => {

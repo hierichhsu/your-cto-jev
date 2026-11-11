@@ -157,10 +157,13 @@ function acceptOf(text: string | undefined, item: string): string | undefined {
     if (!l.trim()) continue;
     if (l.length - l.trimStart().length <= indent || BOX.test(l)) return undefined; // next item, or a child's own line
     const m = ACCEPT.exec(l);
-    if (m) return m[1].replace(/^`+|`+$/g, '').trim() || undefined;
+    if (m) return acceptValue(m[1]);
   }
   return undefined;
 }
+
+/** What follows `驗收:` / `accept:`, without the backticks it may be wrapped in: the one reading for brief, commit and stop. */
+export const acceptValue = (raw: string) => raw.replace(/^`+|`+$/g, '').trim() || undefined;
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 const MANUAL = /^manual\b/i;

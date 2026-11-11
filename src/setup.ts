@@ -62,12 +62,13 @@ function missingIgnores(text: string): string[] {
   let out: string | undefined;
   // check-ignore names only the last matching rule, which would be our block's own line, so ask a scratch repo whose
   // .gitignore is the user's lines alone; it also honours a later `!` rule. Exit 1 means nothing matched.
-  const tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
+  let tmp: string | undefined; // an unwritable tmp dir falls back below instead of crashing setup
   try {
+    tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
     git(tmp, 'init', '-q');
     writeFileSync(join(tmp, '.gitignore'), outside);
     out = git(tmp, 'check-ignore', '--no-index', '-v', ...entries.map(sample));
-  } catch (e) { if ((e as { status?: number }).status === 1) out = ''; } finally { rmSync(tmp, { recursive: true, force: true }); }
+  } catch (e) { if ((e as { status?: number }).status === 1) out = ''; } finally { if (tmp) rmSync(tmp, { recursive: true, force: true }); }
   // git failed: fall back to exact lines.
   if (out === undefined) return entries.filter((l) => !have.has(l));
   const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))

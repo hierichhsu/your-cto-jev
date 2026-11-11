@@ -128,6 +128,7 @@ test('git-commit: manual_measurable asks about new manual tasks only, and only w
   assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-7 Ticks'), 'manual in backticks');
 
   for (const [d, why] of [
+    [tasks('+- [ ] C-8 Flat', '+驗收: manual'), 'an acceptance line not indented under its item'],
     [tasks(' - [ ] C-1 Old', '       驗收: manual', '+- [ ] C-6 New', '+      驗收: npm test'), 'an unchanged manual task'],
     [tasks('-- [ ] C-7 Gone', '+      驗收: manual'), 'the task line was removed'],
     [tasks('+- [ ] C-3 Badge', '+      驗收: npm test -- badge'), 'command acceptance'],

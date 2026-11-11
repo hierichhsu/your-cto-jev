@@ -43,9 +43,8 @@ function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
       const scopes = [dir, ...tasks.filter((t) => t.feature === slug).flatMap((t) => t.files)];
       if (![...touched].some((f) => scopes.some((s) => inScope(f, s)))) continue;
       const read = (f: string) => { try { return readFileSync(join(root, dir, f), 'utf8'); } catch { return ''; } };
-      const unsigned = ['CONCEPT.md'].filter((f) => docStatus(read(f)) !== 'approved');
-      // detail is `slug: files`; the message splits it back so it can name the unsigned files.
-      if (unsigned.length) out.push({ kind: 'flow_signoff', block: true, detail: `${slug}: ${unsigned.join(', ')}` });
+      // CONCEPT.md is the one signed doc of a feature, so the message names it and detail is just the slug.
+      if (docStatus(read('CONCEPT.md')) !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
     }
     return out;
   } catch { return []; }

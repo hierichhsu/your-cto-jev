@@ -96,10 +96,10 @@ test('prompt: Jev agrees -> listed drafts flip to approved, line endings kept, o
   assert.equal(calls, 1);
 });
 
-test('prompt: Jev at or under the threshold -> nothing changes, no output', async () => {
-  jev(0.8);
+test('prompt: a Jev score at the threshold (0.8) -> nothing changes, no output', async () => {
+  jev(0.8); // the stub's score decides; the reply text is not what is under test
   const root = repo();
-  assert.deepEqual(await prompt(root, [human('write the spec'), said(REVIEW)], '好，但 X 改一下'), { code: 0, stderr: [] });
+  assert.deepEqual(await prompt(root, [human('write the spec'), said(REVIEW)]), { code: 0, stderr: [] });
   assert.match(read(root, `${X}/CONCEPT.md`), /Status: draft/);
   assert.match(read(root, P), /Status: Draft/);
 });
@@ -177,7 +177,9 @@ test('guard: self-approval and protected edits are blocked; demotion, SPEC and o
   assert.equal(blocked.code, 2);
   assert.match(blocked.stderr.join('\n'), /only the user can set Status to approved/);
   assert.doesNotMatch(blocked.stderr.join('\n'), /set Status to draft/, 'the doc is already draft: demoting is no fix');
-  assert.equal(guard(root, 'Write', { file_path: P, content: 'Status: approved\n' }).code, 2, 'relative path resolved from cwd');
+  assert.equal(guard(root, 'Write', { file_path: P, content: 'Status: approved\n' }).code, 2, 'relative path from the repo root');
+  const fromFlow = agentGuard(agents.claude, { cwd: join(root, FLOW_DIR), toolName: 'Write', toolInput: { file_path: 'PRODUCT.md', content: 'Status: approved\n' } }, { root, lang: 'en' });
+  assert.equal(fromFlow.code, 2, 'relative path resolved from a cwd other than the root');
 
   writeFileSync(join(root, concept), CONCEPT_APPROVED);
   assert.equal(guard(root, 'Edit', { file_path: concept, old_string: 'Status: approved', new_string: 'Status: draft' }).code, 0, 'demoting is fine');

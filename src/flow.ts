@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ACCEPT, BOX } from './turn.js';
+import { ACCEPT, acceptValue, BOX } from './turn.js';
 
 // docs/cto_jev/features/<slug>/TASKS.md: the one place the development flow keeps state. Everything else (INDEX,
 // ready list, feature dependencies, code ownership) is computed from it. Format: FLOW_SKILL_TEXT in skill.ts.
@@ -35,18 +35,26 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
   const tasks: Task[] = [];
   const stack: { indent: number; id: string }[] = [];
   let fenced = false;
+  // The task whose acceptance line may still follow; the same boundaries as the stop check (turn.ts acceptOf): only the
+  // first acceptance line indented under the item, before the next item or anything at its depth or lower.
+  let open: { task: Task; indent: number } | undefined;
   const lines = text.split(/\r?\n/);
   lines.forEach((raw, i) => {
-    if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; return; }
+    if (/^\s*(```|~~~)/.test(raw)) {
+      if (open && raw.length - raw.trimStart().length <= open.indent) open = undefined; // a fence at the item's depth ends it, as any line does
+      fenced = !fenced;
+      return;
+    }
     if (fenced) return;
     const m = BOX.exec(raw);
     if (!m) {
+      if (!open || !raw.trim()) return;
+      if (raw.length - raw.trimStart().length <= open.indent) { open = undefined; return; }
       const a = ACCEPT.exec(raw);
-      const last = tasks[tasks.length - 1];
-      // Backticks off, as the stop check reads it (turn.ts acceptOf): one reading of the line for brief, commit and stop.
-      if (a && last && !last.accept) last.accept = a[1].replace(/^`+|`+$/g, '').trim() || undefined;
+      if (a) { open.task.accept = acceptValue(a[1]); open = undefined; }
       return;
     }
+    open = undefined;
     const indent = m[1].length;
     const idm = ID.exec(m[3]);
     if (!idm) return;
@@ -64,6 +72,7 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
     const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority ? { priority } : {}), ...(seq ? { seq } : {}) };
     if (parent) tasks.find((p) => p.id === parent)?.children.push(t.id);
     tasks.push(t);
+    open = { task: t, indent };
     stack.push({ indent, id: t.id });
   });
   return tasks;

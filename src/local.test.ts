@@ -19,21 +19,21 @@ test('flow_signoff: a touched feature with tasks but no approved CONCEPT blocks;
   const sec = (p: string) => `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n+x\n`;
   const kinds = (d: string) => localCommitChecks(d, loadConfig(root), root, 'feature').map((f) => `${f.kind}${f.block ? '!' : ''}:${f.detail}`);
 
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: CONCEPT.md'], 'a task file scope');
-  assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/perm/TASKS.md`)), ['flow_signoff!:perm: CONCEPT.md'], 'the feature folder itself');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'a task file scope');
+  assert.deepEqual(kinds(sec(`${FLOW_DIR}/features/perm/TASKS.md`)), ['flow_signoff!:perm'], 'the feature folder itself');
   assert.deepEqual(kinds(sec('src/y/b.ts')), [], 'an unrelated commit');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x, src/one.ts)\n');
   assert.deepEqual(kinds(sec('src/xy/a.ts')), [], 'a scope without trailing slash does not claim a sibling directory');
-  assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm: CONCEPT.md'], 'the directory itself and a single-file scope');
+  assert.deepEqual(kinds(sec('src/x/a.ts') + sec('src/one.ts')), ['flow_signoff!:perm'], 'the directory itself and a single-file scope');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src\\x, ./src/z/)\n');
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: CONCEPT.md'], 'backslash scope');
-  assert.deepEqual(kinds(sec('src/z/a.ts')), ['flow_signoff!:perm: CONCEPT.md'], './ scope');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'backslash scope');
+  assert.deepEqual(kinds(sec('src/z/a.ts')), ['flow_signoff!:perm'], './ scope');
   concept('Approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), [], 'status is case-insensitive');
   concept('approved');
   assert.deepEqual(kinds(sec('src/x/a.ts')), []);
   rmSync(join(dir, 'CONCEPT.md'));
-  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm: CONCEPT.md'], 'missing CONCEPT');
+  assert.deepEqual(kinds(sec('src/x/a.ts')), ['flow_signoff!:perm'], 'missing CONCEPT');
   writeFileSync(join(dir, 'TASKS.md'), '# perm TASKS\n');
   writeIndex(root);
   assert.deepEqual(kinds(sec('src/x/a.ts') + sec(`${FLOW_DIR}/features/perm/TASKS.md`)), [], 'no task ids, nothing to sign off');
@@ -51,7 +51,7 @@ test('flow_signoff: only CONCEPT.md is signed; a SPEC in any state never blocks'
   const diff = 'diff --git a/src/x/a.ts b/src/x/a.ts\n--- a/src/x/a.ts\n+++ b/src/x/a.ts\n+x\n';
   const kinds = () => localCommitChecks(diff, loadConfig(root), root, 'feature').map((f) => `${f.kind}${f.block ? '!' : ''}:${f.detail}`);
 
-  assert.deepEqual(kinds(), ['flow_signoff!:perm: CONCEPT.md'], 'SPEC approved, CONCEPT draft');
+  assert.deepEqual(kinds(), ['flow_signoff!:perm'], 'SPEC approved, CONCEPT draft');
   doc('CONCEPT.md', 'approved');
   assert.deepEqual(kinds(), [], 'both approved');
   doc('SPEC.md', 'draft');
@@ -59,11 +59,11 @@ test('flow_signoff: only CONCEPT.md is signed; a SPEC in any state never blocks'
   rmSync(join(dir, 'SPEC.md'));
   assert.deepEqual(kinds(), [], 'no SPEC yet');
   rmSync(join(dir, 'CONCEPT.md'));
-  assert.deepEqual(kinds(), ['flow_signoff!:perm: CONCEPT.md'], 'CONCEPT missing');
+  assert.deepEqual(kinds(), ['flow_signoff!:perm'], 'CONCEPT missing');
 
-  assert.equal(t('en', 'local_flow_signoff', { detail: 'perm: CONCEPT.md' }),
+  assert.equal(t('en', 'local_flow_signoff', { detail: 'perm' }),
     '[cto] perm has a TASKS.md but CONCEPT.md is not Status: approved. No sign-off, no work: send the user a Review handoff, or remove TASKS.md.');
-  assert.match(t('zh-TW', 'local_flow_signoff', { detail: 'perm: CONCEPT.md' }), /^\[cto\] perm 已經有 TASKS\.md，但 CONCEPT\.md 還不是 Status: approved/);
+  assert.match(t('zh-TW', 'local_flow_signoff', { detail: 'perm' }), /^\[cto\] perm 已經有 TASKS\.md，但 CONCEPT\.md 還不是 Status: approved/);
 });
 
 test('flow_index_stale / flow_dangling_after: warn only on commits that touch the index inputs or the TASKS.md with the bad id', () => {

@@ -105,14 +105,15 @@ export function guardVerdict(before: string | undefined, after: string): 'ok' | 
   return protectedText(before) === protectedText(after) ? 'ok' : 'protected_edit';
 }
 
-/** PowerShell gets no write parser: any mention of a sign-off doc together with docs/cto_jev blocks, reads too. */
+/** PowerShell gets no write parser: any mention of a sign-off doc together with cto_jev blocks, reads too. */
 export function powershellHitsSignoffDoc(root: string, cwd: string, command: string): boolean {
   // git add/diff/log on a sign-off doc is how its changes get committed; only git, in every statement, passes.
   // shortcut: git checkout/restore can still rewrite a doc this way; the pre-commit check is the backstop.
   if (command.split(/;|&&|\|\||\|/).every((s) => /^\s*git\s/i.test(s))) return false;
   if (inFlow(relative(root, '/', cwd))) return true;
   const cmd = command.replace(/\\/g, '/').toLowerCase();
-  return DOC_NAME.test(cmd) && cmd.includes(FLOW_DIR);
+  // cto_jev, not docs/cto_jev: `Join-Path docs cto_jev\...` never writes the two together.
+  return DOC_NAME.test(cmd) && cmd.includes('cto_jev');
 }
 
 /**

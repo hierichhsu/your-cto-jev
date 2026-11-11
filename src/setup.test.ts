@@ -93,6 +93,19 @@ test('setup .gitignore: a repo .gitignore rule covering an entry (.claude/) coun
   assert.doesNotMatch(readFileSync(join(tmpRoot, '.gitignore'), 'utf8'), /\.cto-brain\.json\.\*tmp/);
 });
 
+test('setup .gitignore: an unwritable tmp dir falls back to exact lines instead of crashing', () => {
+  const root = repo();
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  const gone = join(root, 'no-such-dir');
+  Object.assign(process.env, { TEMP: gone, TMP: gone, TMPDIR: gone });
+  try {
+    assert.ok(planSetup(root, ['claude'], false, '').some((c) => c.path === '.gitignore'), 'the block is still planned');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+});
+
 test('setup: a CRLF hook and .gitignore keep one block across re-runs; uninstall restores the user\'s lines, CRLF intact', () => {
   const root = repo();
   const hook = join(root, '.git/hooks/pre-commit');

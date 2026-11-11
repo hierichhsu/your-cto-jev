@@ -5,7 +5,7 @@ import { FLOW_DIR, docStatus, featureIndex, listFeatures, setStatus } from './fl
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { ACCEPT, BOX, droppedUnreported, isCodeFile, isDropped, isManual, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -208,12 +208,16 @@ export function manualQuestion(files: string[]): JevQuestion | undefined {
     // The task above an added `manual` line, whether the task line itself is added or unchanged context: switching an
     // existing task from a command to manual is the change worth asking about.
     let last = '';
+    let depth = 0;
     for (const line of f.split(/\r?\n/)) {
       if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) { last = ''; continue; }
-      const box = BOX.exec(line.slice(1));
-      if (box) { last = line[0] === '-' ? '' : box[3].trim(); continue; }
-      const acc = line[0] === '+' ? ACCEPT.exec(line.slice(1)) : null;
-      if (acc && last && /^`*manual\b/i.test(acc[1])) { tasks.push(last); last = ''; }
+      const body = line.slice(1);
+      const box = BOX.exec(body);
+      if (box) { last = line[0] === '-' ? '' : box[3].trim(); depth = box[1].length; continue; }
+      // As parseTasks reads it: an acceptance line counts only when indented under its item.
+      if (body.trim() && body.length - body.trimStart().length <= depth) { last = ''; continue; }
+      const acc = line[0] === '+' ? ACCEPT.exec(body) : null;
+      if (acc && last && /^manual\b/i.test(acceptValue(acc[1]) ?? '')) { tasks.push(last); last = ''; }
     }
   }
   if (!tasks.length) return undefined;
