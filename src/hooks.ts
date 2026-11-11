@@ -213,7 +213,7 @@ export function manualQuestion(files: string[]): JevQuestion | undefined {
       const box = BOX.exec(line.slice(1));
       if (box) { last = line[0] === '-' ? '' : box[3].trim(); continue; }
       const acc = line[0] === '+' ? ACCEPT.exec(line.slice(1)) : null;
-      if (acc && last && /^manual\b/i.test(acc[1])) { tasks.push(last); last = ''; }
+      if (acc && last && /^`*manual\b/i.test(acc[1])) { tasks.push(last); last = ''; }
     }
   }
   if (!tasks.length) return undefined;

@@ -43,7 +43,8 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
     if (!m) {
       const a = ACCEPT.exec(raw);
       const last = tasks[tasks.length - 1];
-      if (a && last && !last.accept) last.accept = a[1];
+      // Backticks off, as the stop check reads it (turn.ts acceptOf): one reading of the line for brief, commit and stop.
+      if (a && last && !last.accept) last.accept = a[1].replace(/^`+|`+$/g, '').trim() || undefined;
       return;
     }
     const indent = m[1].length;

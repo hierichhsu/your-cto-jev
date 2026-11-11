@@ -85,9 +85,9 @@ test('flow_index_stale / flow_dangling_after: warn only on commits that touch th
   writeFileSync(join(root, tasksMd), '# perm TASKS\n\n- [ ] PERM-1 roles (files: src/x/)\n- [ ] PERM-1 again\n');
   writeIndex(root);
   assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_duplicate_id:PERM-1'], 'duplicate id in a touched TASKS.md');
-  writeFileSync(join(root, tasksMd), '# perm TASKS\n\n- [ ] PERM-1 badge\n      驗收: manual\n- [ ] PERM-2 list\n      驗收: manual: 375px 不橫向捲動 @ http://localhost:3000/list\n- [x] PERM-3 old\n      accept: manual\n- [ ] PERM-4 api\n      accept: npm test\n');
+  writeFileSync(join(root, tasksMd), '# perm TASKS\n\n- [ ] PERM-1 badge\n      驗收: manual\n- [ ] PERM-2 list\n      驗收: manual: 375px 不橫向捲動 @ http://localhost:3000/list\n- [x] PERM-3 old\n      accept: manual\n- [ ] PERM-4 api\n      accept: `npm test`\n- [ ] PERM-5 logo\n      accept: `manual`\n');
   writeIndex(root);
-  assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_manual_bare:PERM-1'], 'an open manual task that does not say what to look at');
+  assert.deepEqual(kinds(sec(tasksMd) + sec(`${FLOW_DIR}/INDEX.md`)), ['flow_manual_bare:PERM-1', 'flow_manual_bare:PERM-5'], 'open manual tasks that do not say what to look at, in backticks too');
   assert.deepEqual(kinds(sec('src/x/a.ts')), [], 'only when the commit touches that TASKS.md');
   assert.match(t('zh-TW', 'local_flow_manual_bare', { detail: 'PERM-1' }), /^\[cto\] PERM-1：驗收行只寫 manual/);
 });

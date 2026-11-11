@@ -124,6 +124,8 @@ test('git-commit: manual_measurable asks about new manual tasks only, and only w
   assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-1 Old'), 'an existing task switched to manual');
   await gitCommit(tasks('+- [ ] C-5 Crlf\r', '+      驗收: manual\r'), { root, lang: 'en' });
   assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-5 Crlf'), 'CRLF TASKS.md');
+  await gitCommit(tasks('+- [ ] C-7 Ticks', '+      驗收: `manual: layout at 375px @ /settings`'), { root, lang: 'en' });
+  assert.ok(sent.questions.manual_measurable?.instructions.includes('- C-7 Ticks'), 'manual in backticks');
 
   for (const [d, why] of [
     [tasks(' - [ ] C-1 Old', '       驗收: manual', '+- [ ] C-6 New', '+      驗收: npm test'), 'an unchanged manual task'],
