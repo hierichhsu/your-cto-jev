@@ -8,7 +8,7 @@ import type { CtoConfig } from './brain.js';
 // Checks that need no model: they run first, work without any API key, and cost nothing.
 // Blocking ones end the commit before Jev is asked; warnings are printed next to Jev's.
 
-export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after' | 'flow_duplicate_id' | 'flow_interface';
+export type LocalKind = 'protected_branch' | 'conflict_marker' | 'env_file' | 'big_file' | 'lock_drift' | 'flow_signoff' | 'flow_index_stale' | 'flow_dangling_after' | 'flow_duplicate_id' | 'flow_manual_bare' | 'flow_interface';
 export interface LocalFinding { kind: LocalKind; block: boolean; detail: string }
 
 const BIG_BYTES = 5 * 1024 * 1024;
@@ -30,7 +30,8 @@ const inScope = (file: string, raw: string) => {
 };
 
 /**
- * Features whose TASKS.md has tasks but whose CONCEPT.md or SPEC.md is not `Status: approved`: no work without sign-off.
+ * Features whose TASKS.md has tasks but whose CONCEPT.md is not `Status: approved`: no work without sign-off.
+ * SPEC.md is the CTO's own document and is not looked at.
  * Only the features this diff touches (their docs folder or a task's `(files:)` scope); any read error means no finding.
  */
 function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
@@ -42,9 +43,8 @@ function flowSignoff(root: string, touched: Set<string>): LocalFinding[] {
       const scopes = [dir, ...tasks.filter((t) => t.feature === slug).flatMap((t) => t.files)];
       if (![...touched].some((f) => scopes.some((s) => inScope(f, s)))) continue;
       const read = (f: string) => { try { return readFileSync(join(root, dir, f), 'utf8'); } catch { return ''; } };
-      const unsigned = ['CONCEPT.md', 'SPEC.md'].filter((f) => docStatus(read(f)) !== 'approved');
-      // detail is `slug: files`; the message splits it back so it can name the unsigned files.
-      if (unsigned.length) out.push({ kind: 'flow_signoff', block: true, detail: `${slug}: ${unsigned.join(', ')}` });
+      // CONCEPT.md is the one signed doc of a feature, so the message names it and detail is just the slug.
+      if (docStatus(read('CONCEPT.md')) !== 'approved') out.push({ kind: 'flow_signoff', block: true, detail: slug });
     }
     return out;
   } catch { return []; }
@@ -66,6 +66,9 @@ function flowIndex(root: string, touched: Set<string>): LocalFinding[] {
     for (const d of danglingAfter(tasks).filter((d) => inTouched(d.task)).slice(0, 5)) out.push({ kind: 'flow_dangling_after', block: false, detail: `${d.task} → ${d.missing}` });
     const dupIn = (id: string) => tasks.some((t) => t.id === id && touched.has(t.file));
     for (const id of duplicateIds(tasks).filter(dupIn).slice(0, 5)) out.push({ kind: 'flow_duplicate_id', block: false, detail: id });
+    // The stop reminder prints what follows "manual:"; without it the user gets a task id and has to go look it up.
+    const bare = tasks.filter((t) => !t.done && touched.has(t.file) && /^manual\s*[:：]?\s*$/i.test(t.accept ?? ''));
+    for (const t of bare.slice(0, 5)) out.push({ kind: 'flow_manual_bare', block: false, detail: t.id });
     return out;
   } catch { return []; }
 }

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ACCEPT, BOX } from './turn.js';
+import { ACCEPT, acceptValue, BOX } from './turn.js';
 
 // docs/cto_jev/features/<slug>/TASKS.md: the one place the development flow keeps state. Everything else (INDEX,
 // ready list, feature dependencies, code ownership) is computed from it. Format: FLOW_SKILL_TEXT in skill.ts.
@@ -19,7 +19,7 @@ export interface Task {
   children: string[];
   after: string[];
   files: string[];
-  accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual" means a human confirms
+  accept?: string; // "驗收: <cmd>" / "accept: <cmd>" on the next line; "manual: <what> @ <where>" is for the user to look at and blocks nothing
   priority?: 'P1' | 'P2' | 'P3'; // P1 first and before any release, P2 (the default when absent) normal, P3 when nothing else is left
   seq?: boolean; // (seq): never run alongside another task, whatever its (files:) say
 }
@@ -35,17 +35,26 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
   const tasks: Task[] = [];
   const stack: { indent: number; id: string }[] = [];
   let fenced = false;
+  // The task whose acceptance line may still follow; the same boundaries as the stop check (turn.ts acceptOf): only the
+  // first acceptance line indented under the item, before the next item or anything at its depth or lower.
+  let open: { task: Task; indent: number } | undefined;
   const lines = text.split(/\r?\n/);
   lines.forEach((raw, i) => {
-    if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; return; }
+    if (/^\s*(```|~~~)/.test(raw)) {
+      if (open && raw.length - raw.trimStart().length <= open.indent) open = undefined; // a fence at the item's depth ends it, as any line does
+      fenced = !fenced;
+      return;
+    }
     if (fenced) return;
     const m = BOX.exec(raw);
     if (!m) {
+      if (!open || !raw.trim()) return;
+      if (raw.length - raw.trimStart().length <= open.indent) { open = undefined; return; }
       const a = ACCEPT.exec(raw);
-      const last = tasks[tasks.length - 1];
-      if (a && last && !last.accept) last.accept = a[1];
+      if (a) { open.task.accept = acceptValue(a[1]); open = undefined; }
       return;
     }
+    open = undefined;
     const indent = m[1].length;
     const idm = ID.exec(m[3]);
     if (!idm) return;
@@ -63,6 +72,7 @@ export function parseTasks(text: string, feature: string, file: string): Task[] 
     const t: Task = { id: idm[1], text, done: m[2] !== ' ', feature, file, line: i + 1, parent, children: [], after, files, ...(priority ? { priority } : {}), ...(seq ? { seq } : {}) };
     if (parent) tasks.find((p) => p.id === parent)?.children.push(t.id);
     tasks.push(t);
+    open = { task: t, indent };
     stack.push({ indent, id: t.id });
   });
   return tasks;
@@ -137,7 +147,7 @@ export interface FeatureRow {
   status: 'planned' | 'active' | 'done';
   code: string[]; // union of (files:), without entries another entry already covers
   dependsOn: string[]; // other features that an (after:) points into
-  signoff: { concept: Signoff; spec: Signoff };
+  signoff: Signoff; // CONCEPT.md's Status; SPEC.md is not signed
 }
 
 const readOr = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return undefined; } };
@@ -174,7 +184,7 @@ export function featureIndex(root: string): FeatureRow[] {
       status: !mine.length ? 'planned' : leaves.every((t) => t.done) ? 'done' : 'active',
       code: files.filter((f) => !files.some((o) => o !== f && f.startsWith(o))),
       dependsOn: uniqSorted(mine.flatMap((t) => t.after).map((id) => featureOf.get(id)).filter((f): f is string => !!f && f !== slug)),
-      signoff: { concept: signoff(join(dir, 'CONCEPT.md')), spec: signoff(join(dir, 'SPEC.md')) },
+      signoff: signoff(join(dir, 'CONCEPT.md')),
     };
   });
 }
@@ -182,7 +192,7 @@ export function featureIndex(root: string): FeatureRow[] {
 export function renderIndex(rows: FeatureRow[]): string {
   const cell = (s: string) => s.replace(/\|/g, '\\|');
   const line = (r: FeatureRow) =>
-    `| ${r.slug} | ${r.status} | ${cell(r.purpose)} | ${r.code.join(', ')} | ${r.dependsOn.join(', ')} | ${r.signoff.concept}/${r.signoff.spec} |`;
+    `| ${r.slug} | ${r.status} | ${cell(r.purpose)} | ${r.code.join(', ')} | ${r.dependsOn.join(', ')} | ${r.signoff} |`;
   return [
     '# INDEX',
     '',

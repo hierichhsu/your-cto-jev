@@ -33,8 +33,9 @@ test('brief shows the flow: ready in order, run-together set, overlap note, bloc
     'docs/cto_jev/ARCHITECTURE.md': '- Database: unknown\n- Host: fly\n',
     [`${F}/billing/CONCEPT.md`]: 'Status: approved\n## 目的\nBill them\n',
     [`${F}/billing/SPEC.md`]: 'Status: approved\n',
-    [`${F}/customers/CONCEPT.md`]: 'Status: approved\n## 目的\nCustomers\n',
-    [`${F}/customers/SPEC.md`]: 'Status: draft\n',
+    [`${F}/customers/CONCEPT.md`]: 'Status: draft\n## 目的\nCustomers\n',
+    [`${F}/customers/SPEC.md`]: '## Interface\n',
+    [`${F}/permissions/SPEC.md`]: 'Status: draft\n', // a pre-0.12 SPEC: its Status line is not a pending sign-off
     [`${F}/customers/TASKS.md`]: [
       '- [ ] CUST-1 Customer list',
       '  - [x] CUST-1.1 Schema (files: src/customers/db/)',
@@ -46,13 +47,12 @@ test('brief shows the flow: ready in order, run-together set, overlap note, bloc
       '',
     ].join('\n'),
     [`${F}/permissions/CONCEPT.md`]: 'Status: approved\n',
-    [`${F}/permissions/SPEC.md`]: 'Status: approved\n',
     [`${F}/permissions/TASKS.md`]: '- [ ] PERM-3 Role cache (files: src/auth/cache/)\n      accept: npm test -- auth\n',
   });
   const lines = brief(root);
   const b = lines.join('\n');
   assert.ok(existsSync(join(root, 'docs/cto_jev/INDEX.md')), 'brief regenerates INDEX.md');
-  assert.match(b, /^Features · 3 · 2 active · 1 planned · sign-off pending: customers \(spec draft\)$/m);
+  assert.match(b, /^Features · 3 · 2 active · 1 planned · sign-off pending: customers \(concept draft\)$/m);
   assert.match(b, /^Ready · 3 \(run together: CUST-1\.2, PERM-3\)$/m);
   const ready = lines.filter((l) => /^  (CUST|PERM)-\S+ .*(accept:)/.test(l));
   assert.deepEqual(ready.map((l) => l.trim().split(/\s+/)[0]), ['CUST-1.2', 'CUST-2', 'PERM-3'], 'ready tasks in file order');
@@ -94,7 +94,7 @@ test('brief without docs/cto_jev/features has no flow section; an empty flow ask
   assert.match(plain, /^Open plan items · PLAN\.md 1 · 1 unchecked\n  - \[ \] add retry$/m);
 
   const empty = brief(repo({ 'docs/cto_jev/features/billing/CONCEPT.md': 'Status: draft\n' })).join('\n');
-  assert.match(empty, /^Features · 1 · 1 planned · sign-off pending: billing \(concept draft, spec missing\)$/m);
+  assert.match(empty, /^Features · 1 · 1 planned · sign-off pending: billing \(concept draft\)$/m);
   assert.match(empty, /^Ready · none · add tasks to docs\/cto_jev\/features\/<slug>\/TASKS\.md$/m);
   assert.ok(!empty.includes('Blocked'));
 });

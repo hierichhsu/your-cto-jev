@@ -62,12 +62,13 @@ function missingIgnores(text: string): string[] {
   let out: string | undefined;
   // check-ignore names only the last matching rule, which would be our block's own line, so ask a scratch repo whose
   // .gitignore is the user's lines alone; it also honours a later `!` rule. Exit 1 means nothing matched.
-  const tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
+  let tmp: string | undefined; // an unwritable tmp dir falls back below instead of crashing setup
   try {
+    tmp = mkdtempSync(join(tmpdir(), 'cto-ignore-'));
     git(tmp, 'init', '-q');
     writeFileSync(join(tmp, '.gitignore'), outside);
     out = git(tmp, 'check-ignore', '--no-index', '-v', ...entries.map(sample));
-  } catch (e) { if ((e as { status?: number }).status === 1) out = ''; } finally { rmSync(tmp, { recursive: true, force: true }); }
+  } catch (e) { if ((e as { status?: number }).status === 1) out = ''; } finally { if (tmp) rmSync(tmp, { recursive: true, force: true }); }
   // git failed: fall back to exact lines.
   if (out === undefined) return entries.filter((l) => !have.has(l));
   const covered = out.split('\n').map((l) => /^\.gitignore:\d+:([^\t]*)\t(.*)$/.exec(l))
@@ -167,7 +168,7 @@ export const FLOW_SKELETON: Record<string, string> = {
   'docs/cto_jev/PRODUCT.md': `# PRODUCT\n\nStatus: draft\n\n${fields(['一句話', '使用者角色', '怎麼賺錢', '方案與限制', '不做的事', '設計約束'])}`,
   'docs/cto_jev/ARCHITECTURE.md': `# ARCHITECTURE\n\nStatus: draft\n\n${fields(['技術棧', '目錄地圖', '外部服務與資料', '驗證指令', '不變的原則'])}`,
   'docs/cto_jev/features/platform/CONCEPT.md': '# platform\n\nStatus: approved\n\n## 目的\n\nInfrastructure: CI, build, deploy, dependencies\n\n## 動機\n\n## 商業規則\n\n## 不做的事\n',
-  'docs/cto_jev/features/platform/SPEC.md': '# platform SPEC\n\nStatus: approved\n\n## Interface\n\n## Constraints\n\n## Internals\n',
+  'docs/cto_jev/features/platform/SPEC.md': '# platform SPEC\n\n## Interface\n\n## Constraints\n\n## Internals\n',
   'docs/cto_jev/features/platform/TASKS.md': '# platform TASKS\n',
   'docs/cto_jev/features/platform/REVIEW.md': '# platform REVIEW\n\nNot reviewed yet.\n',
   'docs/cto_jev/decisions/.gitkeep': '',

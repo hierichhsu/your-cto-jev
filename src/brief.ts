@@ -122,8 +122,7 @@ export function flowLines(root: string): string[] {
   const line = (t: Task, rest: string) => `  ${t.id.padEnd(idW)}  ${(t.priority ? `${t.priority} ` : '') + t.text}  ${rest}`;
 
   const counts = (['active', 'planned', 'done'] as const).filter((s) => rows.some((r) => r.status === s)).map((s) => `${rows.filter((r) => r.status === s).length} ${s}`);
-  const pending = rows.filter((r) => r.signoff.concept !== 'approved' || r.signoff.spec !== 'approved')
-    .map((r) => `${r.slug} (${(['concept', 'spec'] as const).filter((k) => r.signoff[k] !== 'approved').map((k) => `${k} ${r.signoff[k]}`).join(', ')})`);
+  const pending = rows.filter((r) => r.signoff !== 'approved').map((r) => `${r.slug} (concept ${r.signoff})`);
   const L = ['', ['Features', String(rows.length), ...counts, ...(pending.length ? [`sign-off pending: ${pending.join(', ')}`] : [])].join(' · ')];
 
   L.push('', ready.length

@@ -734,17 +734,5 @@
     "ticked": [
       { "file": "docs/cto_jev/features/customers/TASKS.md", "text": "CUST-1.1 List API, filtered by role (files: src/customers/api/)", "children": [], "accept": "npm test -- customers/api" }
     ]
-  },
-  {
-    "id": "a5-manual-confirmed",
-    "set": "holdout",
-    "expect": false,
-    "message": "You confirmed the badge looks right, so CUST-4 is accepted manually and ticked.",
-    "actions": [
-      { "kind": "edit", "file": "docs/cto_jev/features/customers/TASKS.md" }
-    ],
-    "ticked": [
-      { "file": "docs/cto_jev/features/customers/TASKS.md", "text": "CUST-4 Tier badge in the list (files: src/customers/ui/)", "children": [], "accept": "manual" }
-    ]
   }
 ]

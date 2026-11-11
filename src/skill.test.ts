@@ -16,32 +16,40 @@ test('the flow skill routes every review (docs, wave, release) through the share
   assert.ok(FLOW_SKILL_TEXT.includes('self-review'));
 });
 
-test('work runs one wave; work all runs every wave, parks instead of stopping, reviews once, never releases', () => {
+test('work runs every wave with a review each; work all reviews once on a branch; both park instead of stopping and never release', () => {
   const all = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('### cto-jev work all'), FLOW_SKILL_TEXT.indexOf('## Review findings'));
-  assert.ok(FLOW_SKILL_TEXT.includes('**Stop:** after one wave is committed'));
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  for (const s of ['Do not ask before a wave and do not stop between waves', '**Stop:** when no task is left to run', 'Never release', '**Review before you commit.**', 'would this test fail']) assert.ok(work.includes(s), s);
   for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', 'never before the review', 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
-  for (const s of ['Never drop a task to get past a block', 'never drop in this run', 'names no end-to-end command', 'never how you accept', '\`manual\` only for a \`(look)\` line', 'written from them first and seen failing', "that is the user's call", 'screenshots at each width', 'the expectation, not the code, is wrong']) assert.ok(FLOW_SKILL_TEXT.includes(s), s);
+  for (const s of ['never drop a task to get past a block', 'never drop in this run', 'names no end-to-end command', 'never how you accept', '\`manual\` only for a \`(look)\` line', 'written from them first and seen failing', 'the CONCEPT decides', 'screenshots at each width', 'Never change a test to match the code']) assert.ok(FLOW_SKILL_TEXT.includes(s), s);
   assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
 });
 
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
   const t = FLOW_SKILL_TEXT;
-  assert.match(t, /^Review: docs\/cto_jev\/\S+, /m, 'a standalone Review: line with comma-separated repo paths');
-  for (const s of ['Key points:', 'Might be missing:', 'Data:', 'Assumed: ...', 'Partial agreement signs nothing', "cto's hook sets", 'the user edits the line', 'first set \`Status: draft\` with the Edit tool', 'Shell commands may not write', 'before both CONCEPT and SPEC are approved', "! sed -i 's/^Status: draft/Status: approved/'", 'never run it yourself', 'reply "ok" to sign', 'Only with another agent', 'whose CONCEPT or SPEC is not']) assert.ok(t.includes(s), s);
+  assert.match(t, /^Review: docs\/cto_jev\/features\/<slug>\/CONCEPT\.md$/m, 'a standalone Review: line naming only the CONCEPT');
+  assert.ok(t.includes('Review: docs/cto_jev/PRODUCT.md, docs/cto_jev/ARCHITECTURE.md'), 'init lists two, comma-separated');
+  for (const s of ['Key points:', 'Might be missing:', 'Data:', 'Assumed: ...', 'Partial agreement signs nothing', "cto's hook sets", 'the user edits the line', 'first set \`Status: draft\` with the Edit tool', 'Shell commands may not write', 'before the CONCEPT is approved', "! sed -i 's/^Status: draft/Status: approved/'", 'never run it yourself', 'reply "ok" to sign', 'Only with another agent', 'whose CONCEPT is not']) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('they set \`Status: approved\`'), 'the user no longer hand-sets approved in Claude Code');
   assert.equal(t.match(/complete: send a review handoff/g)?.length, 2, 'init and feature both stop with a handoff');
   assert.ok(t.includes('which business rules, error cases, roles/permissions or data cases are missing'), 'docs review third question');
   for (const s of ['\`## Constraints\`, \`## Acceptance\`, \`## Internals\`', 'expected result a script can check', '(look)', 'not your guess', 'end-to-end test command']) assert.ok(t.includes(s), s);
-  const between = (a: string, b: string) => t.slice(t.indexOf(a), t.indexOf(b));
-  for (const [a, b] of [['## Sign-off', '## cto-jev init'], ['## cto-jev feature', '## cto-jev tasks'], ['### cto-jev work all', '## Review findings']]) {
-    assert.ok(between(a, b).includes('\`## Acceptance\`'), `${a} protects Acceptance`);
-  }
   assert.ok(t.includes('At most three rounds per review') && t.includes('If P1s remain after round three') && !t.includes('Do not loop'));
-  const work = t.slice(t.indexOf('## cto-jev work'), t.indexOf('### cto-jev work all'));
-  const all = t.slice(t.indexOf('### cto-jev work all'), t.indexOf('## Review findings'));
-  assert.ok(work.includes('Before dispatching, list what will run') && work.includes('wait for the user to say go'));
-  assert.ok(all.includes('every wave in order') && all.includes('what will be parked') && all.includes('Wait for the user to say go'));
+});
+
+test('the flow skill stops for the user only at the CONCEPT sign-off and the release; SPEC and manual tasks wait on nobody', () => {
+  const t = FLOW_SKILL_TEXT;
+  const between = (a: string, b: string) => t.slice(t.indexOf(a), t.indexOf(b));
+  for (const s of ['in exactly two places', 'SPEC.md is yours', 'What the CONCEPT does not decide, you decide', 'Never ask "shall I start?"', 'Park, do not stop,']) assert.ok(between('## Where you stop', '## Sign-off').includes(s), s);
+  const signoff = between('## Sign-off', '## cto-jev init');
+  assert.ok(!signoff.includes('SPEC.md\`') && !signoff.includes('## Interface'), 'the sign-off rules name no SPEC file or section');
+  assert.ok(signoff.includes('SPEC.md carries no Status line'));
+  const feature = between('## cto-jev feature', '## cto-jev tasks');
+  for (const s of ['Talk before you write, about the CONCEPT only', 'what the user sees when it works', 'Do not walk them through the SPEC', 'No sign-off.', 'SPEC.md: no \`Status:\` line']) assert.ok(feature.includes(s), s);
+  for (const s of ['manual: <what to look at> @ <url, command or screenshot path>', '\`manual\` does not wait for the user', 'does not stop a run', 'This is the one place the user reads them']) assert.ok(t.includes(s), s);
+  assert.ok(between('## cto-jev tasks', '## cto-jev work').includes('names no end-to-end command, do not ask'), 'a missing e2e command is planned, not asked about');
+  for (const s of ['wait for the user to say go', 'Wait for the user to say go', 'accepted manually', 'stops the job there', 'and nothing else', 'command, ask the user', 'ask before adding one']) assert.ok(!t.includes(s), `gone: ${s}`);
 });
 
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {
