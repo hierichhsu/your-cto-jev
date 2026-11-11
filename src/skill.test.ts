@@ -41,15 +41,16 @@ test('the flow skill hands docs over with a Review: line, signs via hook or the 
 test('the flow skill stops for the user only at the CONCEPT sign-off and the release; SPEC and manual tasks wait on nobody', () => {
   const t = FLOW_SKILL_TEXT;
   const between = (a: string, b: string) => t.slice(t.indexOf(a), t.indexOf(b));
-  for (const s of ['in exactly two places', 'SPEC.md is yours', 'What the CONCEPT does not decide, you decide', 'Never ask "shall I start?"', 'Park, do not stop,']) assert.ok(between('## Where you stop', '## Sign-off').includes(s), s);
+  for (const s of ['waits for the user in one place only: before the merge', 'SPEC.md is yours', 'What the CONCEPT does not decide, you decide', 'Never ask "shall I start?"', 'Park, do not stop,']) assert.ok(between('## Where you stop', '## Sign-off').includes(s), s);
   const signoff = between('## Sign-off', '## cto-jev init');
   assert.ok(!signoff.includes('SPEC.md\`') && !signoff.includes('## Interface'), 'the sign-off rules name no SPEC file or section');
   assert.ok(signoff.includes('SPEC.md carries no Status line'));
   const feature = between('## cto-jev feature', '## cto-jev tasks');
   for (const s of ['Talk before you write, about the CONCEPT only', 'what the user sees when it works', 'Do not walk them through the SPEC', 'No sign-off.', 'SPEC.md: no \`Status:\` line']) assert.ok(feature.includes(s), s);
   for (const s of ['manual: <what to look at> @ <url, command or screenshot path>', '\`manual\` does not wait for the user', 'does not stop a run', 'This is the one place the user reads them']) assert.ok(t.includes(s), s);
+  assert.ok(t.includes('never dropped by you'), 'only the user drops a task');
   assert.ok(between('## cto-jev tasks', '## cto-jev work').includes('names no end-to-end command, do not ask'), 'a missing e2e command is planned, not asked about');
-  for (const s of ['wait for the user to say go', 'Wait for the user to say go', 'accepted manually', 'stops the job there', 'and nothing else', 'command, ask the user', 'ask before adding one']) assert.ok(!t.includes(s), `gone: ${s}`);
+  for (const s of ['wait for the user to say go', 'Wait for the user to say go', 'accepted manually', 'stops the job there', 'and nothing else', 'command, ask the user', 'ask before adding one', 'or what it checks is gone', 'in exactly two places']) assert.ok(!t.includes(s), `gone: ${s}`);
 });
 
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {

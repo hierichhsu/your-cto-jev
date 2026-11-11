@@ -150,12 +150,21 @@ export function tickedItems(diff: string, read: (file: string) => string | undef
 /** The acceptance line indented under `item`, before any nested item or anything at the item's depth or lower. */
 function acceptOf(text: string | undefined, item: string): string | undefined {
   const lines = text?.split(/\r?\n/) ?? [];
-  const at = lines.indexOf(item);
+  // The item itself, not an identical line inside an earlier fenced example (parseTasks skips those).
+  let at = -1;
+  for (let i = 0, inFence = false; i < lines.length && at < 0; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) inFence = !inFence;
+    else if (!inFence && lines[i] === item) at = i;
+  }
   if (at < 0) return undefined;
   const indent = BOX.exec(item)![1].length;
+  let fenced = false; // as parseTasks: a fenced example under the item is not its acceptance line
   for (const l of lines.slice(at + 1)) {
     if (!l.trim()) continue;
-    if (l.length - l.trimStart().length <= indent || BOX.test(l)) return undefined; // next item, or a child's own line
+    const depth = l.length - l.trimStart().length;
+    if (/^\s*(```|~~~)/.test(l)) { if (depth <= indent) return undefined; fenced = !fenced; continue; }
+    if (fenced) continue;
+    if (depth <= indent || BOX.test(l)) return undefined; // next item, or a child's own line
     const m = ACCEPT.exec(l);
     if (m) return acceptValue(m[1]);
   }
@@ -166,7 +175,9 @@ function acceptOf(text: string | undefined, item: string): string | undefined {
 export const acceptValue = (raw: string) => raw.replace(/^`+|`+$/g, '').trim() || undefined;
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
-const MANUAL = /^manual\b/i;
+// `manual` as a word (`manual`, `manual: x`, `manual check x`); not a command that starts with it (`manual-check.sh`).
+const MANUAL = /^manual(?![\w./-])/i;
+export const isManualAccept = (accept: string | undefined) => MANUAL.test(squash(accept ?? ''));
 const TASK_ID = /^[A-Z][A-Z0-9]*-\d+(?:\.\d+)*\b/;
 
 const DROPPED = /[(（]dropped[:：]\s*[^)）\s][^)）]*[)）]/i;
@@ -183,7 +194,7 @@ const JOIN = `(?:[ \\t,，、:：*\`()（）]|\\band\\b|和|與|${ANY_ID})*(?:\\
 const LIST = `(?:[\\s,，、*\`()（）-]|\\band\\b|${ANY_ID})*`;
 
 /** A task only a person can judge: `驗收: manual`, or `manual: <what to look at> @ <where>`. */
-export const isManual = (t: Ticked) => MANUAL.test(squash(t.accept ?? ''));
+export const isManual = (t: Ticked) => isManualAccept(t.accept);
 /** What the user is asked to look at: the text after `manual:`, or the task's own words when the line says nothing. */
 export const lookText = (t: Ticked) => squash(t.accept ?? '').replace(/^manual\s*[:：]?\s*/i, '') || squash(t.text.replace(TASK_ID, ''));
 

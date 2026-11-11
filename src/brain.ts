@@ -33,8 +33,12 @@ export interface Brain {
   judged_items?: string[];
   /** Per session: HEAD just before the agent's first `git commit` of the turn, so the done check sees ticks it committed. */
   turn_base?: Record<string, { head: string; at: number }>;
-  /** Per session: sign-off docs approved when the user's last prompt was handled; anything approved beyond it at stop is reverted. */
-  signoff_baseline?: Record<string, string[]>;
+  /**
+   * Per session: sign-off docs approved when the user's last prompt was handled, each with a hash of its text without
+   * the Status line. At stop, a doc approved beyond it, or approved with that text changed, is reverted. A pre-0.12
+   * brain holds a plain list of paths: no hashes, so only the first rule applies.
+   */
+  signoff_baseline?: Record<string, Record<string, string> | string[]>;
   decisions?: Decision[];
 }
 
