@@ -74,6 +74,23 @@ export function reviewMessage(transcriptPath: string, prompt: string): string | 
     : [])).join('\n');
 }
 
+/**
+ * Tool calls, and sub-agents dispatched, since the user's last message. A background agent's completion notice is
+ * not the user, so it does not start a new count. Undefined when the transcript can't be read.
+ */
+export function turnCounts(transcriptPath: string): { tools: number; agents: number } | undefined {
+  const lines = readTranscript(transcriptPath);
+  if (!lines) return undefined;
+  let start = 0;
+  lines.forEach((j, i) => { if (isHumanTurn(j) && !/^\s*<task-notification>/.test(textOf(j.message?.content))) start = i + 1; });
+  let tools = 0, agents = 0;
+  for (const j of lines.slice(start)) {
+    if (j?.type !== 'assistant' || !Array.isArray(j.message?.content)) continue;
+    for (const b of j.message.content) if (b?.type === 'tool_use') { tools++; if (b.name === 'Agent' || b.name === 'Task') agents++; }
+  }
+  return { tools, agents };
+}
+
 /** Actions since the last human message, oldest first. Unreadable or partial transcripts give what could be parsed. */
 export function turnActions(transcriptPath: string, cwd?: string): Action[] {
   const lines = readTranscript(transcriptPath);

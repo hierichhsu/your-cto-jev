@@ -6,7 +6,7 @@ import { FLOW_DIR, docStatus, featureIndex, listFeatures, parseTasks, setStatus 
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, isManualAccept, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, isManualAccept, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnCounts, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
 import { afterEdit, guardVerdict, powershellHitsSignoffDoc, protectedText, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
@@ -426,6 +426,9 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
   // The flow ticks a task and commits it in the same turn; the stop check diffs from here so those ticks are not missed.
   const turnKey = input.sessionId ?? '';
   const at = (now ?? Date.now)();
+  // Claimed before the Jev wait, so a parallel command in the same message finds the turn already warned.
+  const long = longTurn(brain, input, cfg, lang, at);
+  if (long) saveBrain(root, brain);
   const kept = brain.turn_base?.[turnKey];
   // A turn interrupted without a stop event leaves its base behind; one older than TURN_BASE_TTL_MS belongs to it.
   if (/\bgit\b[^;&|]*\bcommit\b/.test(command) && (!kept || at - kept.at > TURN_BASE_TTL_MS)) {
@@ -475,7 +478,10 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
       break;
     }
   }
-  if (out.code === 0 && notices.size) out = agent.notice([...notices]);
+  // A long turn is told once, never blocked: on a block it rides along; otherwise it reaches the agent and the user.
+  if (long && out.code !== 0) out = { ...out, stderr: [...out.stderr, long.agent] };
+  else if (long) out = agent.preContext ? agent.preContext(long.agent, [long.user, ...notices]) : agent.notice([long.user, ...notices]);
+  else if (out.code === 0 && notices.size) out = agent.notice([...notices]);
   saveBrain(root, brain);
   return out;
 }
@@ -493,9 +499,34 @@ const approve = (text: string) => setStatus(text, 'draft', 'approved');
 export async function agentPrompt(input: PromptInput, env: Env): Promise<HookOutput> {
   // Recorded before the Jev call as well: a hook killed by its timeout mid-call still leaves this turn a baseline.
   recordBaseline(input, env);
+  recordTurnStart(input, env);
   const out = await signoffReply(input, env);
   recordBaseline(input, env);
   return out;
+}
+
+/** The user's message starts a turn; a background agent's completion notice does not. */
+function recordTurnStart(input: PromptInput, { root, now }: Env) {
+  if (!input.sessionId || /^\s*<task-notification>/.test(input.prompt)) return;
+  const brain = loadBrain(root);
+  const kept = Object.entries(brain.turn_start ?? {}).filter(([k]) => k !== input.sessionId).slice(-20);
+  brain.turn_start = Object.fromEntries([...kept, [input.sessionId, { at: (now ?? Date.now)() }]]);
+  saveBrain(root, brain);
+}
+
+/** Once per turn: the reminder lines when this turn is past a limit, else undefined. Marks the turn warned. */
+function longTurn(brain: Brain, input: PreInput, cfg: CtoConfig, lang: Lang, at: number): { agent: string; user: string } | undefined {
+  // A sub-agent's command shares the parent's session: the reminder is for the main agent, so a sub-agent never uses it up.
+  const turn = input.sessionId && !input.subagent ? brain.turn_start?.[input.sessionId] : undefined;
+  if (!turn || turn.warned) return undefined;
+  const lim = cfg.turn_limits;
+  const minutes = Math.floor((at - turn.at) / 60000);
+  const counts = input.transcriptPath ? turnCounts(input.transcriptPath) : undefined;
+  const over = (v: number | undefined, limit: number) => limit > 0 && v !== undefined && v > limit;
+  if (!over(minutes, lim.minutes) && !over(counts?.tools, lim.tool_calls) && !over(counts?.agents, lim.agents)) return undefined;
+  turn.warned = true;
+  const v = { minutes, tools: counts?.tools ?? '?', agents: counts?.agents ?? '?' };
+  return { agent: t(lang, 'turn_long_agent', v), user: t(lang, 'turn_long_user', v) };
 }
 
 /** What the user has signed off as this turn starts; the stop check reverts anything approved beyond it. */
@@ -622,6 +653,8 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   const turnKey = input.sessionId ?? '';
   const recorded = brain.turn_base?.[turnKey];
   if (recorded) { delete brain.turn_base![turnKey]; saveBrain(root, brain); }
+  // A background agent's command after the turn ended is not this turn running long; only the user's next message reopens it.
+  if (brain.turn_start?.[turnKey]) { delete brain.turn_start[turnKey]; saveBrain(root, brain); }
   const base = recorded && (now ?? Date.now)() - recorded.at <= TURN_BASE_TTL_MS && isAncestor(root, recorded.head) ? recorded.head : undefined;
   const reverted = revertSelfSigned(root, input.sessionId);
   if (reverted.length && !input.stopHookActive) return agent.block([t(lang, 'signoff_reverted', { files: reverted.join(', ') })]);
