@@ -96,7 +96,7 @@ export function afterEdit(before: string | undefined, toolName: 'Edit' | 'Write'
 }
 
 // Everything but the Status line.
-const protectedText = (text: string) => text.replace(/\r\n/g, '\n').split('\n').filter((l) => docStatus(l) === 'missing').join('\n');
+export const protectedText = (text: string) => text.replace(/\r\n/g, '\n').split('\n').filter((l) => docStatus(l) === 'missing').join('\n');
 
 /** For a sign-off doc. before undefined = new file. Demoting to draft is always ok. */
 export function guardVerdict(before: string | undefined, after: string): 'ok' | 'self_approve' | 'protected_edit' {
@@ -105,13 +105,17 @@ export function guardVerdict(before: string | undefined, after: string): 'ok' | 
   return protectedText(before) === protectedText(after) ? 'ok' : 'protected_edit';
 }
 
-/** PowerShell gets no write parser: any mention of a sign-off doc together with cto_jev blocks, reads too. */
+/**
+ * PowerShell gets no write parser: any mention of a sign-off doc together with cto_jev blocks, reads too; with cwd
+ * inside docs/cto_jev, a sign-off doc name, a glob or a variable blocks.
+ */
 export function powershellHitsSignoffDoc(root: string, cwd: string, command: string): boolean {
   // git add/diff/log on a sign-off doc is how its changes get committed; only git, in every statement, passes.
   // shortcut: git checkout/restore can still rewrite a doc this way; the pre-commit check is the backstop.
   if (command.split(/;|&&|\|\||\|/).every((s) => /^\s*git\s/i.test(s))) return false;
-  if (inFlow(relative(root, '/', cwd))) return true;
   const cmd = command.replace(/\\/g, '/').toLowerCase();
+  // Inside docs/cto_jev a bare name is enough, and a glob or variable may hide one; SPEC.md and listings pass.
+  if (inFlow(relative(root, '/', cwd))) return DOC_NAME.test(cmd) || /[*?$\[]/.test(cmd);
   // cto_jev, not docs/cto_jev: `Join-Path docs cto_jev\...` never writes the two together.
   return DOC_NAME.test(cmd) && cmd.includes('cto_jev');
 }

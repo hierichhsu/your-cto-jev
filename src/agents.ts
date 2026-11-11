@@ -2,7 +2,7 @@
 // stdin shape, its blocking convention, and where setup writes its hook config.
 
 export interface HookOutput { code: number; stdout?: string; stderr: string[] }
-export interface PreInput { command?: string; sessionId?: string; cwd?: string }
+export interface PreInput { command?: string; sessionId?: string; cwd?: string; transcriptPath?: string; subagent?: boolean }
 export interface PostInput { command: string; error: string; cwd?: string; sessionId?: string }
 /** transcriptPath set: read the turn from the agent's transcript (Claude Code). Unset: use cto's own turn log. */
 export interface StopInput { sessionId?: string; cwd?: string; transcriptPath?: string; lastMessage: string; stopHookActive: boolean }
@@ -45,6 +45,8 @@ export interface Agent {
   /** How a stop hook sends the agent back to work. */
   stopBlock(lines: string[]): HookOutput;
   notice(msgs: string[]): HookOutput;
+  /** Before a tool runs: text for the agent itself plus a notice for the user, without blocking. Absent: notice only. */
+  preContext?(forAgent: string, forUser: string[]): HookOutput;
 }
 
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
@@ -54,7 +56,7 @@ const cmdOf = (i: any) => String(i?.tool_input?.command ?? i?.command ?? '');
 // For their stop events exit 2 also means "keep working", with stderr as the reason fed back to the agent.
 const exit2Block = (lines: string[]): HookOutput => ({ code: 2, stderr: lines });
 const systemMessage = (msgs: string[]): HookOutput => ({ code: 0, stdout: JSON.stringify({ systemMessage: msgs.join('\n') }), stderr: [] });
-const nestedPre = (i: any): PreInput => ({ command: str(i?.tool_input?.command), sessionId: str(i?.session_id), cwd: str(i?.cwd) });
+const nestedPre = (i: any): PreInput => ({ command: str(i?.tool_input?.command), sessionId: str(i?.session_id), cwd: str(i?.cwd), transcriptPath: str(i?.transcript_path), subagent: !!str(i?.agent_id) });
 const sessionId = (i: any) => str(i?.session_id);
 
 /** UserPromptSubmit reply: context reaches Claude, user reaches the user; nothing at all when both are absent. */
@@ -107,6 +109,8 @@ export const agents: Record<AgentName, Agent> = {
     block: exit2Block,
     stopBlock: exit2Block,
     notice: systemMessage,
+    // additionalContext reaches Claude next to the tool result; systemMessage reaches the user only.
+    preContext: (forAgent, forUser) => ({ code: 0, stdout: JSON.stringify({ systemMessage: forUser.join('\n'), hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: forAgent } }), stderr: [] }),
   },
   cursor: {
     label: 'Cursor',

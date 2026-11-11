@@ -73,13 +73,17 @@ test('SPEC.md is not a sign-off doc: no path, shell or PowerShell rule applies t
   assert.equal(powershellHitsSignoffDoc(root, root, `Set-Content ${F}/SPEC.md 'x'`), false);
 });
 
-test('powershellHitsSignoffDoc: cwd under docs/cto_jev, or a sign-off doc name plus cto_jev in the command', () => {
+test('powershellHitsSignoffDoc: a sign-off doc name plus cto_jev in the command; inside docs/cto_jev a name, glob or variable', () => {
   const root = 'D:\\Github\\repo';
   assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content docs\\cto_jev\\features\\x\\CONCEPT.md`), true);
   assert.equal(powershellHitsSignoffDoc(root, root, `(gc ${F}/concept.md) -replace 'draft','approved' | sc ${F}/CONCEPT.md`), true);
   assert.equal(powershellHitsSignoffDoc(root, root, `Set-Content (Join-Path docs cto_jev\\features\\x\\CONCEPT.md) 'Status: approved'`), true, 'Join-Path splits docs from cto_jev');
-  assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs\\cto_jev\\features\\x`, 'ls'), true);
-  assert.equal(powershellHitsSignoffDoc(root, '/d/Github/repo/docs/cto_jev', 'ls'), true);
+  const inX = `${root}\\docs\\cto_jev\\features\\x`;
+  assert.equal(powershellHitsSignoffDoc(root, inX, `Set-Content CONCEPT.md 'Status: approved'`), true, 'a bare name inside the flow folder');
+  assert.equal(powershellHitsSignoffDoc(root, inX, `(gc CONC*.md) -replace 'draft','approved' | sc -Path (ls CONC*.md)`), true, 'a glob may hide one');
+  assert.equal(powershellHitsSignoffDoc(root, '/d/Github/repo/docs/cto_jev', `$f = 'PRO' + 'DUCT.md'; sc $f 'x'`), true, 'a variable may hide one');
+  assert.equal(powershellHitsSignoffDoc(root, inX, `Set-Content SPEC.md 'x'`), false, 'SPEC is not guarded');
+  assert.equal(powershellHitsSignoffDoc(root, inX, 'ls'), false, 'a listing');
   assert.equal(powershellHitsSignoffDoc(root, root, `Get-Content ${F}/TASKS.md`), false);
   assert.equal(powershellHitsSignoffDoc(root, root, 'Get-Content README.md CONCEPT.md'), false);
   assert.equal(powershellHitsSignoffDoc(root, `${root}\\docs`, 'git status'), false);

@@ -9,7 +9,14 @@ export interface CtoConfig {
   protected_branches: string[]; // commits on these branches and pushes that delete or rewrite them are blocked locally
   flow: boolean; // the cto development flow (docs/cto_jev/ + cto-flow skill) was chosen in `cto setup`
   thresholds: Record<Signal, number>;
+  turn_limits: TurnLimits; // a turn past any of these gets one reminder to stop and report; 0 turns a limit off
 }
+
+export interface TurnLimits { minutes: number; tool_calls: number; agents: number }
+const turnLimits = (raw: any): TurnLimits => {
+  const n = (k: keyof TurnLimits) => (typeof raw?.[k] === 'number' && raw[k] >= 0 ? raw[k] : DEFAULT_CONFIG.turn_limits[k]);
+  return { minutes: n('minutes'), tool_calls: n('tool_calls'), agents: n('agents') };
+};
 
 export interface RecentError { command: string; error: string; at: string; edited_after?: boolean; warned?: boolean }
 /** One answered yes/no question, with the masked state Jev saw, so `cto report` can turn a wrong call into a calibration case. */
@@ -33,9 +40,15 @@ export interface Brain {
   judged_items?: string[];
   /** Per session: HEAD just before the agent's first `git commit` of the turn, so the done check sees ticks it committed. */
   turn_base?: Record<string, { head: string; at: number }>;
-  /** Per session: sign-off docs approved when the user's last prompt was handled; anything approved beyond it at stop is reverted. */
-  signoff_baseline?: Record<string, string[]>;
+  /**
+   * Per session: sign-off docs approved when the user's last prompt was handled, each with a hash of its text without
+   * the Status line. At stop, a doc approved beyond it, or approved with that text changed, is reverted. A pre-0.12
+   * brain holds a plain list of paths: no hashes, so only the first rule applies.
+   */
+  signoff_baseline?: Record<string, Record<string, string> | string[]>;
   decisions?: Decision[];
+  /** Per session: when the user's last message arrived, and whether this turn was already told it runs long. */
+  turn_start?: Record<string, { at: number; warned?: boolean }>;
 }
 
 /** Sign-off writes approved for the user, so an agent editing .cto.json may raise this bar but never lower it. */
@@ -59,6 +72,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
     signoff_approved: SIGNOFF_FLOOR,
     code_complexity: 2,
   },
+  turn_limits: { minutes: 20, tool_calls: 150, agents: 4 },
 };
 
 const emptyBrain = (): Brain => ({
@@ -95,6 +109,7 @@ export function loadConfig(root: string): CtoConfig {
     protected_branches: Array.isArray(raw.protected_branches) ? raw.protected_branches.filter((b: unknown) => typeof b === 'string') : [],
     flow: raw.flow === true,
     thresholds,
+    turn_limits: turnLimits(raw.turn_limits),
   };
 }
 

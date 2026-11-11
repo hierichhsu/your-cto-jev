@@ -1177,6 +1177,12 @@ test('done check: ticks the agent committed this turn are still judged, with com
   const odd = '- [x] B-1 X\n      accept: `npm run b`\n- [x] B-2 Y\n\nAccept: not mine\n';
   assert.deepEqual(tickedItems([`+++ b/${P}`, '+- [x] B-1 X', '+- [x] B-2 Y'].join('\n'), () => odd).map((t) => t.accept), ['npm run b', undefined],
     'backticks stripped; an outdented line after a blank is not the item\'s');
+  const fenced = '- [x] C-1 X\n  ```md\n  驗收: manual\n  ```\n  accept: npm run c\n- [x] C-2 Y\n```\n  accept: npm run y\n';
+  assert.deepEqual(tickedItems([`+++ b/${P}`, '+- [x] C-1 X', '+- [x] C-2 Y'].join('\n'), () => fenced).map((t) => t.accept), ['npm run c', undefined],
+    'a fenced example is not the acceptance line; a fence at the item\'s depth ends it (as parseTasks reads it)');
+  const example = '```\n- [x] D-1 X\n  accept: manual\n```\n- [x] D-1 X\n  accept: npm run d\n';
+  assert.deepEqual(tickedItems([`+++ b/${P}`, '+- [x] D-1 X'].join('\n'), () => example).map((t) => t.accept), ['npm run d'],
+    'the same line inside an earlier fenced example is not the item');
 
   const edit = { kind: 'edit' as const, file: 'src/a.ts' };
   const run = (command: string, ok = true) => ({ kind: 'run' as const, command, ok, tail: '' });
@@ -1193,6 +1199,10 @@ test('done check: ticks the agent committed this turn are still judged, with com
   assert.match(turnState('A-2 done.', [], look), /"A-2 Badge" is for the user to look at later \(manual\): it has no acceptance command to run/);
   assert.equal(isManual(look[0]), true);
   assert.equal(isManual(t1[0]), false);
+  assert.equal(isManual({ ...t1[0], accept: 'manual-check.sh --all' }), false, 'a command that starts with the word');
+  assert.equal(isManual({ ...t1[0], accept: 'Manual：badge' }), true);
+  assert.equal(isManual({ ...t1[0], accept: 'manual check header at 375px' }), true, 'manual followed by words');
+  assert.equal(isManual({ ...t1[0], accept: './manual.sh' }), false);
   assert.equal(lookText(look[0]), 'Badge', 'a bare manual falls back to the task\'s words, without the id');
   assert.equal(lookText({ ...look[0], accept: 'manual: 375px 不橫向捲動 @ http://localhost:3000/list' }), '375px 不橫向捲動 @ http://localhost:3000/list');
   assert.equal(lookText({ ...look[0], accept: 'Manual：badge colour' }), 'badge colour');

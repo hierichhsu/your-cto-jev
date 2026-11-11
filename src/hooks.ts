@@ -1,13 +1,14 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FLOW_DIR, docStatus, featureIndex, listFeatures, parseTasks, setStatus } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
-import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnState } from './turn.js';
+import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, isManualAccept, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnCounts, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
-import { afterEdit, guardVerdict, powershellHitsSignoffDoc, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
+import { afterEdit, guardVerdict, powershellHitsSignoffDoc, protectedText, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
 import { DECISIONS_KEPT, DECISION_STATE_CHARS, freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type Decision, type RecentError } from './brain.js';
 import { chunkDiff, filterDiff, pool } from './diff.js';
@@ -217,7 +218,7 @@ export function manualQuestion(files: string[]): JevQuestion | undefined {
       // As parseTasks reads it: an acceptance line counts only when indented under its item.
       if (body.trim() && body.length - body.trimStart().length <= depth) { last = ''; continue; }
       const acc = line[0] === '+' ? ACCEPT.exec(body) : null;
-      if (acc && last && /^manual\b/i.test(acceptValue(acc[1]) ?? '')) { tasks.push(last); last = ''; }
+      if (acc && last && isManualAccept(acceptValue(acc[1]))) { tasks.push(last); last = ''; }
     }
   }
   if (!tasks.length) return undefined;
@@ -417,13 +418,17 @@ async function sessionNotice(brain: Brain, sessionId: string | undefined, lang: 
 export async function agentPre(agent: Agent, input: PreInput, { root, lang, now }: Env): Promise<HookOutput> {
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
-  if (shellWritesSignoffDoc(root, input.cwd ?? root, shellWrites(command), command)) return agent.block([t(lang, 'signoff_guard')]);
+  const written = shellWrites(command);
+  if (shellWritesSignoffDoc(root, input.cwd ?? root, written, command)) return agent.block([t(lang, 'signoff_guard')]);
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
   // The flow ticks a task and commits it in the same turn; the stop check diffs from here so those ticks are not missed.
   const turnKey = input.sessionId ?? '';
   const at = (now ?? Date.now)();
+  // Claimed before the Jev wait, so a parallel command in the same message finds the turn already warned.
+  const long = longTurn(brain, input, cfg, lang, at);
+  if (long) saveBrain(root, brain);
   const kept = brain.turn_base?.[turnKey];
   // A turn interrupted without a stop event leaves its base behind; one older than TURN_BASE_TTL_MS belongs to it.
   if (/\bgit\b[^;&|]*\bcommit\b/.test(command) && (!kept || at - kept.at > TURN_BASE_TTL_MS)) {
@@ -437,7 +442,6 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
   let state = maskSensitiveState(command);
   // A command that writes code files (sed -i, redirects, formatters) is a fix attempt, same as an edit tool. Marked
   // before it runs: pre hooks exist for every agent, so this also covers agents without a usable edit event.
-  const written = shellWrites(command);
   if (input.sessionId && !agent.transcriptTurns && agent.stop) {
     for (const f of written) logAction(brain, input.sessionId, { kind: 'edit', file: f === '?' ? `(files written by: ${command.slice(0, 60)})` : f });
     logAction(brain, input.sessionId, { kind: 'run', command: maskSensitiveState(command), ok: true, tail: '' });
@@ -474,7 +478,10 @@ export async function agentPre(agent: Agent, input: PreInput, { root, lang, now 
       break;
     }
   }
-  if (out.code === 0 && notices.size) out = agent.notice([...notices]);
+  // A long turn is told once, never blocked: on a block it rides along; otherwise it reaches the agent and the user.
+  if (long && out.code !== 0) out = { ...out, stderr: [...out.stderr, long.agent] };
+  else if (long) out = agent.preContext ? agent.preContext(long.agent, [long.user, ...notices]) : agent.notice([long.user, ...notices]);
+  else if (out.code === 0 && notices.size) out = agent.notice([...notices]);
   saveBrain(root, brain);
   return out;
 }
@@ -490,15 +497,45 @@ const approve = (text: string) => setStatus(text, 'draft', 'approved');
  * approved. Fails closed (no sign-off) on anything uncertain; never blocks the prompt.
  */
 export async function agentPrompt(input: PromptInput, env: Env): Promise<HookOutput> {
+  // Recorded before the Jev call as well: a hook killed by its timeout mid-call still leaves this turn a baseline.
+  recordBaseline(input, env);
+  recordTurnStart(input, env);
   const out = await signoffReply(input, env);
-  // What the user has signed off as this turn starts; the stop check reverts anything approved beyond it.
-  if (input.sessionId && existsSync(join(env.root, FLOW_DIR))) {
-    const brain = loadBrain(env.root);
-    const kept = Object.entries(brain.signoff_baseline ?? {}).filter(([k]) => k !== input.sessionId).slice(-20);
-    brain.signoff_baseline = Object.fromEntries([...kept, [input.sessionId, approvedDocs(env.root)]]);
-    saveBrain(env.root, brain);
-  }
+  recordBaseline(input, env);
   return out;
+}
+
+/** The user's message starts a turn; a background agent's completion notice does not. */
+function recordTurnStart(input: PromptInput, { root, now }: Env) {
+  if (!input.sessionId || /^\s*<task-notification>/.test(input.prompt)) return;
+  const brain = loadBrain(root);
+  const kept = Object.entries(brain.turn_start ?? {}).filter(([k]) => k !== input.sessionId).slice(-20);
+  brain.turn_start = Object.fromEntries([...kept, [input.sessionId, { at: (now ?? Date.now)() }]]);
+  saveBrain(root, brain);
+}
+
+/** Once per turn: the reminder lines when this turn is past a limit, else undefined. Marks the turn warned. */
+function longTurn(brain: Brain, input: PreInput, cfg: CtoConfig, lang: Lang, at: number): { agent: string; user: string } | undefined {
+  // A sub-agent's command shares the parent's session: the reminder is for the main agent, so a sub-agent never uses it up.
+  const turn = input.sessionId && !input.subagent ? brain.turn_start?.[input.sessionId] : undefined;
+  if (!turn || turn.warned) return undefined;
+  const lim = cfg.turn_limits;
+  const minutes = Math.floor((at - turn.at) / 60000);
+  const counts = input.transcriptPath ? turnCounts(input.transcriptPath) : undefined;
+  const over = (v: number | undefined, limit: number) => limit > 0 && v !== undefined && v > limit;
+  if (!over(minutes, lim.minutes) && !over(counts?.tools, lim.tool_calls) && !over(counts?.agents, lim.agents)) return undefined;
+  turn.warned = true;
+  const v = { minutes, tools: counts?.tools ?? '?', agents: counts?.agents ?? '?' };
+  return { agent: t(lang, 'turn_long_agent', v), user: t(lang, 'turn_long_user', v) };
+}
+
+/** What the user has signed off as this turn starts; the stop check reverts anything approved beyond it. */
+function recordBaseline(input: PromptInput, { root }: Env) {
+  if (!input.sessionId || !existsSync(join(root, FLOW_DIR))) return;
+  const brain = loadBrain(root);
+  const kept = Object.entries(brain.signoff_baseline ?? {}).filter(([k]) => k !== input.sessionId).slice(-20);
+  brain.signoff_baseline = Object.fromEntries([...kept, [input.sessionId, Object.fromEntries(approvedDocs(root).map((f) => [f, docHash(root, f)]))]]);
+  saveBrain(root, brain);
 }
 
 const signoffDocPaths = (root: string) => [
@@ -506,17 +543,26 @@ const signoffDocPaths = (root: string) => [
   ...listFeatures(root).map((s) => `${FLOW_DIR}/features/${s}/CONCEPT.md`),
 ];
 const approvedDocs = (root: string) => signoffDocPaths(root).filter((f) => docStatus(readOr(join(root, f))) === 'approved');
+/** The signed content: everything but the Status line, which draft -> edit -> approved round trips change and restore. */
+const docHash = (root: string, f: string) => createHash('sha256').update(protectedText(readOr(join(root, f)))).digest('hex');
 
 /**
  * At stop: a sign-off doc approved during the turn, but not by the sign-off hook (a glob, a variable, a script the
- * guard could not see), goes back to draft. Returns the files reverted. Sessions without a baseline are skipped.
- * shortcut: a Status the user flips by hand in their editor mid-turn is reverted too; they flip it again after the turn.
+ * guard could not see), goes back to draft; so does one still approved whose signed content changed during the turn
+ * (set to draft, edited, approved again). Returns the files reverted. Sessions without a baseline are skipped.
+ * This catches an agent taking a shortcut, not one set on cheating: whatever the agent can run can also rewrite or
+ * delete the baseline in .cto-brain.json. A boundary against that needs a record the agent cannot write.
+ * shortcut: a Status the user flips, or a signed doc they edit, by hand in their editor mid-turn is reverted too; they redo it after the turn.
+ * shortcut: so is a signed doc that a mid-turn `git checkout`, `pull` or `merge` replaces with another signed version (it
+ * fails safe: the doc is draft until the user signs it again); a baseline per HEAD would tell the two apart.
  */
 function revertSelfSigned(root: string, sessionId: string | undefined): string[] {
-  const baseline = sessionId ? loadBrain(root).signoff_baseline?.[sessionId] : undefined;
-  if (!baseline) return [];
+  const raw = sessionId ? loadBrain(root).signoff_baseline?.[sessionId] : undefined;
+  if (!raw) return [];
+  const baseline: Record<string, string> = Array.isArray(raw) ? Object.fromEntries(raw.map((f) => [f, ''])) : raw;
+  const changed = (f: string) => !(f in baseline) || (baseline[f] !== '' && baseline[f] !== docHash(root, f));
   const reverted: string[] = [];
-  for (const f of approvedDocs(root).filter((f) => !baseline.includes(f))) {
+  for (const f of approvedDocs(root).filter(changed)) {
     try {
       writeFileSync(join(root, f), setStatus(readOr(join(root, f)), 'approved', 'draft'));
       reverted.push(f);
@@ -607,6 +653,8 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   const turnKey = input.sessionId ?? '';
   const recorded = brain.turn_base?.[turnKey];
   if (recorded) { delete brain.turn_base![turnKey]; saveBrain(root, brain); }
+  // A background agent's command after the turn ended is not this turn running long; only the user's next message reopens it.
+  if (brain.turn_start?.[turnKey]) { delete brain.turn_start[turnKey]; saveBrain(root, brain); }
   const base = recorded && (now ?? Date.now)() - recorded.at <= TURN_BASE_TTL_MS && isAncestor(root, recorded.head) ? recorded.head : undefined;
   const reverted = revertSelfSigned(root, input.sessionId);
   if (reverted.length && !input.stopHookActive) return agent.block([t(lang, 'signoff_reverted', { files: reverted.join(', ') })]);
@@ -624,7 +672,7 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
     let old = '';
     try { old = execFileSync('git', ['show', `${base ?? 'HEAD'}:${x.file}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return undefined; }
     const accept = parseTasks(old, '', x.file).find((p) => p.id === taskName(x))?.accept;
-    return accept && !/^manual\b/i.test(accept) ? accept : undefined;
+    return accept && !isManualAccept(accept) ? accept : undefined;
   };
   if (!ticked.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) return out;
 

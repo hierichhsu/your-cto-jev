@@ -164,8 +164,24 @@ test('stop: a doc approved during the turn but not by the hook goes back to draf
   assert.equal(read(root, `${Y}/CONCEPT.md`), '# y\n\nStatus: draft\n\nwhy\n');
   assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/, 'the one the user signed stays');
 
+  // The CONCEPT the user signed: set to draft, rules changed, approved again by a command the guard could not follow.
+  writeFileSync(join(root, X, 'CONCEPT.md'), '# x\n\nStatus: approved\n\nwhy, and store cards after all\n');
+  const edited = await stop(false);
+  assert.equal(edited.code, 2, 'signed content changed during the turn');
+  assert.ok(edited.stderr.join('\n').includes(`back to draft: ${X}/CONCEPT.md.`), edited.stderr.join('\n'));
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: draft/);
+
+  // A brain from before 0.12 holds a plain list: still reverts what was not approved, never on content.
+  const { loadBrain, saveBrain } = await import('./brain.js');
+  const brain = loadBrain(root);
+  brain.signoff_baseline = { ...brain.signoff_baseline, old: [P] };
+  saveBrain(root, brain);
+  writeFileSync(join(root, P), 'Status: approved\nchanged\n');
+  const old = (s: string) => agentStop(agents.claude, { sessionId: s, cwd: root, lastMessage: 'ok', stopHookActive: false }, { root, lang: 'en' });
+  assert.equal((await old('old')).code, 0, 'listed, no hash: kept');
+
   writeFileSync(join(root, P), 'Status: approved\n');
-  assert.equal((await agentStop(agents.claude, { sessionId: 'other', cwd: root, lastMessage: 'ok', stopHookActive: false }, { root, lang: 'en' })).code, 0, 'no baseline: skipped');
+  assert.equal((await old('other')).code, 0, 'no baseline: skipped');
 });
 
 const guard = (root: string, toolName: string, toolInput: unknown) => agentGuard(agents.claude, { cwd: root, toolName, toolInput }, { root, lang: 'en' });
@@ -190,6 +206,7 @@ test('guard: self-approval and protected edits are blocked; demotion, SPEC and o
   assert.equal(guard(root, 'Edit', { file_path: spec, old_string: 'Status: Draft', new_string: 'Status: approved' }).code, 0, 'SPEC is not signed off');
   assert.equal(guard(root, 'MultiEdit', { file_path: spec, edits: [{ old_string: '- run()', new_string: '- walk()' }] }).code, 0, 'the Interface is the CTO\'s to change');
   assert.equal(guard(root, 'Write', { file_path: 'src/a.ts', content: 'Status: approved\n' }).code, 0, 'not a sign-off doc');
+
   assert.equal(guard(root, 'Write', { file_path: `${X}/TASKS.md`, content: 'Status: approved\n' }).code, 0, 'TASKS is not signed off');
 });
 
