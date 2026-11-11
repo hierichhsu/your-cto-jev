@@ -1292,6 +1292,16 @@ test('done check: ticks the agent committed this turn are still judged, with com
   assert.match(out.stderr.join('\n'), /does not say "A-8 dropped"/);
   assert.doesNotMatch(out.stderr.join('\n'), /A-10|A-9/, 'a block carries no manual reminder');
 
+  // A task whose command acceptance is rewritten to manual in the turn it is ticked: Jev judges it, no reminder.
+  git('add', '.'); git('commit', '-qm', 'more');
+  writeFileSync(T, readFileSync(T, 'utf8') + '- [ ] A-20 Export\n      accept: npm test -- export\n');
+  git('add', '.'); git('commit', '-qm', 'A-20');
+  sent = undefined;
+  writeFileSync(T, readFileSync(T, 'utf8').replace('- [ ] A-20 Export\n      accept: npm test -- export', '- [x] A-20 Export\n      accept: manual: export looks right @ /export'));
+  out = await agentStop(agents.codex, { sessionId: 'G', cwd: root, lastMessage: 'Export done.', stopHookActive: false }, env);
+  assert.match(String((sent as any)?.state ?? ''), /"A-20 Export": its acceptance command `npm test -- export` did not run this turn/, 'switched to manual this turn: judged against the old command');
+  assert.doesNotMatch(String(out.stdout ?? ''), /look at: export/, 'and not passed off as a look');
+
   // Six manual ticks in one stop: five with their text, the sixth still named.
   writeFileSync(T, plan.replace('- [x] A-3', '- [ ] A-3') + [11, 12, 13, 14, 15, 16].map((n) => `- [x] A-${n} Page ${n}\n      accept: manual: page ${n} @ /p${n}\n`).join(''));
   out = await agentStop(agents.codex, { sessionId: 'F', cwd: root, lastMessage: 'Pages done.', stopHookActive: false }, env);

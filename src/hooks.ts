@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FLOW_DIR, docStatus, featureIndex, listFeatures, setStatus } from './flow.js';
+import { FLOW_DIR, docStatus, featureIndex, listFeatures, parseTasks, setStatus } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
 import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
@@ -15,7 +15,7 @@ import { personaDict, t, type Lang } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
 import { loadLessons, recordFailure, resolveFromTurn, saveLessons } from './lessons.js';
 import { localCommitChecks, localPushChecks, type LocalFinding } from './local.js';
-import type { JevAnswer, JevQuestion, Signal, TurnAction } from './types.js';
+import type { JevAnswer, JevQuestion, Signal, Ticked, TurnAction } from './types.js';
 
 
 // Exported so the calibration script (scripts/calibrate.mjs) measures exactly the questions that ship.
@@ -617,6 +617,15 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   const judged = new Set(brain.judged_items ?? []);
   const ticked = tickedItems(planDiff(root, base), (f) => { try { return readFileSync(join(root, f), 'utf8'); } catch { return undefined; } })
     .filter((t) => !judged.has(tickedKey(t)));
+  // A task whose acceptance was a command at the turn's base and is manual now is judged against that command: otherwise
+  // rewriting a failing `npm test` to `manual` would close it with no check at all.
+  // shortcut: with no recorded turn base, a switch committed mid-turn is already in HEAD and passes as manual; per-turn snapshots of plan files would close it.
+  const oldCommand = (x: Ticked) => {
+    let old = '';
+    try { old = execFileSync('git', ['show', `${base ?? 'HEAD'}:${x.file}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return undefined; }
+    const accept = parseTasks(old, '', x.file).find((p) => p.id === taskName(x))?.accept;
+    return accept && !/^manual\b/i.test(accept) ? accept : undefined;
+  };
   if (!ticked.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) return out;
 
   // A dropped task the final message does not report is a text fact, not a judgement: cto blocks it itself. Jev
@@ -625,12 +634,13 @@ export async function agentStop(agent: Agent, input: StopInput, { root, lang, no
   const droppedLines = dropped.slice(0, 5).map((m) => t(lang, 'done_dropped', { detail: m.text.slice(0, 80), id: taskName(m) }));
   // A manual task never blocks and has nothing for Jev to judge: the user is told what to look at, with the text, not just the id.
   // shortcut: no reminder when this stop blocks for another reason (the tick is not reminded later); the release report lists them.
-  const looks = ticked.filter((x) => isManual(x) && !isDropped(x));
+  const switched = new Map(ticked.filter((x) => isManual(x) && !isDropped(x)).flatMap((x) => { const c = oldCommand(x); return c ? [[x, c] as const] : []; }));
+  const looks = ticked.filter((x) => isManual(x) && !isDropped(x) && !switched.has(x));
   const lookLines = looks.slice(0, 5).map((m) => t(lang, 'manual_look', { detail: lookText(m).slice(0, 200), id: taskName(m) }));
   // Every wave of a run can end in one stop: the ids past the fifth are still named, so none is silently skipped.
   if (looks.length > 5) lookLines.push(`[cto] … ${looks.slice(5).map(taskName).join(', ')}`);
   const remind = () => (lookLines.length ? agent.notice(lookLines) : out);
-  const rest = ticked.filter((x) => !dropped.includes(x) && !looks.includes(x));
+  const rest = ticked.filter((x) => !dropped.includes(x) && !looks.includes(x)).map((x) => (switched.has(x) ? { ...x, accept: switched.get(x)! } : x));
   const textOnly = [...dropped, ...looks].map(tickedKey);
   if (!rest.length && !actions.some((a) => a.kind === 'edit' && isCodeFile(a.file))) {
     if (dropped.length) brain.blocked_attempts++;
