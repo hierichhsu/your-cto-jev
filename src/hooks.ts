@@ -415,13 +415,16 @@ async function sessionNotice(brain: Brain, sessionId: string | undefined, lang: 
   else if (!notices.size) notices.add(t(lang, 'fail_open', { detail: '' }));
 }
 
+// shortcut: also blocks a read that quotes it (grep -- "--hook claude-prompt"); split the string to search for it.
+const FORGED_HOOK = /--hook\s+["']?(?:claude|cursor|gemini|codex)-(?:menu|prompt)\b/;
+
 export async function agentPre(agent: Agent, input: PreInput, { root, lang, now }: Env): Promise<HookOutput> {
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
   const written = shellWrites(command);
   if (shellWritesSignoffDoc(root, input.cwd ?? root, written, command)) return agent.block([t(lang, 'signoff_guard')]);
   // Piping a forged payload into the sign-off hooks would sign with no user. Stops the obvious route, not a determined one.
-  if (/--hook\s+(?:claude|cursor|gemini|codex)-(?:menu|prompt)\b/.test(command)) return agent.block([t(lang, 'signoff_self_approve')]);
+  if (FORGED_HOOK.test(command)) return agent.block([t(lang, 'signoff_self_approve')]);
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
@@ -695,7 +698,11 @@ export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env)
   const cwd = input.cwd ?? root;
   const tool = input.toolName;
   try {
-    if (tool === 'PowerShell') return powershellHitsSignoffDoc(root, cwd, String(input.toolInput?.command ?? '')) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    if (tool === 'PowerShell') {
+      const ps = String(input.toolInput?.command ?? '');
+      if (FORGED_HOOK.test(ps)) return agent.block([t(lang, 'signoff_self_approve')]);
+      return powershellHitsSignoffDoc(root, cwd, ps) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    }
     if (tool === 'AskUserQuestion') {
       // A sign-off menu answered in advance would let the CTO choose Approve for the user.
       const qs: any[] = Array.isArray(input.toolInput?.questions) ? input.toolInput.questions : [];

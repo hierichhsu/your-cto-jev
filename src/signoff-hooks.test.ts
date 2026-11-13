@@ -267,6 +267,7 @@ test('guard: PowerShell naming a sign-off doc under docs/cto_jev is blocked, rea
   assert.equal(guard(root, 'PowerShell', { command: 'Get-Content docs\\cto_jev\\features\\x\\CONCEPT.md' }).code, 2);
   assert.equal(guard(root, 'PowerShell', { command: 'Get-Content docs\\cto_jev\\features\\x\\SPEC.md' }).code, 0, 'SPEC is not signed off');
   assert.equal(guard(root, 'PowerShell', { command: 'Get-ChildItem src' }).code, 0);
+  assert.equal(guard(root, 'PowerShell', { command: "'{}' | cto --hook claude-menu" }).code, 2, 'a forged menu payload through PowerShell');
 });
 
 test('pre: a Bash write to a sign-off doc is blocked before Jev; a read goes on to Jev', async () => {
@@ -281,7 +282,7 @@ test('pre: a Bash write to a sign-off doc is blocked before Jev; a read goes on 
   assert.equal(calls, 1);
   assert.equal((await pre(`sed -i 's/run/walk/' ${X}/SPEC.md`)).code, 0, 'a shell write to SPEC is an ordinary command');
   assert.equal(calls, 2);
-  for (const forged of ['echo {} | cto --hook claude-menu', 'node dist/index.js --hook claude-prompt < p.json'])
+  for (const forged of ['echo {} | cto --hook claude-menu', 'node dist/index.js --hook claude-prompt < p.json', 'cto --hook "claude-menu" < p.json', "cto --hook 'claude-prompt'"])
     assert.equal((await pre(forged)).code, 2, forged);
   assert.equal(calls, 2, 'blocked before Jev');
   assert.equal((await pre('git commit -m "Bash piping into --hook *-menu is blocked"')).code, 0, 'text naming the rule is not a call');

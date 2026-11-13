@@ -336,6 +336,23 @@ test('an install from before the menu hook: refresh adds claude-menu and widens 
   assert.equal(entries(after, 'PostToolUse', 'cto --hook claude-menu').length, 1);
 });
 
+test('a guard entry shared with a user hook: refresh moves cto\'s guard to its own entry, the user hook keeps its matcher', () => {
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'] });
+  const s = claudeSettings(root);
+  const g = entries(s, 'PreToolUse', 'cto --hook claude-guard')[0];
+  g.matcher = 'Edit|Write|MultiEdit|PowerShell';
+  g.hooks.push({ type: 'command', command: 'my-lint' });
+  writeFileSync(join(root, '.claude/settings.local.json'), JSON.stringify(s, null, 2) + '\n');
+  setup(root, 'en', { agents: wiredAgents(root) });
+  const after = claudeSettings(root);
+  const mine = entries(after, 'PreToolUse', 'cto --hook claude-guard');
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].matcher, GUARD);
+  assert.equal(mine[0].hooks.length, 1);
+  assert.equal(entries(after, 'PreToolUse', 'my-lint')[0].matcher, 'Edit|Write|MultiEdit|PowerShell');
+});
+
 test('an old repo without the prompt and guard hooks: missingHooks names exactly those two; refresh adds them', () => {
   const root = repo();
   setup(root, 'en', { agents: ['claude'] });

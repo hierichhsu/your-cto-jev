@@ -130,7 +130,13 @@ function installAgent(settings: any, name: AgentName) {
       const mine = arr.find((m) => m?.hooks?.some((h: any) => h?.command === command));
       if (!mine) arr.push({ ...(spec.matcher && { matcher: spec.matcher }), hooks: [{ type: 'command', command }] });
       // An older install's matcher (the guard before AskUserQuestion) catches up on refresh.
-      else if (phase === 'guard' && spec.matcher && mine.matcher !== spec.matcher && mine.hooks.length === 1) mine.matcher = spec.matcher;
+      else if (phase === 'guard' && spec.matcher && mine.matcher !== spec.matcher) {
+        if (mine.hooks.length === 1) mine.matcher = spec.matcher;
+        else { // shared with the user's own hooks: leave theirs on the old matcher, move ours to its own entry
+          mine.hooks = mine.hooks.filter((h: any) => h?.command !== command);
+          arr.push({ matcher: spec.matcher, hooks: [{ type: 'command', command }] });
+        }
+      }
     }
   }
 }
