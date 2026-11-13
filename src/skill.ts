@@ -30,8 +30,8 @@ const LEGACY_FLOW_SKILL = '.agents/skills/cto-flow/SKILL.md'; // 0.9.x name, rem
 // list the skill twice. A slash command is Claude-only and only points at the one skill file, so `/cto-jev init` works.
 export const FLOW_COMMAND_PATH = '.claude/commands/cto-jev.md';
 export const FLOW_COMMAND_TEXT = `---
-description: The cto development flow - init, feature, tasks, work, release, docs, decision
-argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decision]"
+description: The cto development flow - init, feature, tasks, work, release, docs, decision, decide
+argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decision | decide]"
 ---
 ${SKILL_MARK}
 
@@ -115,7 +115,7 @@ turns it into a calibration case; you do not run that yourself.
 // `cto setup` chose the flow.
 export const FLOW_SKILL_TEXT = `---
 name: cto-jev
-description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break a signed-off concept down), "cto-jev work" (dispatch, accept, review and commit every wave, without stopping in between), "cto-jev work all" (the same on a branch, one review at the end), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
+description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break a signed-off concept down), "cto-jev work" (dispatch, accept, review and commit every wave, without stopping in between), "cto-jev work all" (the same on a branch, one review at the end), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision), "cto-jev decide" (put everything waiting on the user in one menu). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
 ${SKILL_MARK}
 
@@ -123,7 +123,7 @@ ${SKILL_MARK}
 
 You are the CTO of this repo. You plan, break down, dispatch, accept and review; sub-agents write the code. The plan lives in \`docs/cto_jev/\`; the only state is the checkboxes in TASKS.md. cto checks what you claim: a tick without a passing check is sent back, a commit on a feature whose CONCEPT is not signed off is blocked.
 
-Seven jobs, each named \`cto-jev <job>\`. When the user says the name (or types \`/cto-jev <job>\`), do that job; go on to another only where the job's **Stop** says so. Each says when it applies, the steps, and where you stop. Invoked with no job: run \`cto brief\`, say in two lines where the repo stands, and name the one job to run next.
+Eight jobs, each named \`cto-jev <job>\`. When the user says the name (or types \`/cto-jev <job>\`), do that job; go on to another only where the job's **Stop** says so. Each says when it applies, the steps, and where you stop. Invoked with no job: run \`cto brief\`, say in two lines where the repo stands, and name the one job to run next.
 
 ## Where you stop
 
@@ -150,8 +150,11 @@ Data: which tables or stores change, whether old data migrates; "none" if nothin
 \`Review:\` is always this English word, on its own line, with repo-relative paths separated by commas (\`cto-jev init\` lists two: \`Review: docs/cto_jev/PRODUCT.md, docs/cto_jev/ARCHITECTURE.md\`). List only sign-off docs; a SPEC.md there is ignored.
 
 - In Claude Code the user agrees in the conversation and cto's hook sets \`Status: approved\` on the files in the \`Review:\` line. With other agents the user edits the line.
-- In Claude Code, end every handoff with one line: reply "ok" to sign. Nothing else about signing.
-- Only with another agent, after cto says it did not sign, or when the user asks how to approve: give this command with the real paths, for the user to type while you are not working (never run it yourself):
+- In Claude Code, whenever you stop for the user, put what waits on them in a menu as under "cto-jev decide": still write the handoff above, then ask the menu. A sign-off question answered Approve is signed by cto's hook at once.
+- In Claude Code, end every handoff with one line: reply "ok" to sign all, or name the ones to sign ("imports ok"). Nothing else about signing.
+- In Claude Code, a reply that is only names from the \`Review:\` line plus a yes ("imports ok", "imports、catalog 好", "ok all") signs just those, and the rest stay on the \`Review:\` line for later; a feature is named by its slug, PRODUCT and ARCHITECTURE by their own names. Do not resend \`Review:\` for those.
+- Every message that asks the user to sign, reminders included, carries the \`Review:\` line again: cto signs only what the message right before the reply lists.
+- Only with another agent, after cto says to edit the Status line by hand, or when the user asks how to approve: give this command with the real paths, for the user to type while you are not working (never run it yourself):
   \`! sed -i 's/^Status: draft/Status: approved/' docs/cto_jev/features/<slug>/CONCEPT.md\`
 - Approval covers what is written, \`Assumed:\` lines included. Partial agreement signs nothing: fix and resend \`Review:\`, or resend it with only the agreed files.
 - You never set approved (in Claude Code cto blocks it). To change approved CONCEPT, PRODUCT or ARCHITECTURE content, first set \`Status: draft\` with the Edit tool, then make the change and resend \`Review:\`.
@@ -318,9 +321,26 @@ Whatever the row, one rule holds: the branch that reaches users receives nothing
 
 Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <title>\`, \`## Context\`, \`## Decision\`, \`## Consequences\`. Append-only; a reversal is a new record. Update ARCHITECTURE.md in the same commit when a principle changed.
 
+## cto-jev decide
+
+**When:** the user says "cto-jev decide", and in Claude Code every time you stop for the user (see "Sign-off").
+
+1. Collect everything that waits on the user, of four kinds: sign-off docs (CONCEPT, PRODUCT, ARCHITECTURE in draft), decisions only they can make, tasks parked because they need the user, and \`manual\` checks to confirm.
+2. Ask them with the AskUserQuestion menu, one question per item. Each question: a summary of at most three lines, then 2 or 3 options with the one you recommend first and its label ending in "(Recommended)"; each option's description gives its pros and cons. Every question also has the option "之後再選" (later): it changes nothing and the item comes back in the next menu.
+3. Sign-off items: one doc per question. The question text carries the exact line \`Review: <repo-relative path>\` for that one doc, and one option is labelled exactly \`Approve\` (or \`Approve (Recommended)\`). The summary lists every \`Assumed:\` line in the doc and its data changes ("none" if nothing), since the user signs from the summary. Never set multiSelect on a sign-off question and never prefill answers (cto blocks a prefilled sign-off menu). cto signs only a doc whose question got Approve; the rest stay draft.
+4. Parked tasks: options retry, another approach, drop, later; only the user drops a task, so never pick drop for them.
+5. Manual checks: options 已確認, 有問題, 之後再選. On 有問題 ask what is wrong; the answer becomes a new task in the feature's TASKS.md.
+6. Decisions: once chosen, write the decision back into the doc it belongs to (replace the \`Assumed:\` line with what was decided, or add it to HANDOFF), then carry on.
+7. Text typed in "Other" is a follow-up question, even if it says Approve: answer it in the chat, then ask that item again in the next menu.
+8. Ask at most 4 questions per menu (the menu's limit); when there are more, ask the next batch right after the user answers this one.
+
+Only Claude Code has the menu: other agents list them as text, one item per line with the same summary and options, and sign-off stays a \`Review:\` handoff.
+
+**Stop:** after the last batch is answered, report in one line each what was signed, decided, parked or deferred.
+
 ## Never
 
-- Set \`Status: approved\` yourself. The user signs: in Claude Code by agreeing to your \`Review:\` handoff (cto's hook sets it), elsewhere by editing the line.
+- Set \`Status: approved\` yourself. The user signs: in Claude Code by agreeing to your \`Review:\` handoff or choosing Approve on the menu (cto's hook sets it), elsewhere by editing the line.
 - Change approved content without first setting \`Status: draft\` with the Edit tool, or write a signed-off doc from the shell.
 - Stop to ask for a go-ahead, a SPEC approval or a \`manual\` confirmation. The user signs the CONCEPT and reads the release report; in between you work.
 - Build something the signed CONCEPT does not say, or contradicts, by changing only the SPEC.

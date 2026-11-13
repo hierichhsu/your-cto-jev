@@ -297,7 +297,7 @@ test('refresh on a fresh husky clone (block in .husky/, core.hooksPath not set y
 // FLOW-11.6: Claude's sign-off hooks (UserPromptSubmit + the Edit guard)
 const claudeSettings = (root: string) => JSON.parse(readFileSync(join(root, '.claude/settings.local.json'), 'utf8'));
 const entries = (s: any, event: string, command: string) => (s.hooks?.[event] ?? []).filter((m: any) => m.hooks?.some((h: any) => h.command === command));
-const GUARD = 'Edit|Write|MultiEdit|PowerShell';
+const GUARD = 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion';
 
 test('setup claude: UserPromptSubmit runs the prompt hook, a PreToolUse Edit guard sits beside the Bash one; re-run adds no duplicates', () => {
   const root = repo();
@@ -315,8 +315,25 @@ test('setup claude: UserPromptSubmit runs the prompt hook, a PreToolUse Edit gua
     assert.equal(pre[0].matcher, 'Bash');
     assert.equal(s.hooks.PreToolUse.length, 2, 'Bash and the guard, nothing else');
     assert.equal(s.hooks.UserPromptSubmit.length, 1);
+    const menu = entries(s, 'PostToolUse', 'cto --hook claude-menu');
+    assert.equal(menu.length, 1, `run ${i + 1}: one menu entry`);
+    assert.equal(menu[0].matcher, 'AskUserQuestion');
   }
   assert.deepEqual(missingHooks(root), []);
+});
+
+test('an install from before the menu hook: refresh adds claude-menu and widens the guard matcher to AskUserQuestion', () => {
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'] });
+  const s = claudeSettings(root);
+  s.hooks.PostToolUse = s.hooks.PostToolUse.filter((m: any) => m.matcher !== 'AskUserQuestion');
+  entries(s, 'PreToolUse', 'cto --hook claude-guard')[0].matcher = 'Edit|Write|MultiEdit|PowerShell';
+  writeFileSync(join(root, '.claude/settings.local.json'), JSON.stringify(s, null, 2) + '\n');
+  assert.deepEqual(missingHooks(root), ['cto --hook claude-menu']);
+  setup(root, 'en', { agents: wiredAgents(root) });
+  const after = claudeSettings(root);
+  assert.equal(entries(after, 'PreToolUse', 'cto --hook claude-guard')[0].matcher, GUARD);
+  assert.equal(entries(after, 'PostToolUse', 'cto --hook claude-menu').length, 1);
 });
 
 test('an old repo without the prompt and guard hooks: missingHooks names exactly those two; refresh adds them', () => {

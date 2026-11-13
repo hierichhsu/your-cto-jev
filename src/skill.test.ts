@@ -53,6 +53,16 @@ test('the flow skill stops for the user only at the CONCEPT sign-off and the rel
   for (const s of ['wait for the user to say go', 'Wait for the user to say go', 'accepted manually', 'stops the job there', 'and nothing else', 'command, ask the user', 'ask before adding one', 'or what it checks is gone', 'in exactly two places']) assert.ok(!t.includes(s), `gone: ${s}`);
 });
 
+test('cto-jev decide: one menu for everything waiting on the user; Sign-off sends Claude Code there at every stop', () => {
+  const t = FLOW_SKILL_TEXT;
+  const decide = t.slice(t.indexOf('## cto-jev decide'), t.indexOf('## Never'));
+  assert.ok(decide.length > 20, 'the job exists before ## Never');
+  for (const s of ['(Recommended)', '之後再選', 'Assumed:', 'at most 4 questions', 'one doc per question', 'Approve', 'only the user drops', 'write the decision back', 'becomes a new task', 'other agents list them as text', 'Review: <repo-relative path>', 'multiSelect', 'prefill', '"Other"']) assert.ok(decide.includes(s), s);
+  const signoff = t.slice(t.indexOf('## Sign-off'), t.indexOf('## cto-jev init'));
+  assert.ok(signoff.includes('whenever you stop for the user, put what waits on them in a menu as under "cto-jev decide"'));
+  assert.ok(FLOW_COMMAND_TEXT.includes('decide') && t.includes('Eight jobs'));
+});
+
 test('syncFlowSkill writes /cto-jev for Claude Code only, and removes the 0.9.x cto-flow skill', () => {
   const root = mkdtempSync(join(tmpdir(), 'cto-jev-cmd-'));
   const legacy = join(root, '.agents/skills/cto-flow/SKILL.md');
