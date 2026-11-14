@@ -332,7 +332,7 @@ Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <titl
 4. Parked tasks: options retry, another approach, drop, later; only the user drops a task, so never pick drop for them.
 5. Manual checks: options 已確認, 有問題, 之後再選. On 有問題 ask what is wrong; the answer becomes a new task in the feature's TASKS.md.
 6. Decisions: once chosen, write the decision back into the doc it belongs to (replace the \`Assumed:\` line with what was decided, or add it to HANDOFF), then carry on.
-7. Text typed in "Other" is a follow-up question, even if it says Approve: answer it in the chat, then ask that item again in the next menu.
+7. Text typed in "Other" is a follow-up question: answer it in the chat, then ask that item again in the next menu. The one exception: text that equals an offered label exactly (e.g. just "Approve") counts as choosing that option, and cto has already signed the doc.
 8. Ask at most 4 questions per menu (the menu's limit); when there are more, ask the next batch right after the user answers this one.
 
 Only Claude Code has the menu: other agents list them as text, one item per line with the same summary and options, and sign-off stays a \`Review:\` handoff.

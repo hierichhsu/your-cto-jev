@@ -57,7 +57,7 @@ test('cto-jev decide: one menu for everything waiting on the user; Sign-off send
   const t = FLOW_SKILL_TEXT;
   const decide = t.slice(t.indexOf('## cto-jev decide'), t.indexOf('## Never'));
   assert.ok(decide.length > 20, 'the job exists before ## Never');
-  for (const s of ['(Recommended)', '之後再選', 'Assumed:', 'at most 4 questions', 'one doc per question', 'Approve', 'only the user drops', 'write the decision back', 'becomes a new task', 'other agents list them as text', 'Review: <repo-relative path>', 'multiSelect', 'prefill', '"Other"', 'never point to "listed above"', 'one question each, quoting the line']) assert.ok(decide.includes(s), s);
+  for (const s of ['(Recommended)', '之後再選', 'Assumed:', 'at most 4 questions', 'one doc per question', 'Approve', 'only the user drops', 'write the decision back', 'becomes a new task', 'other agents list them as text', 'Review: <repo-relative path>', 'multiSelect', 'prefill', '"Other"', 'never point to "listed above"', 'one question each, quoting the line', 'equals an offered label exactly']) assert.ok(decide.includes(s), s);
   const signoff = t.slice(t.indexOf('## Sign-off'), t.indexOf('## cto-jev init'));
   assert.ok(signoff.includes('whenever you stop for the user, put what waits on them in a menu as under "cto-jev decide"'));
   assert.ok(FLOW_COMMAND_TEXT.includes('decide') && t.includes('Eight jobs'));
