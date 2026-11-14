@@ -11,6 +11,7 @@ const DOC_NAME = /\b(?:concept|product|architecture)\.md\b/i;
 const REVIEW = /^[\s>*+\-_`]*Review[*_`]*\s*:[*_`]*\s*(.*)$/;
 
 const lastReview = (lines: string[]) => lines.findLastIndex((l) => REVIEW.test(l));
+export const reviewLineCount = (message: string) => message.split(/\r?\n/).filter((l) => REVIEW.test(l)).length;
 
 /** Paths on the last `Review:` line of a message; tolerates bold, quotes, bullets, backticks and code fences. */
 export function reviewPaths(message: string): string[] {

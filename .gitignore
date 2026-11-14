@@ -4,3 +4,6 @@ dist/
 .cto-brain.json.*tmp
 debug_stdin.json
 .impeccable/
+# >>> YOUR CTO JEV START >>>
+.claude/settings.local.json
+# <<< YOUR CTO JEV END <<<
