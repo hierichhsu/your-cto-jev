@@ -30,8 +30,8 @@ const LEGACY_FLOW_SKILL = '.agents/skills/cto-flow/SKILL.md'; // 0.9.x name, rem
 // list the skill twice. A slash command is Claude-only and only points at the one skill file, so `/cto-jev init` works.
 export const FLOW_COMMAND_PATH = '.claude/commands/cto-jev.md';
 export const FLOW_COMMAND_TEXT = `---
-description: The cto development flow - init, feature, tasks, work, release, docs, decision, decide
-argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decision | decide]"
+description: The cto development flow - init, feature, tasks, work, release, docs, decide
+argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decide]"
 ---
 ${SKILL_MARK}
 
@@ -317,7 +317,7 @@ Whatever the row, one rule holds: the branch that reaches users receives nothing
 
 ## cto-jev decision
 
-**When:** the user says "cto-jev decision", a commit warns \`architecture_undocumented\`, or a change adds or removes a service, store, dependency, layer or boundary, or bends a line in \`## 不變的原則\`.
+**When:** you start it yourself, the user never has to ask: a commit warns \`architecture_undocumented\`, or a change adds or removes a service, store, dependency, layer or boundary, or bends a line in \`## 不變的原則\`.
 
 Write \`docs/cto_jev/decisions/NNNN-<slug>.md\` (next number): \`# <NNNN>: <title>\`, \`## Context\`, \`## Decision\`, \`## Consequences\`. Append-only; a reversal is a new record. Update ARCHITECTURE.md in the same commit when a principle changed.
 
