@@ -36,4 +36,6 @@ export type Signal =
   | 'test_tampering'
   | 'done_unverified'
   | 'signoff_approved'
+  | 'review_unresolved'
+  | 'review_prompt'
   | 'code_complexity';

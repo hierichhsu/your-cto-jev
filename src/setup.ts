@@ -13,14 +13,16 @@ import { FLOW_DIR } from './flow.js';
 const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
 // Keep the block minimal: all logic (including the git diff call) lives in the package, so npm update upgrades every repo.
-// A hook's result is its last command's; once our block is last, a failing line above it (biome, lint) would be ignored.
+// A hook's result is its last command's. pre-push's block is appended, so a failing line above it would decide the result:
+// KEEP_FAIL passes that status on. pre-commit's block goes first, and a failing setup line above it (nvm's `[ -s … ] && …`)
+// must not decide the commit, so it has no KEEP_FAIL.
 const KEEP_FAIL = 's=$?; [ $s -eq 0 ] || exit $s\n';
-const HOOK_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
+const HOOK_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
 // pre-push gets git's ref lines on stdin; they are passed straight through.
 const PUSH_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nfi\n';
 export const GIT_HOOKS: [string, string][] = [['pre-commit', HOOK_BODY], ['pre-push', PUSH_BODY]];
 // settings.local.json is Claude Code's per-machine file; often only the global gitignore covers it, which linters like biome never read.
-const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n';
+const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\n.cto-brain.json.lock*\ndebug_stdin.json\n.claude/settings.local.json\n';
 const OURS = (cmd?: unknown) => typeof cmd === 'string' && cmd.startsWith('cto --hook ');
 
 const block = (body: string) => `${START}\n${body}${END}\n`;
@@ -31,9 +33,10 @@ const blockRe = /(\r?\n)?# >>> YOUR CTO JEV START >>>\r?\n[\s\S]*?# <<< YOUR CTO
 const ADDED_EOL = '# cto ended the line above';
 
 export function removeBlock(content: string): string {
-  // The newline before the block is the user's unless the block carries ADDED_EOL: keep it, in their line ending,
-  // even when an editor stripped the newline after END.
-  return content.replace(blockRe, (m, lead?: string) => (m.includes(ADDED_EOL) ? '' : lead ?? ''));
+  // The newline before the block is the user's unless an appended block (ADDED_EOL, at the end of the file) added it: keep it,
+  // in their line ending, even when an editor stripped the newline after END.
+  return content.replace(blockRe, (m, lead: string | undefined, _trail: string | undefined, offset: number, whole: string) =>
+    m.includes(ADDED_EOL) && offset + m.length === whole.length ? '' : lead ?? '');
 }
 
 export function appendBlock(content: string, body: string): string {
@@ -41,9 +44,48 @@ export function appendBlock(content: string, body: string): string {
   return base && !base.endsWith('\n') ? `${base}\n${block(`${ADDED_EOL}\n${body}`)}` : base + block(body);
 }
 
-/** An exit 0 outside our block means the appended block never runs. */
+/**
+ * A hook file: cto's block goes first (after a shebang), before the user's commands, so a formatter or linter already in
+ * the file cannot run ahead of the gate. The user's content is kept as it is.
+ */
+/** Places the block with `body` in `base`: after a shebang and the leading setup lines, before the rest. */
+function placeText(base: string, body: string): string {
+  const shebang = /^#![^\n]*\n/.exec(base)?.[0] ?? '';
+  let rest = base.slice(shebang.length);
+  // Leading lines that only set variables, export, source, or change PATH stay above the block: the block runs after them.
+  let head = '';
+  for (let m = /^[^\n]*(?:\n|$)/.exec(rest); m && m[0] && SETUP_LINE.test(m[0]); m = /^[^\n]*(?:\n|$)/.exec(rest)) {
+    head += m[0];
+    rest = rest.slice(m[0].length);
+  }
+  // A last setup line with no newline gets one from cto: the block marks it, so uninstall takes it back.
+  const eol = head !== '' && !head.endsWith('\n');
+  if (eol) head += '\n';
+  return shebang + head + block(eol ? `${ADDED_EOL}\n${body}` : body) + rest;
+}
+export function placeBlock(content: string, body: string): string {
+  return placeText(removeBlock(content), body);
+}
+/** A line that only sets a variable (bare, or quoted value), exports one, or is a blank or comment line. A command after it is not setup. */
+const ASSIGN = '[A-Za-z_]\\w*=(?:"[^"]*"|\'[^\']*\'|\\S*)';
+// eval "$(direnv hook …)" and nvm's `[ -s … ] && \. …` are one-line environment setup too.
+const SETUP_LINE = new RegExp(`^\\s*(?:export\\s+[A-Za-z_]\\w*\\s*$|(?:export\\s+)?${ASSIGN}\\s*$|source\\s|\\.\\s|eval\\s+["']?\\$\\(|\\[[^\\]]*\\]\\s*&&\\s*(?:\\\\?\\.|source)\\s|#|$)`);
+/** True when a line above the block (after the shebang) is not setup: moving the block would move those lines too. */
+export function userLinesAbove(content: string): boolean {
+  const at = content.indexOf(START);
+  if (at < 0) return false;
+  return content.slice(0, at).replace(/^#![^\n]*\n/, '').split('\n').some((l) => !SETUP_LINE.test(l + '\n'));
+}
+/** An exit 0 outside our block means an appended block never runs (pre-push, where the block is appended). */
 export function hasEarlyExit(content: string): boolean {
   return /^\s*exit\s+0\b/m.test(removeBlock(content));
+}
+/**
+ * The block for a git hook: pre-commit gets cto's block first, so a formatter or linter the user wrote runs after the
+ * gate. pre-push keeps cto last: git-lfs and others read the ref lines on stdin, and cto's block must not run before them.
+ */
+export function placeFor(name: string, content: string, body: string): string {
+  return name === 'pre-commit' ? placeBlock(content, body) : appendBlock(content, body);
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -53,7 +95,7 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd,
  * git says matches (`.claude/` covers `.claude/settings.local.json`). Global excludesFile and .git/info/exclude do not
  * count; linters like biome never read them. shortcut: a rule in a nested .gitignore does not count either.
  */
-function missingIgnores(text: string): string[] {
+export function missingIgnores(text: string): string[] {
   const outside = removeBlock(text);
   const have = new Set(outside.split(/\r?\n/).map((l) => l.trim()));
   const entries = IGNORE_BODY.split('\n').filter(Boolean);
@@ -130,16 +172,46 @@ function installAgent(settings: any, name: AgentName) {
     } else {
       const mine = arr.find((m) => m?.hooks?.some((h: any) => h?.command === command));
       if (!mine) arr.push({ ...(spec.matcher && { matcher: spec.matcher }), hooks: [{ type: 'command', command }] });
-      // An older install's matcher (the guard before AskUserQuestion) catches up on refresh.
-      else if (phase === 'guard' && spec.matcher && mine.matcher !== spec.matcher) {
-        if (mine.hooks.length === 1) mine.matcher = spec.matcher;
-        else { // shared with the user's own hooks: leave theirs on the old matcher, move ours to its own entry
-          mine.hooks = mine.hooks.filter((h: any) => h?.command !== command);
-          arr.push({ matcher: spec.matcher, hooks: [{ type: 'command', command }] });
-        }
-      }
+      else if (phase === 'guard' && spec.matcher) catchUpGuard(arr, spec.matcher, command);
     }
   }
+}
+
+/** An older install's guard matcher (before AskUserQuestion, before Agent) catches up. Returns whether it changed. */
+function catchUpGuard(arr: any[], matcher: string, command: string): boolean {
+  const mine = arr.find((m) => m?.hooks?.some((h: any) => h?.command === command));
+  if (!mine || mine.matcher === matcher) return false;
+  if (mine.hooks.length === 1) mine.matcher = matcher;
+  else { // shared with the user's own hooks: leave theirs on the old matcher, move ours to its own entry
+    mine.hooks = mine.hooks.filter((h: any) => h?.command !== command);
+    arr.push({ matcher, hooks: [{ type: 'command', command }] });
+  }
+  return true;
+}
+
+/**
+ * SessionStart: what the review gate needs from a wired Claude Code project's settings, nothing more. The guard
+ * entry's matcher catches up (it must see Agent) and the SubagentStop hook is added when absent. Other cto hooks the
+ * user took out stay out; `setup --refresh` re-adds everything. Git hooks, .gitignore and the user's entries are not touched.
+ * Returns the settings path when it changed (dryRun: would change); undefined when current, unwired or not valid JSON.
+ */
+export function refreshClaudeHooks(root: string, dryRun: boolean): string | undefined {
+  if (!wiredAgents(root).includes('claude')) return undefined;
+  const a = agents.claude, rel = a.settings;
+  const text = readFileSync(join(root, rel), 'utf8');
+  let json: any;
+  try { json = JSON.parse(text); } catch { return undefined; }
+  if (!validShape(json, 'claude')) return undefined;
+  json.hooks ??= {};
+  const guardArr = json.hooks[a.guard!.event];
+  let changed = Array.isArray(guardArr) && catchUpGuard(guardArr, a.guard!.matcher!, hookCommand('claude', 'guard'));
+  const agentCmd = hookCommand('claude', 'agent');
+  if (!JSON.stringify(json.hooks).includes(agentCmd)) {
+    (json.hooks[a.agent!.event] ??= []).push({ hooks: [{ type: 'command', command: agentCmd }] });
+    changed = true;
+  }
+  if (!changed) return undefined;
+  return dryRun || writeJsonIfUnchanged(join(root, rel), text, json) ? rel : undefined;
 }
 
 /** Remove every cto hook from a settings object (both styles). Returns whether anything changed. */
@@ -207,7 +279,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   for (const [name, body] of GIT_HOOKS) {
     const p = join(dir, name);
     const c = existsSync(p) ? readFileSync(p, 'utf8') : '';
-    if (!c || appendBlock(c, body) !== c) at(join(relative(real(root), real(dir)), name).replace(/\\/g, '/'), 'write', p);
+    if (!c || placeFor(name, c, body) !== c) at(join(relative(real(root), real(dir)), name).replace(/\\/g, '/'), 'write', p);
   }
   for (const name of agentNames) {
     const p = agents[name].settings;
@@ -333,13 +405,13 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     return { code: 0, lines };
   }
 
-  // 1. git pre-commit and pre-push: cover every agent and humans alike. Append a marked block, never overwrite.
+  // 1. git hooks: cover every agent and humans alike. Our marked block goes before the user's commands; their content is kept.
   for (const [name, body] of GIT_HOOKS) {
     const hookPath = join(dir, name);
     if (existsSync(hookPath)) {
       const c = readFileSync(hookPath, 'utf8');
-      writeFileSync(hookPath, appendBlock(c, body));
-      if (hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
+      writeFileSync(hookPath, placeFor(name, c, body));
+      if (name !== 'pre-commit' && hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
     } else {
       mkdirSync(dirname(hookPath), { recursive: true });
       writeFileSync(hookPath, '#!/bin/sh\n' + block(body));

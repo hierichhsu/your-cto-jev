@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isMainModel, isSubagentModel, switchScope, writeJsonIfUnchanged } from './models.js';
+import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isMainModel, isSubagentModel, switchScope, writeJsonIfUnchanged, writeTextIfUnchanged } from './models.js';
 import { AGENT_FILES, RULES_BLOCK, SKILL_MARK, SKILL_PATH, SKILL_TEXT, VERSION_LINE, fileVersion, staleGuidance, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 
@@ -410,4 +411,123 @@ test('switchScope local: user settings lose the three keys and agent files, the 
   assert.deepEqual(json(user), { theme: 'dark', ...CONSISTENT });
   assert.deepEqual(json(join(root, '.claude', 'settings.local.json')), {});
   assert.ok(existsSync(join(userAgents, 'cto-reviewer.md')));
+});
+
+test('files check: a user command above cto\'s block is reported for cto setup --refresh; the file is not moved, autofix on or off', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const hook = join(root, '.git', 'hooks', 'pre-commit');
+  const block = '# >>> YOUR CTO JEV START >>>\nold\n# <<< YOUR CTO JEV END <<<\n';
+  const text = '#!/bin/sh\nnpx biome check\n' + block;
+  write(hook, text);
+  const off = driftCheck(root, { ...opts, models: false, autoFix: false });
+  assert.equal(readFileSync(hook, 'utf8'), text, 'dry run writes nothing');
+  assert.ok(off.reported.some((l) => /pre-commit/.test(l) && /cto setup --refresh/.test(l)), off.reported.join('\n'));
+  const on = driftCheck(root, { ...opts, models: false });
+  assert.equal(readFileSync(hook, 'utf8'), text, 'not moved silently');
+  assert.ok(on.reported.some((l) => /pre-commit/.test(l) && /cto setup --refresh/.test(l)), on.reported.join('\n'));
+  assert.ok(!on.fixed.some((l) => /pre-commit/.test(l)), on.fixed.join('\n'));
+});
+
+test('files check: a .gitignore block without the lock entry gets it on the next session; autofix off only says so', () => {
+  const { root, opts } = fresh();
+  write(join(root, '.claude', 'settings.local.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cto --hook x-stop' }] }] } }));
+  const ignore = join(root, '.gitignore');
+  const before = '# >>> YOUR CTO JEV START >>>\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n# <<< YOUR CTO JEV END <<<\n';
+  write(ignore, before);
+  const off = driftCheck(root, { ...opts, models: false, autoFix: false });
+  assert.equal(readFileSync(ignore, 'utf8'), before, 'dry run writes nothing');
+  assert.ok(off.reported.some((l) => l.includes('.gitignore')), off.reported.join('\n'));
+  const on = driftCheck(root, { ...opts, models: false, autoFix: true });
+  assert.ok(readFileSync(ignore, 'utf8').includes('.cto-brain.json.lock*'), 'the entry is added');
+  assert.ok(on.fixed.some((l) => l.includes('.gitignore')), on.fixed.join('\n'));
+});
+
+test('files check: a .gitignore that already has the lock line is not checked against git or rewritten', () => {
+  const { root, opts } = fresh();
+  write(join(root, '.claude', 'settings.local.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cto --hook x-stop' }] }] } }));
+  const ignore = join(root, '.gitignore');
+  write(ignore, '.cto-brain.json.lock*\n');
+  driftCheck(root, { ...opts, models: false, autoFix: true });
+  assert.equal(readFileSync(ignore, 'utf8'), '.cto-brain.json.lock*\n');
+});
+
+test('files check: when only the lock line is missing, that line goes into the cto block and the other lines stay as they are', () => {
+  const { root, opts } = fresh();
+  write(join(root, '.claude', 'settings.local.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cto --hook x-stop' }] }] } }));
+  const ignore = join(root, '.gitignore');
+  const block = '# >>> YOUR CTO JEV START >>>\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n# <<< YOUR CTO JEV END <<<\n';
+  write(ignore, 'node_modules\n' + block);
+  driftCheck(root, { ...opts, models: false, autoFix: true });
+  assert.equal(readFileSync(ignore, 'utf8'), 'node_modules\n' + block.replace('# <<< YOUR', '.cto-brain.json.lock*\n# <<< YOUR'));
+});
+
+test('files check: SessionStart adds only the lock line; a block missing another entry is not rewritten to add it', () => {
+  const { root, opts } = fresh();
+  write(join(root, '.claude', 'settings.local.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cto --hook x-stop' }] }] } }));
+  const ignore = join(root, '.gitignore');
+  const block = '# >>> YOUR CTO JEV START >>>\n.cto-brain.json\n.cto-brain.json.*tmp\n# <<< YOUR CTO JEV END <<<\n';
+  write(ignore, block);
+  driftCheck(root, { ...opts, models: false, autoFix: true });
+  assert.equal(readFileSync(ignore, 'utf8'), block.replace('# <<< YOUR', '.cto-brain.json.lock*\n# <<< YOUR'));
+});
+
+test('writeTextIfUnchanged: writes only when the file still reads as it was read; a missing file reads as empty', () => {
+  const p = join(tmp(), 'f.txt');
+  assert.equal(writeTextIfUnchanged(p, '', 'new'), true, 'a missing file reads as empty');
+  assert.equal(readFileSync(p, 'utf8'), 'new');
+  assert.equal(writeTextIfUnchanged(p, 'other', 'C'), false, 'changed since it was read');
+  assert.equal(readFileSync(p, 'utf8'), 'new', 'left alone');
+  assert.equal(writeTextIfUnchanged(p, 'new', 'C'), true);
+  assert.equal(readFileSync(p, 'utf8'), 'C');
+});
+
+
+test('files check: a block already first is not moved or re-rendered, and nothing is reported as moved', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const hook = join(root, '.git', 'hooks', 'pre-commit');
+  const stale = '# >>> YOUR CTO JEV START >>>\nold body\n# <<< YOUR CTO JEV END <<<\n';
+  write(hook, '#!/bin/sh\n' + stale + 'npx biome check\n');
+  const r = driftCheck(root, { ...opts, models: false });
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\n' + stale + 'npx biome check\n', 'untouched, the stale body included');
+  assert.ok(!r.fixed.some((l) => /pre-commit/.test(l)), r.fixed.join('\n'));
+});
+
+test('files check: a block with a user command above it stays put and its body is not re-rendered', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const hook = join(root, '.git', 'hooks', 'pre-commit');
+  const stale = '# >>> YOUR CTO JEV START >>>\nold body\n# <<< YOUR CTO JEV END <<<\n';
+  write(hook, '#!/bin/sh\nnpx biome check\n' + stale);
+  driftCheck(root, { ...opts, models: false });
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nnpx biome check\n' + stale, 'untouched; the user\'s command is not moved');
+});
+
+test('files check: the guard matcher gains Agent and SubagentStop is added; removed cto hooks and the user\'s own hook stay as they were', () => {
+  const { root, opts } = fresh();
+  const local = join(root, '.claude', 'settings.local.json');
+  const mine = { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'my-lint' }] };
+  const old = { hooks: { PreToolUse: [
+    { matcher: 'Bash', hooks: [{ type: 'command', command: 'cto --hook claude-pre' }] },
+    { matcher: 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion', hooks: [{ type: 'command', command: 'cto --hook claude-guard' }] },
+    mine,
+  ] } };
+  write(local, old);
+  const guardOf = () => json(local).hooks.PreToolUse.find((m: any) => m.hooks.some((h: any) => h.command === 'cto --hook claude-guard'));
+
+  const off = driftCheck(root, { ...opts, models: false, autoFix: false });
+  assert.deepEqual(json(local), old, 'autoFix off: nothing written');
+  assert.ok(off.reported.some((l) => l.includes('.claude/settings.local.json')), off.reported.join('\n'));
+  assert.ok(off.reported.some((l) => /cto setup --refresh/.test(l) && /autofix on/.test(l)), 'a dry run says what to do, not that hooks were added');
+  assert.ok(!off.reported.some((l) => /restart|重開/.test(l)), 'nothing was written, so no restart line');
+
+  const r = driftCheck(root, { ...opts, models: false });
+  assert.equal(guardOf().matcher, 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion|Agent|Task');
+  assert.deepEqual(json(local).hooks.PreToolUse.find((m: any) => m.hooks.some((h: any) => h.command === 'my-lint')), mine, 'the user hook is unchanged');
+  assert.deepEqual(json(local).hooks.SubagentStop, [{ hooks: [{ type: 'command', command: 'cto --hook claude-agent' }] }], 'the review hook is added');
+  assert.ok(!JSON.stringify(json(local)).includes('claude-menu') && !json(local).hooks.Stop, 'other cto hooks the user took out stay out');
+  assert.ok(r.fixed.some((l) => l.includes('.claude/settings.local.json')), r.fixed.join('\n'));
+  assert.ok(r.fixed.some((l) => l.includes('.claude/settings.local.json') && /restart|重開/.test(l)), 'the drift line says the session must restart');
+  assert.ok(!driftCheck(root, { ...opts, models: false }).fixed.some((l) => l.includes('settings.local.json')), 'current: no second write');
 });

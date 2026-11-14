@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DEFAULT_MODELS, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { isObj, readSettings, wiredAgents } from './setup.js';
+import { appendBlock, hooksDir, isObj, missingIgnores, readSettings, refreshClaudeHooks, userLinesAbove, wiredAgents } from './setup.js';
 import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, SKILL_PATH, fileVersion, syncFlowSkill, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 import { t, type Lang } from './i18n.js';
@@ -34,6 +34,9 @@ export const MSG = {
   wrote: (file: string) => t(lang, 'models_wrote', { file }),
   deleted: (file: string) => t(lang, 'models_deleted', { file }),
   stale: (file: string) => t(lang, 'models_stale', { file, hint: hint() }),
+  hooksRestart: (file: string) => t(lang, 'models_hooks_restart', { file }),
+  hooksPending: (file: string) => t(lang, 'models_hooks_pending', { file }),
+  hookOrderRefresh: (file: string) => t(lang, 'models_hook_order_refresh', { file }),
   notWritten: (file: string) => t(lang, 'models_not_written', { file }),
   get fable() { return t(lang, 'models_fable'); },
 };
@@ -257,13 +260,55 @@ function syncAgentFiles(dir: string, write: boolean, show: (p: string) => string
 }
 
 /** cto's own files in a set-up repo, the same sync `cto setup --refresh` runs, without its hooks or output. */
+/**
+ * The cto block in pre-commit must come before the user's commands (an install from before that moved it after their
+ * formatter, so the formatter runs before the gate). Only said: `setup --refresh` places the block.
+ */
+function checkHookOrder(root: string, out: DriftResult) {
+  let path: string;
+  let text: string;
+  try { path = join(hooksDir(root), 'pre-commit'); text = readFileSync(path, 'utf8'); } catch { return; } // not a repo, or no hook
+  if (userLinesAbove(text)) out.reported.push(MSG.hookOrderRefresh(relative(root, path).replace(/\\/g, '/')));
+}
+
+const LOCK_IGNORE = '.cto-brain.json.lock*';
+
+/** Writes `next` only if the file still reads as `was` (a missing file reads as ''): a write from another hook since then is left alone. */
+export function writeTextIfUnchanged(path: string, was: string, next: string): boolean {
+  const now = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  if (now !== was) return false;
+  writeFileSync(path, next);
+  return true;
+}
+
 function checkFiles(root: string, autoFix: boolean, out: DriftResult) {
+  checkHookOrder(root, out);
   const wired = wiredAgents(root);
   if (!wired.length) return;
+  // The lock file is the brain's own: a repo set up before it existed gets the entry on the next session.
+  const ignore = join(root, '.gitignore');
+  const ignoreText = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
+  // A plain text check first: missingIgnores asks git, and a lock line already in the file settles it.
+  const missing = ignoreText.includes('.cto-brain.json.lock') ? [] : missingIgnores(ignoreText);
+  // Only the lock line is added, never the rest of the block: into the cto block when there is one, else as a block of its own.
+  const start = ignoreText.indexOf('# >>> YOUR CTO JEV START >>>');
+  const end = ignoreText.indexOf('# <<< YOUR CTO JEV END <<<');
+  const eol = ignoreText.includes('\r\n') ? '\r\n' : '\n';
+  const next = !missing.includes(LOCK_IGNORE) ? ignoreText
+    : start >= 0 && end > start ? ignoreText.slice(0, end) + LOCK_IGNORE + eol + ignoreText.slice(end)
+    : appendBlock(ignoreText, LOCK_IGNORE + '\n');
+  if (next !== ignoreText) {
+    if (!autoFix) out.reported.push(MSG.stale('.gitignore'));
+    else if (writeTextIfUnchanged(ignore, ignoreText, next)) out.fixed.push(MSG.wrote('.gitignore'));
+  }
   const flow = loadConfig(root).flow;
   const g = syncGuidance(root, new Set(wired), false, flow, !autoFix);
   const f = syncFlowSkill(root, flow, !autoFix, wired.includes('claude'));
+  const hooks = refreshClaudeHooks(root, !autoFix);
   for (const rel of [...g.written, ...f.written]) (autoFix ? out.fixed.push(MSG.wrote(rel)) : out.reported.push(MSG.stale(rel)));
+  // Claude Code loads its hooks at session start: the entries just added take effect only after a restart.
+  // Dry run (autofix off): nothing was written, so the line says what to do instead of that it was.
+  if (hooks) (autoFix ? out.fixed.push(MSG.hooksRestart(hooks)) : out.reported.push(MSG.hooksPending(hooks)));
   for (const rel of [SKILL_PATH, FLOW_SKILL_PATH, FLOW_COMMAND_PATH]) {
     const path = join(root, rel);
     const text = existsSync(path) ? readFileSync(path, 'utf8') : undefined;

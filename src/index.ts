@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { applyCredentials, credentialsPath, findRoot, loadConfig, loadCredentials, loadPrefs, modelsPrefs, saveCredentials, savePrefs } from './brain.js';
 import { DEFAULT_ORDER, providerOrder, providers } from './api.js';
-import { agentEdit, agentGuard, agentMenu, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, stagedDiff } from './hooks.js';
+import { agentEdit, agentGuard, agentMenu, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, recordReview, stagedDiff } from './hooks.js';
 import { checkUpdate, currentVersion, runUpdate } from './update.js';
 import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
@@ -57,7 +57,7 @@ async function runHook(name: string): Promise<HookOutput> {
     return m[1] === 'claude' ? claudeStart(root, brief(root), lang) : { code: 0, stdout: brief(root).join('\n'), stderr: [] };
   }
   if (m[2] === 'models') return m[1] === 'claude' ? claudeModels(findRoot(cwd), lang) : { code: 0, stderr: [] };
-  if (m[2] === 'agent') return { code: 0, stderr: [] }; // MOD-4 records cto-reviewer's review here
+  if (m[2] === 'agent') return m[1] === 'claude' ? recordReview(input, { root: findRoot(cwd), lang }) : { code: 0, stderr: [] };
   if (m[2] === 'edit') {
     const cwd = typeof input?.cwd === 'string' ? input.cwd : typeof input?.workspace_roots?.[0] === 'string' ? input.workspace_roots[0] : process.cwd();
     return agentEdit(agent.parseEdit?.(input), { root: findRoot(cwd), lang }, agent.transcriptTurns ? undefined : agent.session(input));
@@ -242,11 +242,8 @@ if (args[0] === '--hook' && args[1]) {
     const r = writeIndex(root);
     console.log(r.changed ? `[cto] ${r.path} updated` : `[cto] ${r.path} is up to date`);
   } else {
-    const { docsReport } = await import('./docs.js');
-    const { loadBrain, saveBrain } = await import('./brain.js');
-    const brain = loadBrain(root);
-    console.log((await docsReport(root, { brain, lang, timeoutMs: 5000, notices: new Set() })).join('\n'));
-    saveBrain(root, brain); // provider cooldowns, as the hook paths do
+    const { runDocs } = await import('./docs.js');
+    console.log((await runDocs(root, lang)).join('\n'));
   }
 } else if (args[0] === 'models') {
   const root = gitRoot(process.cwd());

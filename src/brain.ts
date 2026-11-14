@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Signal, TurnAction } from './types.js';
 
 export interface CtoConfig {
@@ -50,10 +50,18 @@ export interface Brain {
   decisions?: Decision[];
   /** Per session: when the user's last message arrived, and whether this turn was already told it runs long. */
   turn_start?: Record<string, { at: number; warned?: boolean }>;
+  /** cto-reviewer's last reviews (SubagentStop), each with a hash of the code it saw; the commit gate looks for a match. */
+  reviews?: Review[];
+  /** Per session: the code hash at each cto-reviewer start not yet used by a finished review (each is used once). */
+  review_start?: Record<string, { hash: string; at: number; prompt: string; promptHash?: string }[]>;
 }
+
+export interface Review { at: number; sessionId?: string; diffHash: string; text: string; prompt?: string }
 
 /** Sign-off writes approved for the user, so an agent editing .cto.json may raise this bar but never lower it. */
 export const SIGNOFF_FLOOR = 0.8;
+/** review_unresolved and review_prompt default and ceiling: .cto.json can only lower them. */
+export const REVIEW_CEIL = 0.7;
 export const signoffThreshold = (override: unknown) => Math.max(typeof override === 'number' && Number.isFinite(override) ? override : 0, SIGNOFF_FLOOR);
 
 export const DEFAULT_CONFIG: CtoConfig = {
@@ -71,6 +79,8 @@ export const DEFAULT_CONFIG: CtoConfig = {
     test_tampering: 0.8,
     done_unverified: 0.6,
     signoff_approved: SIGNOFF_FLOOR,
+    review_unresolved: REVIEW_CEIL, // not calibrated yet; blocks the commit
+    review_prompt: REVIEW_CEIL, // not calibrated yet; blocks the commit
     code_complexity: 2,
   },
   review_gate: true,
@@ -105,6 +115,11 @@ export function loadConfig(root: string): CtoConfig {
   const raw = readJson(join(root, '.cto.json')) ?? {};
   const thresholds = { ...DEFAULT_CONFIG.thresholds, ...(raw.thresholds ?? {}) };
   thresholds.signoff_approved = signoffThreshold(thresholds.signoff_approved);
+  // An agent editing .cto.json may make the review gate stricter, never looser.
+  for (const k of ['review_unresolved', 'review_prompt'] as const) {
+    const v = thresholds[k];
+    thresholds[k] = Math.min(typeof v === 'number' && Number.isFinite(v) ? v : REVIEW_CEIL, REVIEW_CEIL);
+  }
   return {
     sprint_goal: typeof raw.sprint_goal === 'string' ? raw.sprint_goal : '',
     test_command: typeof raw.test_command === 'string' ? raw.test_command : '',
@@ -222,15 +237,95 @@ function writeUserFile(data: object): string {
  * Atomic write via per-process tmp + rename. No file lock (spec section 7): parallel hooks race, last write wins.
  * Never throws: losing bookkeeping is fine, but an exception here would turn a block into a fail-open pass.
  */
+const sleepMs = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** rename, retried for EPERM (Windows: an antivirus or indexer holds the file for a moment); other errors throw at once. */
+export function renameWithRetry(rename: (from: string, to: string) => void, from: string, to: string, attempts = 50): void {
+  for (let i = 1; ; i++) {
+    try { rename(from, to); return; } catch (e: any) {
+      if (e?.code !== 'EPERM' || i >= attempts) throw e;
+      sleepMs(20);
+    }
+  }
+}
+
 export function saveBrain(root: string, brain: Brain): void {
   const path = join(root, '.cto-brain.json');
   const tmp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(brain, null, 2) + '\n');
-    renameSync(tmp, path);
-  } catch {
+    renameWithRetry(renameSync, tmp, path);
+  } catch (e) {
     try { unlinkSync(tmp); } catch { /* nothing to clean */ }
+    // Losing bookkeeping does not block a hook, but the loss is said, not dropped silently.
+    process.stderr.write(`[cto] could not save ${path}: ${(e as Error).message}\n`);
   }
+}
+
+/**
+ * Runs fn holding .cto-brain.json.lock: an O_EXCL create, retried for about 2 s. A lock older than 10 s is a crashed
+ * writer's and is taken over. When the lock cannot be had in time, fn runs unlocked and the lock is left alone.
+ */
+export function withBrainLock<T>(root: string, fn: () => T, afterRename?: (aside: string) => void): T {
+  const lock = join(root, '.cto-brain.json.lock');
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`; // the lock is ours only while it holds this
+  const until = Date.now() + 2000;
+  let held = false;
+  for (;;) {
+    try { writeFileSync(lock, token, { flag: 'wx' }); held = true; break; } catch (e: any) {
+      if (e?.code !== 'EEXIST') break;
+      let stale = false;
+      try { stale = Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS; } catch { /* vanished: try again */ }
+      if (stale) takeOver(lock, afterRename);
+      if (Date.now() > until) break;
+      sleepMs(20);
+    }
+  }
+  try { return fn(); } finally {
+    if (held) try { if (readFileSync(lock, 'utf8') === token) unlinkSync(lock); } catch { /* already gone */ }
+  }
+}
+const STALE_LOCK_MS = 10_000;
+/** Moved-aside stale locks left behind by a takeover that did not put the file back: removed once they are stale too. */
+function sweepAsides(lock: string): void {
+  const dir = dirname(lock);
+  const prefix = `${basename(lock)}.stale-`;
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith(prefix)) continue;
+      const p = join(dir, name);
+      try { if (Date.now() - statSync(p).mtimeMs > STALE_LOCK_MS) unlinkSync(p); } catch { /* gone, or held by another hook */ }
+    }
+  } catch { /* brain dir unreadable: the takeover itself reports nothing */ }
+}
+/**
+ * Takes over a lock that looked stale: it is renamed to a unique name first, so of the hooks racing for it only one rename
+ * succeeds. The moved file is checked again: a holder that refreshed it meanwhile gets its lock back and nothing is removed.
+ */
+function takeOver(lock: string, afterRename?: (aside: string) => void): void {
+  sweepAsides(lock);
+  const aside =`${lock}.stale-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  try { renameSync(lock, aside); } catch { return; } // another hook renamed it first
+  afterRename?.(aside);
+  let still = false;
+  try { still = Date.now() - statSync(aside).mtimeMs > STALE_LOCK_MS; } catch { return; }
+  if (still) { try { unlinkSync(aside); } catch { /* gone */ } return; }
+  // Put back with a link, which fails when the lock path was taken meanwhile: then the moved file stays where it is and the
+  // holder's new lock is left alone.
+  try { linkSync(aside, lock); } catch { return; }
+  try { unlinkSync(aside); } catch { /* gone */ }
+}
+
+/**
+ * Saves a brain read before a long wait (a Jev call): the fields other hooks write while it waits (reviews, review_start)
+ * come from a fresh read, under the brain lock, so a record another hook wrote in the meantime is kept.
+ * shortcut: the other fields are still this hook's snapshot; a counter another hook bumps in the same window is lost.
+ */
+export function saveKeeping(root: string, brain: Brain): void {
+  withBrainLock(root, () => {
+    const fresh = loadBrain(root);
+    saveBrain(root, { ...brain, reviews: fresh.reviews, review_start: fresh.review_start });
+  });
 }
 
 /** Failures older than this are history, not a loop. */

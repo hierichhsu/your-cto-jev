@@ -247,7 +247,8 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0); // idempotent
   const h = readFileSync(hook, 'utf8');
   assert.equal(h.split('YOUR CTO JEV START').length, 2);
-  assert.ok(h.startsWith('#!/bin/sh\nnpm run lint\n'));
+  assert.ok(h.startsWith('#!/bin/sh\n# >>> YOUR CTO JEV START'), 'the cto block is first, after the shebang');
+  assert.ok(h.endsWith('\nnpm run lint\n'), 'the user\'s commands are kept, after it');
   const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(s.hooks.PreToolUse.length, 3); // the user's Edit hook, cto's Bash pre, cto's sign-off guard
   assert.equal(s.hooks.PostToolUseFailure[0].hooks[0].command, 'cto --hook claude-post');
@@ -255,7 +256,7 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.ok(existsSync(join(root, '.cto.json')));
   // a .gitignore that already has every entry gets no block
   assert.match(readFileSync(join(root, '.gitignore'), 'utf8'), /^\.claude\/settings\.local\.json$/m);
-  const already = 'node_modules/\n.cto-brain.json\n.cto-brain.json.*tmp\ndebug_stdin.json\n.claude/settings.local.json\n';
+  const already = 'node_modules/\n.cto-brain.json\n.cto-brain.json.*tmp\n.cto-brain.json.lock*\ndebug_stdin.json\n.claude/settings.local.json\n';
   writeFileSync(join(root, '.gitignore'), already);
   assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0);
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), already);
@@ -277,16 +278,19 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   for (const d of ['.claude', '.cursor', '.gemini', '.codex']) assert.ok(!existsSync(join(fresh, d)), d);
   assert.ok(!existsSync(join(fresh, '.gitignore')));
 
-  // early exit 0 warning
-  const warn = tmp();
-  execFileSync('git', ['init', '-q'], { cwd: warn });
-  writeFileSync(join(warn, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
-  assert.match(setup(warn, 'en', { agents: [] }).lines.join('\n'), /exit 0 before the cto block/);
+  // an exit 0 in the user's hook: pre-commit's block goes first, so no warning; pre-push's block is appended after the user's
+  // lines, so an exit 0 above it means it never runs, and that is said
+  const early = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: early });
+  writeFileSync(join(early, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
+  assert.doesNotMatch(setup(early, 'en', { agents: [] }).lines.join('\n'), /exit 0/);
+  writeFileSync(join(early, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
+  assert.match(setup(early, 'en', { agents: [] }).lines.join('\n'), /exit 0 before the cto block/);
 });
 
-test('setup: a failing command above the cto block still blocks the commit', () => {
+test('setup: a failing command after the cto block still blocks the commit', () => {
   const root = tmp();
-  // A fake `cto` that always passes goes first on PATH, so only the `false` line above the block can fail the commit.
+  // A fake `cto` that always passes goes first on PATH, so only the `false` line of the user's hook can fail the commit.
   const bin = tmp();
   writeFileSync(join(bin, 'cto'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'; // Windows spells it Path
@@ -301,7 +305,7 @@ test('setup: a failing command above the cto block still blocks the commit', () 
   assert.throws(() => git('commit', '-qm', 'x'));
   assert.throws(() => git('rev-parse', '--verify', 'HEAD'), 'no commit was made');
   // same hook with the line above passing: the fake cto lets the commit through, so the failure above came from `false`
-  writeFileSync(hook, readFileSync(hook, 'utf8').replace('#!/bin/sh\nfalse\n', '#!/bin/sh\ntrue\n'));
+  writeFileSync(hook, readFileSync(hook, 'utf8').replace('\nfalse\n', '\ntrue\n')); // the block sits above the user's line now
   git('commit', '-qm', 'x');
   git('rev-parse', '--verify', 'HEAD');
 });
@@ -1002,11 +1006,11 @@ test('shell edits count as edits: sed -i, redirects, tee, cp/mv/rm, formatters; 
     ['sed -i "s/a/b/" src/cart.ts', ['src/cart.ts']], ['sed -i.bak -e s/a/b/ src/x.py', ['src/x.py']],
     ['perl -pi -e s/a/b/ lib/a.pm', ['lib/a.pm']], ['echo hi > src/gen.ts', ['src/gen.ts']],
     ['cat >> README.md <<EOF', ['README.md']], ['echo x | tee src/a.ts', ['src/a.ts']],
-    ['cp src/a.ts src/b.ts', ['src/b.ts']], ['mv old.ts new.ts', ['new.ts']], ['rm -f src/dead.ts', ['src/dead.ts']],
+    ['cp src/a.ts src/b.ts', ['src/b.ts']], ['mv old.ts new.ts', ['old.ts', 'new.ts']], ['rm -f src/dead.ts', ['src/dead.ts']],
     ['npx prettier --write .', ['?']], ['npx eslint --fix src', ['?']], ['git apply fix.patch', ['?']],
     ['npm test 2>&1 | tail -5', []], ['npm test > /dev/null', []], ['ls -la', []], ['git status', []],
     ['grep -n foo src/a.ts', []], ['npm run build && npm test', []], ['cargo test 2>err.log', []],
-    ['cp a b 2>/dev/null', ['b']], ['mv a b | cat', ['b']], ['cp -r src dst # copy', ['dst']], ['cp a b &', ['b']],
+    ['cp a b 2>/dev/null', ['b']], ['mv a b | cat', ['a', 'b']], ['cp -r src dst # copy', ['dst']], ['cp a b &', ['b']],
     ["sed -i 's/a|b/c/' src/x.ts", ['src/x.ts']], ["sed -i 's/a/b # c/' src/x.ts", ['src/x.ts']],
     ["sed -i 's/a/ &/' src/x.ts", ['src/x.ts']], ["sed -i 's/a/b >x/' src/x.ts", ['src/x.ts']],
     ["sed -E -i 's/(a |b)/c/' src/x.ts", ['src/x.ts']], ["perl -pi -e 's/a/b #/' lib/a.pm", ['lib/a.pm']],

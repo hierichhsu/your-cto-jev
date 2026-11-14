@@ -30,8 +30,8 @@ test('doctor flags a git hook whose cto block is from an older version, but not 
   writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\n/g, '\r\n'));
   assert.doesNotMatch(await text(), /older than this version/, 'CRLF alone is not stale');
 
-  // the ≤0.9.8 block: no exit-status guard as its first line
-  writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\r\n/g, '\n').replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''));
+  // the block of an earlier version: the exit-status pass-through as its first line, which pre-commit no longer has
+  writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\r\n/g, '\n').replace('# >>> YOUR CTO JEV START >>>\n', '# >>> YOUR CTO JEV START >>>\ns=$?; [ $s -eq 0 ] || exit $s\n'));
   out = await text();
   assert.match(out, /!! git pre-commit hook block is from an older cto/);
   assert.match(out, /older than this version \(pre-commit hook\)\. Run cto setup --refresh/);

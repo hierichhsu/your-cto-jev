@@ -8,7 +8,7 @@ export interface PostInput { command: string; error: string; cwd?: string; sessi
 export interface StopInput { sessionId?: string; cwd?: string; transcriptPath?: string; lastMessage: string; stopHookActive: boolean }
 export interface ReplyInput { sessionId?: string; cwd?: string; text: string }
 export interface PromptInput { sessionId?: string; cwd?: string; transcriptPath?: string; prompt: string }
-export interface GuardInput { cwd?: string; toolName: string; toolInput: any }
+export interface GuardInput { cwd?: string; sessionId?: string; toolName: string; toolInput: any }
 /** A menu the user answered: answers maps each question's full text to the chosen label. */
 export interface MenuInput { sessionId?: string; cwd?: string; subagent: boolean; questions: any[]; answers: Record<string, unknown> }
 
@@ -99,7 +99,7 @@ export const agents: Record<AgentName, Agent> = {
     edit: { event: 'PostToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit' },
     start: { event: 'SessionStart' }, // stdout of a SessionStart hook is added to Claude's context
     prompt: { event: 'UserPromptSubmit' },
-    guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion' },
+    guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion|Agent|Task' }, // Agent (Task on older Claude Code): notes the code and prompt a cto-reviewer starts with
     menu: { event: 'PostToolUse', matcher: 'AskUserQuestion' },
     agent: { event: 'SubagentStop' },
     models: { event: 'SessionStart', user: true },
@@ -112,7 +112,7 @@ export const agents: Record<AgentName, Agent> = {
       answers: i?.tool_response?.answers && typeof i.tool_response.answers === 'object' ? i.tool_response.answers : {},
     }),
     parsePrompt: (i) => ({ sessionId: sessionId(i), cwd: str(i?.cwd), transcriptPath: str(i?.transcript_path), prompt: String(i?.prompt ?? '') }),
-    parseGuard: (i) => ({ cwd: str(i?.cwd), toolName: String(i?.tool_name ?? ''), toolInput: i?.tool_input ?? {} }),
+    parseGuard: (i) => ({ cwd: str(i?.cwd), sessionId: sessionId(i), toolName: String(i?.tool_name ?? ''), toolInput: i?.tool_input ?? {} }),
     parseEdit: (i) => { const p = str(i?.tool_input?.file_path) ?? str(i?.tool_input?.notebook_path); return p ? [p] : undefined; },
     parseStop: (i) => ({
       sessionId: str(i?.session_id),
