@@ -9,6 +9,7 @@ export interface CtoConfig {
   protected_branches: string[]; // commits on these branches and pushes that delete or rewrite them are blocked locally
   flow: boolean; // the cto development flow (docs/cto_jev/ + cto-flow skill) was chosen in `cto setup`
   thresholds: Record<Signal, number>;
+  review_gate: boolean; // commits wait for a cto-reviewer review (MOD-4); `cto models review on|off`
   turn_limits: TurnLimits; // a turn past any of these gets one reminder to stop and report; 0 turns a limit off
 }
 
@@ -72,6 +73,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
     signoff_approved: SIGNOFF_FLOOR,
     code_complexity: 2,
   },
+  review_gate: true,
   turn_limits: { minutes: 20, tool_calls: 150, agents: 4 },
 };
 
@@ -109,6 +111,7 @@ export function loadConfig(root: string): CtoConfig {
     protected_branches: Array.isArray(raw.protected_branches) ? raw.protected_branches.filter((b: unknown) => typeof b === 'string') : [],
     flow: raw.flow === true,
     thresholds,
+    review_gate: raw.review_gate !== false,
     turn_limits: turnLimits(raw.turn_limits),
   };
 }

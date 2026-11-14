@@ -2,10 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
-import { PHASES, agentNames, agents, hookCommand, type AgentName } from './agents.js';
+import { PHASES, agentNames, agents, hookCommand, promptOutput, type AgentName, type HookOutput } from './agents.js';
 import { t, type Lang } from './i18n.js';
-import { loadConfig } from './brain.js';
-import { FLOW_COMMAND_PATH, FLOW_SKILL_PATH, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
+import { loadConfig, modelsPrefs, type ModelsPrefs } from './brain.js';
+import { MODEL_KEYS, MSG, advisorOf, agentsDir, applyModels, clearScope, driftCheck, fableReminder, isOurs, targetPath, userSettingsPath, writeJsonIfUnchanged, type DriftResult, type ModelsOpts } from './models.js';
+import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, guidancePaths, syncFlowSkill, syncGuidance } from './skill.js';
 import { findConflicts } from './conflicts.js';
 import { FLOW_DIR } from './flow.js';
 
@@ -121,7 +122,7 @@ function installAgent(settings: any, name: AgentName) {
   if (a.style === 'cursor') settings.version ??= 1;
   for (const phase of PHASES) {
     const spec = a[phase];
-    if (!spec) continue;
+    if (!spec || spec.user) continue;
     const command = hookCommand(name, phase);
     const arr: any[] = (settings.hooks[spec.event] ??= []);
     if (a.style === 'cursor') {
@@ -168,6 +169,10 @@ export interface SetupOptions {
   exact?: boolean;
   /** Use the cto development flow (cto-flow skill + docs/cto_jev/ skeleton). Undefined keeps the value saved in .cto.json. */
   flow?: boolean;
+  /** Write (or on uninstall clear) the Claude Code model split and the user-level hook. Unset: ~/.claude is never touched. */
+  models?: ModelsOpts;
+  /** The menu moves the split to another scope right after setup (applyModelsChange): do not write the old scope first. */
+  modelsWriteLater?: boolean;
 }
 
 // docs/cto_jev/ skeleton, created only for files that do not exist. Headings are the fixed field names the flow checks
@@ -190,9 +195,11 @@ export interface FileChange { path: string; change: 'new' | 'update' | 'remove' 
  * Same decisions as `setup`: files already current are left out. A settings file setup would refuse (bad JSON) is listed
  * as an update; setup itself then stops before writing anything.
  */
-export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean, goal: string): FileChange[] {
+export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean, goal: string, models?: ModelsPlan): FileChange[] {
   const out: FileChange[] = [];
-  const at = (p: string, change: 'write' | 'remove', abs = join(root, p)) => out.push({ path: p, change: change === 'remove' ? 'remove' : existsSync(abs) ? 'update' : 'new' });
+  const at = (p: string, change: 'write' | 'remove', abs = join(root, p)) => {
+    if (!out.some((f) => f.path === p)) out.push({ path: p, change: change === 'remove' ? 'remove' : existsSync(abs) ? 'update' : 'new' });
+  };
   const chosen = new Set(chosenAgents);
   // git reports the hooks dir with long names; a Windows temp root may be 8.3 (C:\Users\JOHNDO~1). Compare real paths.
   const real = (p: string) => { try { return realpathSync.native(p); } catch { return p; } };
@@ -227,8 +234,46 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   if (missing.length && appendBlock(ignoreText, missing.join('\n') + '\n') !== ignoreText) at('.gitignore', 'write');
   const cfg = loadConfig(root);
   if (!existsSync(join(root, '.cto.json')) || cfg.flow !== flow || cfg.sprint_goal !== goal) at('.cto.json', 'write');
+  if (models) planModels(root, chosen.has('claude'), wiredAgents(root).includes('claude'), models, at);
   return out;
 }
+
+/** What the model split adds to a setup plan; `write` is false when setup would leave it alone (auto-fix off, no change). */
+/** `before`: the profile saved now; when the menu moves the split to another scope, the old one is cleared by its values. */
+export interface ModelsPlan { prefs: ModelsPrefs; write: boolean; home?: string; before?: ModelsPrefs }
+
+function planModels(root: string, claude: boolean, wasWired: boolean, m: ModelsPlan, at: (p: string, c: 'write' | 'remove', abs: string) => void) {
+  const home = m.home ?? homedir();
+  const p = m.prefs;
+  const shownIn = (scope: ModelsPrefs['scope']) => (abs: string) => (scope === 'global' ? `~/${relative(home, abs).replace(/\\/g, '/')}` : relative(root, abs).replace(/\\/g, '/'));
+  // What clearScope takes out of one scope (same isOurs rule): cto's key values, cto's agent files, the user hook.
+  const planClear = (scope: ModelsPrefs['scope']) => {
+    const shown = shownIn(scope), target = targetPath(root, scope, home), s = readSettings(target);
+    const hook = scope === 'global' && Array.isArray(s?.hooks?.SessionStart) && s.hooks.SessionStart.some(hasModelsHook);
+    if (isObj(s) && (hook || MODEL_KEYS.some((k) => isOurs(k, valueAt(s, k.path))))) at(shown(target), 'write', target);
+    for (const n of Object.keys(AGENT_FILES)) {
+      const f = join(agentsDir(root, scope, home), n);
+      if (existsSync(f) && readFileSync(f, 'utf8').includes(SKILL_MARK)) at(shown(f), 'remove', f);
+    }
+  };
+  // Unticked: only a scope-local split goes with the project; a global one stays for the other projects.
+  // Unticked: a menu change to the split is not applied, so the saved scope decides.
+  if (!claude) { if (wasWired && (m.before ?? p).scope === 'local') planClear('local'); return; }
+  if (m.before && m.before.scope !== p.scope) planClear(m.before.scope);
+  const target = targetPath(root, p.scope, home);
+  const shown = shownIn(p.scope);
+  const agentFile = (n: string) => join(agentsDir(root, p.scope, home), n);
+  const s = readSettings(target);
+  if (!m.write) return;
+  const keysOff = !isObj(s) || MODEL_KEYS.some((k) => !k.ok(valueAt(s, k.path), p));
+  const hookOff = p.scope === 'global' && !(Array.isArray(s?.hooks?.SessionStart) && s.hooks.SessionStart.some(hasModelsHook));
+  if (keysOff || hookOff) at(shown(target), 'write', target);
+  for (const [n, text] of Object.entries(AGENT_FILES)) {
+    const cur = existsSync(agentFile(n)) ? readFileSync(agentFile(n), 'utf8') : undefined;
+    if (cur !== text) at(shown(agentFile(n)), 'write', agentFile(n));
+  }
+}
+const valueAt = (o: unknown, path: string[]): unknown => path.reduce<any>((x, k) => (isObj(x) ? x[k] : undefined), o);
 
 export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code: number; lines: string[] } {
   const lines: string[] = [];
@@ -279,6 +324,11 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
       }
     }
     for (const p of [...syncGuidance(root, new Set(), true).removed, ...syncFlowSkill(root, false).removed]) lines.push(t(lang, 'uninstall_skill', { path: p }));
+    if (opts.models && removing.includes('claude')) {
+      lines.push(...modelsLines(clearScope(root, modelsPrefs().scope, opts.models)));
+      const h = userModelsHook(opts.models.home ?? homedir(), false);
+      if (h) lines.push(`[cto] ${h}`);
+    }
     lines.push(t(lang, 'uninstall_done'));
     return { code: 0, lines };
   }
@@ -323,6 +373,10 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
   const claude = chosen.has('claude') || (!opts.exact && wiredAgents(root).includes('claude'));
   const flowSkill = syncFlowSkill(root, flow, false, claude);
   for (const p of [...skills.written, ...flowSkill.written]) lines.push(t(lang, 'setup_skill', { path: p }));
+  if (opts.models && claude && !opts.modelsWriteLater) lines.push(...writeModels(root, opts.models));
+  // Claude unticked in one project: a scope-local split goes with it. A global one (keys, agent files, user hook) is
+  // shared by every project and is cleared only by a full --uninstall.
+  if (opts.models && removing.includes('claude') && modelsPrefs().scope === 'local') lines.push(...modelsLines(clearScope(root, modelsPrefs().scope, opts.models)));
   const hidden = ignoredByGit(root, [...guidancePaths(chosen), ...(flow ? [FLOW_SKILL_PATH] : []), ...(flow && claude ? [FLOW_COMMAND_PATH] : [])]);
   // Advise git add -f: a .gitignore negation cannot re-include a file whose parent folder is excluded (git rule).
   if (hidden.length) lines.push(t(lang, 'setup_ignored', { list: hidden.join(', '), cmd: `git add -f ${hidden.join(' ')}` }));
@@ -390,7 +444,8 @@ export function missingHooks(root: string): string[] {
   for (const n of wiredAgents(root)) {
     const text = readFileSync(join(root, agents[n].settings), 'utf8');
     for (const phase of PHASES) {
-      if (agents[n][phase] && !text.includes(hookCommand(n, phase))) missing.push(hookCommand(n, phase));
+      const spec = agents[n][phase];
+      if (spec && !spec.user && !text.includes(hookCommand(n, phase))) missing.push(hookCommand(n, phase));
     }
   }
   return missing;
@@ -432,7 +487,7 @@ export function gitRoot(cwd: string): string | undefined {
  * Merge keys into .cto.json, keeping everything else in the file.
  * Refuses (returns false) when the file exists but is not a JSON object: never overwrite someone's thresholds.
  */
-function patchConfig(root: string, patch: Record<string, unknown>): boolean {
+export function patchConfig(root: string, patch: Record<string, unknown>): boolean {
   const path = join(root, '.cto.json');
   let cfg: any = { sprint_goal: '', thresholds: {} };
   if (existsSync(path)) {
@@ -446,4 +501,149 @@ function patchConfig(root: string, patch: Record<string, unknown>): boolean {
 /** Set sprint_goal in .cto.json, keeping everything else in the file. */
 export function setSprintGoal(root: string, goal: string): boolean {
   return patchConfig(root, { sprint_goal: goal });
+}
+
+// ---------- the Claude Code model split (docs/cto_jev/features/models/SPEC.md) ----------
+
+const MODELS_HOOK = hookCommand('claude', 'models');
+const USER_SETTINGS_SHOWN = '~/.claude/settings.json';
+const modelsLines = (r: DriftResult) => [...r.fixed, ...r.reported].map((l) => `[cto] ${l}`);
+const hasModelsHook = (m: any) => Array.isArray(m?.hooks) && m.hooks.some((h: any) => h?.command === MODELS_HOOK);
+
+/**
+ * Add or remove the user-level `claude-models` SessionStart hook in ~/.claude/settings.json, keeping every other key.
+ * Returns a line to show, or undefined when nothing changed.
+ */
+export function userModelsHook(home: string, on: boolean): string | undefined {
+  const path = userSettingsPath(home);
+  let before: string | undefined, json: any = {};
+  try {
+    if (existsSync(path)) { before = readFileSync(path, 'utf8'); json = JSON.parse(before); }
+  } catch { json = null; }
+  const arr = json?.hooks?.SessionStart;
+  if (!isObj(json) || (json.hooks !== undefined && !isObj(json.hooks)) || (arr !== undefined && !Array.isArray(arr))) return MSG.badJson(USER_SETTINGS_SHOWN);
+  const has = (arr ?? []).some(hasModelsHook);
+  if (on === has) return undefined;
+  if (on) {
+    json.hooks ??= {};
+    (json.hooks.SessionStart ??= []).push({ hooks: [{ type: 'command', command: MODELS_HOOK }] });
+  } else {
+    const kept = arr.flatMap((m: any) => {
+      if (!hasModelsHook(m)) return [m];
+      const hooks = m.hooks.filter((h: any) => h?.command !== MODELS_HOOK);
+      return hooks.length ? [{ ...m, hooks }] : [];
+    });
+    if (kept.length) json.hooks.SessionStart = kept;
+    else delete json.hooks.SessionStart;
+    if (!Object.keys(json.hooks).length) delete json.hooks;
+  }
+  if (!writeJsonIfUnchanged(path, before, json)) return MSG.notWritten(USER_SETTINGS_SHOWN);
+  return on ? MSG.wrote(USER_SETTINGS_SHOWN) : MSG.removed(MODELS_HOOK, USER_SETTINGS_SHOWN);
+}
+
+/**
+ * `cto setup` with Claude Code: write the split for the profile's scope, and the user hook only for scope global.
+ * Follows the profile's auto-fix: after `cto models autofix off` no setup or refresh (also run by `cto update`) touches
+ * ~/.claude, in any project. With no saved profile yet the default (auto-fix on) applies, so a first install writes.
+ */
+function writeModels(root: string, o: ModelsOpts): string[] {
+  if (!(o.autoFix ?? modelsPrefs().autoFix)) return [];
+  const lines = modelsLines(driftCheck(root, { ...o, autoFix: true, files: false }));
+  const h = userModelsHook(o.home ?? homedir(), modelsPrefs().scope === 'global');
+  return h ? [...lines, `[cto] ${h}`] : lines;
+}
+
+/** The drift line for SessionStart, or an error line when the check threw; undefined when there is nothing to say. */
+function driftLine(lang: Lang, check: () => DriftResult): string | undefined {
+  try {
+    const r = check();
+    const items = [...r.fixed, ...r.reported];
+    return items.length ? t(lang, 'models_line', { items: items.join('; ') }) : undefined;
+  } catch (e) {
+    return t(lang, 'models_error', { msg: (e as Error)?.message ?? String(e) });
+  }
+}
+
+/**
+ * Claude Code's project SessionStart: the brief goes to Claude, the drift line to both Claude and the user. Scope global
+ * leaves the model settings to the user-level `claude-models` hook, so they are not checked twice.
+ */
+export function claudeStart(root: string, brief: string[], lang: Lang, opts: ModelsOpts = {}): HookOutput {
+  const line = driftLine(lang, () => driftCheck(root, { ...opts, models: modelsPrefs().scope === 'local' }));
+  return promptOutput([...brief, ...(line ? [line] : [])].join('\n'), line, 'SessionStart');
+}
+
+/** The user-level SessionStart (`claude-models`): model settings only, in any directory; silent in scope local. */
+export function claudeModels(root: string, lang: Lang, opts: ModelsOpts = {}): HookOutput {
+  const line = modelsPrefs().scope === 'global' ? driftLine(lang, () => driftCheck(root, { ...opts, files: false })) : undefined;
+  return promptOutput(line, line, 'SessionStart');
+}
+
+/** The one save error explained in a line: brain.ts refusing to overwrite an unparsable credentials file. Others rethrow. */
+export function prefsSaveError(e: unknown, lang: Lang, path: string): string {
+  if (e instanceof Error && e.message.includes('is not valid JSON')) return t(lang, 'prefs_broken', { path });
+  throw e;
+}
+
+/** Apply a model split chosen in the setup menu: only what changed, through the same function as `cto models`. */
+export function applyModelsChange(root: string, before: ModelsPrefs, after: ModelsPrefs, opts: ModelsOpts = {}): string[] {
+  const change: Partial<ModelsPrefs> = {};
+  if (after.advisor !== before.advisor) change.advisor = after.advisor;
+  if (after.autoFix !== before.autoFix) change.autoFix = after.autoFix;
+  if (after.scope !== before.scope) change.scope = after.scope;
+  return Object.keys(change).length ? applyAndHook(root, change, opts) : [];
+}
+
+function applyAndHook(root: string, change: Partial<ModelsPrefs>, opts: ModelsOpts): string[] {
+  const lines = modelsLines(applyModels(root, change, opts));
+  if (change.scope) { const h = userModelsHook(opts.home ?? homedir(), modelsPrefs().scope === 'global'); if (h) lines.push(`[cto] ${h}`); }
+  return lines;
+}
+
+/** `cto models [advisor fable|opus | autofix on|off | scope global|local | review on|off]`. */
+export function modelsCommand(root: string, args: string[], lang: Lang, opts: ModelsOpts = {}): { code: number; lines: string[] } {
+  const [what, value] = args;
+  const onoff = (b: boolean) => t(lang, b ? 'ui_on' : 'ui_off');
+  if (!what) {
+    // A dry run: nothing is written, not even the profile. An /advisor switch is shown as the next session would follow it.
+    const r = driftCheck(root, { ...opts, autoFix: false, dryRun: true });
+    const saved = modelsPrefs();
+    const home = opts.home ?? homedir();
+    // Same rule as driftCheck: /advisor writes the user settings; in scope local only a value changed since last seen counts.
+    const fromUser = advisorOf(readSettings(userSettingsPath(home))?.advisorModel);
+    const advisor = saved.scope === 'global' ? fromUser ?? saved.advisor
+      : fromUser && fromUser !== saved.seenUserAdvisor ? fromUser : saved.advisor;
+    const p = { ...saved, advisor };
+    const items = [...r.fixed, ...r.reported];
+    const fable = fableReminder(p);
+    return {
+      code: 0,
+      lines: [
+        t(lang, 'models_split', { advisor: p.advisor }),
+        t(lang, 'models_scope', { scope: t(lang, `models_scope_${p.scope}`), file: p.scope === 'global' ? USER_SETTINGS_SHOWN : '.claude/settings.local.json' }),
+        t(lang, 'models_autofix', { state: onoff(p.autoFix) }),
+        t(lang, 'models_review', { state: onoff(loadConfig(root).review_gate) }),
+        ...(items.length ? [t(lang, 'models_drift_head'), ...items.map((i) => `  ${i}`)] : [t(lang, 'models_no_drift')]),
+        ...(fable ? [fable] : []),
+      ],
+    };
+  }
+  if (what === 'review' && (value === 'on' || value === 'off')) {
+    if (!existsSync(join(root, '.cto.json'))) return { code: 1, lines: [t(lang, 'models_no_config')] };
+    if (!patchConfig(root, { review_gate: value === 'on' })) return { code: 1, lines: [t(lang, 'models_bad_json', { file: '.cto.json' })] };
+    return { code: 0, lines: [t(lang, 'models_set', { what: 'review_gate', value })] };
+  }
+  const change: Partial<ModelsPrefs> | undefined =
+    what === 'advisor' && (value === 'fable' || value === 'opus') ? { advisor: value }
+    : what === 'autofix' && (value === 'on' || value === 'off') ? { autoFix: value === 'on' }
+    : what === 'scope' && (value === 'global' || value === 'local') ? { scope: value }
+    : undefined;
+  if (!change) return { code: 1, lines: [t(lang, 'models_usage')] };
+  const lines = applyAndHook(root, change, opts);
+  const p = modelsPrefs();
+  // The profile did not take the change (the prefs file is broken): the lines already say why.
+  if (!Object.entries(change).every(([k, v]) => p[k as keyof ModelsPrefs] === v)) return { code: 1, lines };
+  lines.push(t(lang, 'models_set', { what, value }));
+  if (change.advisor === 'fable') lines.push(MSG.fable);
+  return { code: 0, lines };
 }

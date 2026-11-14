@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { test } from 'node:test';
-import { loadConfig } from './brain.js';
-import { FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, docsPublisher, isSetUp, planSetup, setup } from './setup.js';
+import { DEFAULT_MODELS, credentialsPath, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
+import { MSG, driftCheck } from './models.js';
+import { AGENT_FILES, FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
+import { FLOW_SKELETON, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsCommand, planSetup, prefsSaveError, setup, userModelsHook } from './setup.js';
 import { missingHooks, wiredAgents } from './setup.js';
 import { setupUI } from './setupui.js';
 
@@ -178,7 +179,7 @@ test('setup UI: flow is the last first-run step and an overview item; no sprint 
   const off = await drive((io) => setupUI({ ...initial, flow: true }, false, 'en', { ...io, env: {} }), [
     KEY.down, KEY.down, KEY.down, KEY.enter, // overview (agents, providers, keys, flow) -> Development flow
     KEY.down, KEY.enter, // cursor starts on the current "yes" (last option); Down wraps to "no"
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
   ]);
   assert.ok(off.result);
   assert.equal(off.result.flow, false);
@@ -209,9 +210,9 @@ test('setup UI: agent list shows what is always installed, each agent\'s files a
   const r = await drive((io) => setupUI(initial, false, 'en', { ...io, env: {}, detected: ['codex'], plan }), [
     KEY.enter, // overview -> agents
     KEY.down, KEY.down, KEY.down, KEY.space, KEY.enter, // tick Codex CLI
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
     KEY.right, KEY.enter, // summary: No -> back to the overview
-    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // save again
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // save again
     KEY.enter, // Yes
   ]);
   assert.ok(r.result);
@@ -242,7 +243,9 @@ test('setup --refresh rewrites an old git hook block in a repo with no agents wi
   execFileSync('git', ['config', 'core.hooksPath', join(root, '.git', 'hooks')], { cwd: other });
   assert.equal(isSetUp(other), false);
   const cli = join(import.meta.dirname, 'index.js');
-  const out = execFileSync(process.execPath, [cli, 'setup', '--refresh'], { cwd: root, encoding: 'utf8', env: { ...process.env, CTO_NO_UPDATE_CHECK: '1' } });
+  const home = mkdtempSync(join(tmpdir(), 'cto-home-')); // the real CLI must never reach the user's ~/.claude or prefs
+  const env = { ...process.env, CTO_NO_UPDATE_CHECK: '1', HOME: home, USERPROFILE: home, APPDATA: home, XDG_CONFIG_HOME: home };
+  const out = execFileSync(process.execPath, [cli, 'setup', '--refresh'], { cwd: root, encoding: 'utf8', env });
   assert.doesNotMatch(out, /not set up/);
   assert.match(readFileSync(hook, 'utf8'), /s=\$\?; \[ \$s -eq 0 \] \|\| exit \$s/);
 });
@@ -414,4 +417,344 @@ test('setup .gitignore: an entry the user ignores and then re-includes with ! is
   setup(root, 'en', { agents: [] });
   const block = readFileSync(join(root, '.gitignore'), 'utf8').split('YOUR CTO JEV START')[1];
   assert.match(block, /^\.cto-brain\.json$/m);
+});
+
+// ---------- the model split: SessionStart output, the user-level hook, cto models, setup (MOD-3) ----------
+
+/** Fresh prefs, home and managed path per test: nothing under the real ~/.claude or the real prefs is read or written. */
+function modelsEnv(models?: Partial<ModelsPrefs>) {
+  process.env.APPDATA = process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'cto-prefs-'));
+  if (models) savePrefs({ models: { ...DEFAULT_MODELS, ...models } });
+  const home = mkdtempSync(join(tmpdir(), 'cto-home-'));
+  const user = join(home, '.claude', 'settings.json');
+  const opts = { home, env: {}, managedPath: join(home, 'no-managed-settings.json') };
+  return { home, user, opts };
+}
+const readJson = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
+const writeJson = (p: string, v: unknown) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, JSON.stringify(v, null, 2) + '\n'); };
+const SPLIT_KEYS = (s: any) => [s.model, s.advisorModel, s.env?.CLAUDE_CODE_SUBAGENT_MODEL];
+const hasHook = (s: any, command: string) => (s.hooks?.SessionStart ?? []).some((m: any) => m.hooks?.some((h: any) => h.command === command));
+
+test('SessionStart JSON: brief only when nothing drifted; drift adds one line to the context and the systemMessage', () => {
+  const { opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'] });
+  const brief = ['[cto] brief line'];
+  const quiet = JSON.parse(claudeStart(root, brief, 'en', opts).stdout!);
+  assert.deepEqual(quiet, { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '[cto] brief line' } });
+
+  writeFileSync(join(root, '.agents/skills/cto/SKILL.md'), `${SKILL_MARK}\nold text\n`);
+  const out = JSON.parse(claudeStart(root, brief, 'en', opts).stdout!);
+  assert.match(out.systemMessage, /updated \.agents\/skills\/cto\/SKILL\.md/);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.equal(out.hookSpecificOutput.additionalContext, `[cto] brief line\n${out.systemMessage}`);
+  assert.ok(!out.systemMessage.includes('/model fable'), 'no Fable reminder at SessionStart');
+});
+
+test('SessionStart: scope global leaves the model keys to the user hook; scope local checks them in the project start', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'] });
+  writeJson(user, { model: 'opus' });
+  assert.equal(JSON.parse(claudeStart(root, ['b'], 'en', opts).stdout!).systemMessage, undefined, 'global: not checked here');
+  assert.equal(readJson(user).model, 'opus');
+
+  modelsEnv({ scope: 'local' });
+  const local = join(root, '.claude', 'settings.local.json');
+  const s = readJson(local);
+  writeJson(local, { ...s, model: 'opus' });
+  const out = JSON.parse(claudeStart(root, ['b'], 'en', opts).stdout!);
+  assert.match(out.systemMessage, /model opus → sonnet \(takes effect next session\)/);
+  assert.equal(readJson(local).model, 'sonnet');
+  assert.ok(readJson(local).hooks, 'the hooks in the same file are kept');
+});
+
+test('SessionStart: a drift check that throws still gives the brief plus one error line', () => {
+  modelsEnv();
+  const root = repo();
+  const boom = Object.defineProperty({}, 'home', { enumerable: true, get() { throw new Error('boom'); } });
+  const out = JSON.parse(claudeStart(root, ['[cto] brief line'], 'en', boom).stdout!);
+  assert.equal(out.hookSpecificOutput.additionalContext, '[cto] brief line\n[cto] Settings check failed: boom');
+  assert.equal(out.systemMessage, '[cto] Settings check failed: boom');
+});
+
+test('claude-models hook in a directory without cto (real CLI): model opus in ~/.claude/settings.json goes back to sonnet', () => {
+  const { home, user } = modelsEnv();
+  writeJson(user, { theme: 'dark', model: 'opus', advisorModel: 'fable', env: { CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' } });
+  const dir = mkdtempSync(join(tmpdir(), 'cto-plain-'));
+  const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home, CTO_LANG: 'en', CTO_NO_UPDATE_CHECK: '1' };
+  delete env.CLAUDE_CODE_SUBAGENT_MODEL;
+  const cli = join(import.meta.dirname, 'index.js');
+  const stdout = execFileSync(process.execPath, [cli, '--hook', 'claude-models'], { cwd: dir, env, input: JSON.stringify({ cwd: dir }), encoding: 'utf8' });
+  assert.deepEqual(readJson(user), { theme: 'dark', model: 'sonnet', advisorModel: 'fable', env: { CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' } });
+  assert.match(JSON.parse(stdout).systemMessage, /model opus → sonnet/);
+  assert.ok(!existsSync(join(dir, '.claude')), 'nothing written into the plain directory');
+  // the SubagentStop hook is wired but does nothing yet (MOD-4)
+  assert.equal(execFileSync(process.execPath, [cli, '--hook', 'claude-agent'], { cwd: dir, env, input: '{}', encoding: 'utf8' }), '');
+});
+
+test('cto models scope local: the user settings, user agent files and user hook go; the project gets them', () => {
+  const { home, user, opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], models: opts });
+  assert.ok(hasHook(readJson(user), 'cto --hook claude-models'));
+  assert.deepEqual(SPLIT_KEYS(readJson(user)), ['sonnet', 'fable', 'haiku']);
+  const r = modelsCommand(root, ['scope', 'local'], 'en', opts);
+  assert.equal(r.code, 0, r.lines.join('\n'));
+  const u = existsSync(user) ? readJson(user) : {};
+  assert.deepEqual(SPLIT_KEYS(u), [undefined, undefined, undefined]);
+  assert.ok(!hasHook(u, 'cto --hook claude-models'));
+  for (const n of Object.keys(AGENT_FILES)) {
+    assert.ok(!existsSync(join(home, '.claude', 'agents', n)), n);
+    assert.ok(existsSync(join(root, '.claude', 'agents', n)), n);
+  }
+  assert.deepEqual(SPLIT_KEYS(readJson(join(root, '.claude', 'settings.local.json'))), ['sonnet', 'fable', 'haiku']);
+  assert.equal(modelsPrefs().scope, 'local');
+  // and back: the user hook returns
+  assert.equal(modelsCommand(root, ['scope', 'global'], 'en', opts).code, 0);
+  assert.ok(hasHook(readJson(user), 'cto --hook claude-models'));
+});
+
+test('cto models advisor opus writes the target and the profile; the status shows /model fable only for Fable', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  const fable = modelsCommand(root, [], 'en', opts);
+  assert.match(fable.lines.join('\n'), /\/model fable/);
+  assert.match(fable.lines.join('\n'), /cto models advisor opus/);
+  assert.match(fable.lines.join('\n'), /Review gate: on/);
+  assert.ok(!existsSync(user), 'the status is a dry run');
+  const r = modelsCommand(root, ['advisor', 'opus'], 'en', opts);
+  assert.equal(r.code, 0);
+  assert.equal(readJson(user).advisorModel, 'opus');
+  assert.equal(modelsPrefs().advisor, 'opus');
+  assert.ok(!modelsCommand(root, [], 'en', opts).lines.join('\n').includes('/model fable'));
+  writeFileSync(join(root, '.cto.json'), JSON.stringify({ sprint_goal: 'x' })); // review needs a set-up project
+  assert.equal(modelsCommand(root, ['review', 'off'], 'en', opts).code, 0);
+  assert.equal(loadConfig(root).sprint_goal, 'x', 'other keys kept');
+  assert.equal(loadConfig(root).review_gate, false);
+  assert.match(modelsCommand(root, [], 'en', opts).lines.join('\n'), /Review gate: off/);
+  assert.equal(modelsCommand(root, ['advisor', 'gpt'], 'en', opts).code, 1, 'bad value: usage');
+});
+
+test('setup with Claude Code writes the split, agent files and user hook; uninstall takes them out, other keys stay', () => {
+  const { home, user, opts } = modelsEnv();
+  writeJson(user, { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } });
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], models: opts });
+  const s = readJson(user);
+  assert.ok(hasHook(s, 'cto --hook claude-models') && hasHook(s, 'echo mine'));
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(existsSync(join(home, '.claude', 'agents', n)), n);
+  const project = readJson(join(root, '.claude', 'settings.local.json'));
+  assert.ok(!hasHook(project, 'cto --hook claude-models'), 'the models hook is user-level only');
+  assert.deepEqual(project.hooks.SubagentStop, [{ hooks: [{ type: 'command', command: 'cto --hook claude-agent' }] }]);
+  assert.deepEqual(missingHooks(root), []);
+
+  assert.equal(setup(root, 'en', { uninstall: true, models: opts }).code, 0);
+  assert.deepEqual(readJson(user), { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } });
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(!existsSync(join(home, '.claude', 'agents', n)), n);
+});
+
+test('an unparsable credentials file gives one clean error line and exit 1 (real CLI)', () => {
+  const { home } = modelsEnv();
+  mkdirSync(join(process.env.APPDATA!, 'your-cto-jev'), { recursive: true });
+  writeFileSync(credentialsPath(), '{ "OPENROUTER_API_KEY": "k", broken');
+  const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home, CTO_LANG: 'en', CTO_NO_UPDATE_CHECK: '1' };
+  const cli = join(import.meta.dirname, 'index.js');
+  const r = spawnSync(process.execPath, [cli, 'models', 'advisor', 'opus'], { cwd: repo(), env, encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  const lines = r.stderr.trim().split('\n');
+  assert.equal(lines.length, 1, r.stderr);
+  assert.match(lines[0], /not valid JSON/);
+  assert.doesNotMatch(r.stderr, /^\s+at /m, 'no stack trace');
+  assert.equal(readFileSync(credentialsPath(), 'utf8'), '{ "OPENROUTER_API_KEY": "k", broken', 'the key file is left alone');
+});
+
+test('setup UI: the model split row shows the Fable reminder and walks advisor, scope and auto-fix', async () => {
+  const initial = { agents: [], providers: [], keys: {}, goal: '', models: DEFAULT_MODELS };
+  const r = await drive((io) => setupUI(initial, false, 'en', { ...io, env: {} }), [
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview (agents, providers, keys, flow, models) -> Model split
+    KEY.down, KEY.enter, // advisor: Fable -> Opus
+    KEY.down, KEY.enter, // scope: global -> local
+    KEY.down, KEY.enter, // auto-fix: on -> off
+    KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
+  ]);
+  assert.deepEqual(r.result?.models, { scope: 'local', advisor: 'opus', autoFix: false });
+  assert.match(r.out, /Model split/);
+  assert.match(r.out, /\/model fable/, 'reminder on the row while the advisor is Fable');
+});
+
+test('setup follows the saved auto-fix: off leaves ~/.claude alone on refresh and in a fresh repo; no profile yet writes', () => {
+  const { home, user, opts } = modelsEnv();
+  assert.equal(loadPrefs().models, undefined, 'no saved profile');
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], models: opts });
+  assert.deepEqual(SPLIT_KEYS(readJson(user)), ['sonnet', 'fable', 'haiku'], 'first install anywhere: the default auto-fix on writes');
+
+  savePrefs({ models: { ...modelsPrefs(), autoFix: false } }); // `cto models autofix off`
+  const drifted = JSON.stringify({ ...readJson(user), model: 'opus' });
+  writeFileSync(user, drifted);
+  unlinkSync(join(home, '.claude', 'agents', 'Explore.md'));
+  setup(root, 'en', { agents: wiredAgents(root), models: opts }); // what `cto setup --refresh` runs
+  setup(repo(), 'en', { agents: ['claude'], models: opts }); // a fresh repo is not a first install of the profile
+  assert.equal(readFileSync(user, 'utf8'), drifted);
+  assert.ok(!existsSync(join(home, '.claude', 'agents', 'Explore.md')));
+});
+
+test('setup leaves the split alone when the menu moves it to another scope right after (modelsWriteLater)', () => {
+  const { home, user, opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], models: opts, modelsWriteLater: true });
+  assert.ok(!existsSync(user), 'the old scope is not written just to be cleared');
+  assert.ok(!existsSync(join(home, '.claude', 'agents')));
+  const before = modelsPrefs();
+  applyModelsChange(root, before, { ...before, scope: 'local' }, opts);
+  assert.deepEqual(SPLIT_KEYS(readJson(join(root, '.claude', 'settings.local.json'))), ['sonnet', 'fable', 'haiku']);
+});
+
+test('clearing a scope treats any fable or opus advisorModel as cto\'s; the preview agrees', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  writeJson(user, { theme: 'dark', advisorModel: 'claude-opus-5' });
+  const plan = planSetup(root, ['claude'], false, '', { prefs: { ...modelsPrefs(), scope: 'local' }, before: modelsPrefs(), write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  assert.ok(plan.includes('~/.claude/settings.json:update'), plan.join('\n'));
+  modelsCommand(root, ['scope', 'local'], 'en', opts);
+  assert.deepEqual(readJson(user), { theme: 'dark' });
+});
+
+test('unticking Claude Code plans with the saved scope, not a scope picked in the same menu', () => {
+  const { opts } = modelsEnv({ scope: 'local' });
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], exact: true, models: opts });
+  const saved = modelsPrefs();
+  const plan = planSetup(root, [], false, '', { prefs: { ...saved, scope: 'global' }, before: saved, write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  for (const p of ['.claude/agents/cto-reviewer.md:remove', '.claude/agents/Explore.md:remove']) assert.ok(plan.includes(p), plan.join('\n'));
+  assert.ok(!plan.some((p) => p.startsWith('~/')));
+});
+
+test('scope local: a stale project advisorModel is drift, never a switch; the shared profile stays', () => {
+  const { user, opts } = modelsEnv({ scope: 'local' });
+  const root = repo();
+  writeJson(user, { theme: 'dark' });
+  const local = join(root, '.claude', 'settings.local.json');
+  writeJson(local, { model: 'sonnet', advisorModel: 'opus', env: { CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' } });
+  const r = driftCheck(root, opts);
+  assert.equal(modelsPrefs().advisor, 'fable');
+  assert.equal(readJson(local).advisorModel, 'fable');
+  assert.ok(r.fixed.includes(MSG.fixed('advisorModel', 'opus', 'fable')), r.fixed.join('\n'));
+  assert.deepEqual(readJson(user), { theme: 'dark' });
+});
+
+test('cto models status: the hint follows the profile; an /advisor switch is shown, not saved; zh-TW scope label', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  writeJson(user, { model: 'opus', advisorModel: 'opus', env: { CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' } });
+  const before = readFileSync(user, 'utf8');
+  const on = modelsCommand(root, [], 'en', opts).lines.join('\n');
+  assert.match(on, /model opus \(should be sonnet\); fixed at next session start or by `cto setup --refresh`/);
+  assert.doesNotMatch(on, /autofix on/);
+  assert.match(on, /advisor opus/, 'the switch is shown');
+  assert.doesNotMatch(on, /\/model fable/);
+  assert.equal(modelsPrefs().advisor, 'fable', 'and not saved');
+  assert.equal(readFileSync(user, 'utf8'), before);
+  assert.match(modelsCommand(root, [], 'zh-TW', opts).lines.join('\n'), /範圍：全域/);
+  modelsEnv({ autoFix: false });
+  assert.match(modelsCommand(root, [], 'en', opts).lines.join('\n'), /run `cto models autofix on` to fix it/);
+});
+
+test('planSetup with the model split lists ~/.claude/settings.json and the agent files; nothing after setup; a global split stays on untick', () => {
+  const { opts } = modelsEnv();
+  const root = repo();
+  const plan = (agents: ('claude')[]) => planSetup(root, agents, false, '', { prefs: modelsPrefs(), write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  const first = plan(['claude']);
+  for (const p of ['~/.claude/settings.json:new', '~/.claude/agents/cto-reviewer.md:new', '~/.claude/agents/Explore.md:new']) assert.ok(first.includes(p), `${p} in\n${first.join('\n')}`);
+  setup(root, 'en', { agents: ['claude'], exact: true, models: opts });
+  assert.deepEqual(plan(['claude']), []);
+  assert.ok(!plan([]).some((p) => p.startsWith('~/')), 'unticking one project leaves the user-level split');
+});
+
+test('planSetup: moving the split to another scope in the menu lists the old scope\'s files that get cleared', () => {
+  const { opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], exact: true, models: opts });
+  const toLocal = planSetup(root, ['claude'], false, '', { prefs: { ...modelsPrefs(), scope: 'local' }, before: modelsPrefs(), write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  for (const p of ['~/.claude/settings.json:update', '~/.claude/agents/cto-reviewer.md:remove', '~/.claude/agents/Explore.md:remove', '.claude/agents/cto-reviewer.md:new']) {
+    assert.ok(toLocal.includes(p), `${p} in\n${toLocal.join('\n')}`);
+  }
+  modelsCommand(root, ['scope', 'local'], 'en', opts);
+  const toGlobal = planSetup(root, ['claude'], false, '', { prefs: { ...modelsPrefs(), scope: 'global' }, before: modelsPrefs(), write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  for (const p of ['.claude/settings.local.json:update', '.claude/agents/cto-reviewer.md:remove', '.claude/agents/Explore.md:remove']) {
+    assert.ok(toGlobal.includes(p), `${p} in\n${toGlobal.join('\n')}`);
+  }
+});
+
+test('advisor and scope changed together (global fable -> local opus): the old scope is cleared by its old values', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  writeJson(user, { theme: 'dark', advisorModel: 'fable' });
+  const before = modelsPrefs();
+  const after: ModelsPrefs = { ...before, scope: 'local', advisor: 'opus' };
+  const plan = planSetup(root, ['claude'], false, '', { prefs: after, before, write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  assert.ok(plan.includes('~/.claude/settings.json:update'), `the old advisorModel is listed:\n${plan.join('\n')}`);
+  applyModelsChange(root, before, after, opts); // what a save from the menu runs
+  assert.deepEqual(readJson(user), { theme: 'dark' }, 'user settings lose advisorModel fable');
+  assert.equal(readJson(join(root, '.claude', 'settings.local.json')).advisorModel, 'opus');
+  assert.deepEqual({ scope: modelsPrefs().scope, advisor: modelsPrefs().advisor }, { scope: 'local', advisor: 'opus' });
+});
+
+test('unticking Claude Code in one project: a global split stays whole; a local split leaves with the project', () => {
+  const { home, user, opts } = modelsEnv();
+  const root = repo();
+  setup(root, 'en', { agents: ['claude'], exact: true, models: opts });
+  setup(root, 'en', { agents: [], exact: true, models: opts });
+  const s = readJson(user);
+  assert.deepEqual(SPLIT_KEYS(s), ['sonnet', 'fable', 'haiku']);
+  assert.ok(hasHook(s, 'cto --hook claude-models'));
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(existsSync(join(home, '.claude', 'agents', n)), n);
+
+  modelsEnv({ scope: 'local' });
+  const local = repo();
+  setup(local, 'en', { agents: ['claude'], exact: true, models: opts });
+  assert.deepEqual(SPLIT_KEYS(readJson(join(local, '.claude', 'settings.local.json'))), ['sonnet', 'fable', 'haiku']);
+  setup(local, 'en', { agents: [], exact: true, models: opts });
+  const left = existsSync(join(local, '.claude', 'settings.local.json')) ? readJson(join(local, '.claude', 'settings.local.json')) : {};
+  assert.deepEqual(SPLIT_KEYS(left), [undefined, undefined, undefined]);
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(!existsSync(join(local, '.claude', 'agents', n)), n);
+  assert.deepEqual(SPLIT_KEYS(readJson(user)), ['sonnet', 'fable', 'haiku'], 'the user settings are not touched');
+});
+
+test('prefsSaveError: a broken key file is one line; any other save error is rethrown', () => {
+  assert.equal(prefsSaveError(new Error('/x/credentials.json is not valid JSON; fix or delete it'), 'en', '/x/credentials.json'),
+    '[cto] /x/credentials.json is not valid JSON and holds API keys, so cto will not overwrite it. Fix or delete it, then try again.');
+  assert.throws(() => prefsSaveError(new Error('EACCES: permission denied'), 'en', '/x'), /EACCES/);
+});
+
+test('cto models: project writes need a git repo (real CLI); review needs .cto.json', () => {
+  const { home } = modelsEnv();
+  const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home, CTO_LANG: 'en', CTO_NO_UPDATE_CHECK: '1' };
+  const cli = join(import.meta.dirname, 'index.js');
+  const plain = mkdtempSync(join(tmpdir(), 'cto-plain-'));
+  const r = spawnSync(process.execPath, [cli, 'models', 'scope', 'local'], { cwd: plain, env, encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Not a git repository/);
+  assert.ok(!existsSync(join(plain, '.claude')));
+  const root = repo();
+  const review = modelsCommand(root, ['review', 'off'], 'en', { home });
+  assert.equal(review.code, 1);
+  assert.match(review.lines.join('\n'), /\.cto\.json not found/);
+  assert.ok(!existsSync(join(root, '.cto.json')));
+});
+
+// root ignores read-only permissions, so the write would land
+test('userModelsHook: a write that does not land says so instead of staying silent', { skip: process.getuid?.() === 0 }, () => {
+  const { home, user } = modelsEnv();
+  writeJson(user, { theme: 'dark' });
+  chmodSync(user, 0o444); // Windows refuses to replace a read-only file; elsewhere the read-only folder stops the temp file
+  chmodSync(join(home, '.claude'), 0o555);
+  try {
+    assert.match(userModelsHook(home, true) ?? '', /was not written .*run it again/);
+  } finally {
+    chmodSync(join(home, '.claude'), 0o755);
+    chmodSync(user, 0o644);
+  }
+  assert.deepEqual(readJson(user), { theme: 'dark' });
 });

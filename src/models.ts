@@ -1,33 +1,41 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
+import { DEFAULT_MODELS, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
 import { isObj, readSettings, wiredAgents } from './setup.js';
 import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, SKILL_PATH, fileVersion, syncFlowSkill, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
+import { t, type Lang } from './i18n.js';
 
 // The model split for Claude Code (docs/cto_jev/features/models/SPEC.md): Sonnet does the work, Fable or Opus advises,
 // Haiku runs sub-agents, an Opus agent reviews. cto keeps the settings in line and says what it fixed.
 
-// Every user-visible item in one place, so it can be localized.
+// Every user-visible item in one place; the text is in i18n.ts. English unless the CLI sets the language (tests stay English).
+let lang: Lang = 'en';
+export const setModelsLang = (l: Lang) => { lang = l; };
+const unset = (v: string | undefined) => v ?? t(lang, 'models_unset');
+// An unfixed item is reported in two cases: auto-fix is off, or `cto models` only looked. The hint follows the profile.
+const hint = () => t(lang, modelsPrefs().autoFix ? 'models_hint_on' : 'models_hint_off');
 export const MSG = {
-  fixed: (key: string, from: string | undefined, to: string) => `${key} ${from ?? '(unset)'} → ${to} (takes effect next session)`,
-  drift: (key: string, from: string | undefined, to: string) => `${key} ${from ?? '(unset)'} (should be ${to}); run \`cto models autofix on\` to fix it`,
-  removed: (key: string, file: string) => `${key} removed from ${file}`,
-  localOverride: (key: string, file: string) => `${key} in ${file} overrides the model split; run \`cto models autofix on\` to remove it`,
-  shared: (key: string, file: string) => `${key} is set in ${file} (shared, not changed) and overrides the model split`,
-  badJson: (file: string) => `${file} is not valid JSON; not changed`,
-  unreadable: (file: string) => `${file} cannot be read; not changed`,
-  badShape: (file: string) => `"env" in ${file} is not an object; not changed`,
-  prefsBroken: (msg: string) => `the model split was not saved: ${msg}`,
-  managed: (key: string, want: string) => `managed settings availableModels does not allow ${want}; ${key} not set`,
-  envSet: (value: string, where: string) => `CLAUDE_CODE_SUBAGENT_MODEL=${value} is set in ${where} and overrides the model split`,
-  conflict: (file: string) => `${file} exists and is not cto's; not overwritten`,
-  tooOld: (file: string, fileVer: string) => `this cto (${currentVersion()}) is older than ${file} (${fileVer}); run \`npm install -g your-cto-jev\``,
-  wrote: (file: string) => `updated ${file}`,
-  deleted: (file: string) => `removed ${file}`,
-  stale: (file: string) => `${file} is out of date; run \`cto models autofix on\` to update it`,
-  fable: 'The advisor does not run until you agree to Fable: agree first in `/model fable`; to not use Fable, run `cto models advisor opus`.',
+  fixed: (key: string, from: string | undefined, to: string) => t(lang, 'models_fixed', { key, from: unset(from), to }),
+  drift: (key: string, from: string | undefined, to: string) => t(lang, 'models_drift', { key, from: unset(from), to, hint: hint() }),
+  removed: (key: string, file: string) => t(lang, 'models_removed', { key, file }),
+  localOverride: (key: string, file: string) => t(lang, 'models_local_override', { key, file, hint: hint() }),
+  shared: (key: string, file: string) => t(lang, 'models_shared', { key, file }),
+  badJson: (file: string) => t(lang, 'models_bad_json', { file }),
+  unreadable: (file: string) => t(lang, 'models_unreadable', { file }),
+  badShape: (file: string) => t(lang, 'models_bad_shape', { file }),
+  prefsBroken: (msg: string) => t(lang, 'models_prefs_broken', { msg }),
+  managed: (key: string, want: string) => t(lang, 'models_managed', { key, want }),
+  envSet: (value: string, where: 'the shell environment' | 'managed settings') =>
+    t(lang, 'models_env_set', { value, where: t(lang, where === 'managed settings' ? 'models_where_managed' : 'models_where_shell') }),
+  conflict: (file: string) => t(lang, 'models_conflict', { file }),
+  tooOld: (file: string, fileVer: string) => t(lang, 'models_too_old', { current: currentVersion(), file, fileVer }),
+  wrote: (file: string) => t(lang, 'models_wrote', { file }),
+  deleted: (file: string) => t(lang, 'models_deleted', { file }),
+  stale: (file: string) => t(lang, 'models_stale', { file, hint: hint() }),
+  notWritten: (file: string) => t(lang, 'models_not_written', { file }),
+  get fable() { return t(lang, 'models_fable'); },
 };
 
 /** Shown by `cto models` and the setup menu when the advisor is Fable; never at SessionStart (noise). */
@@ -132,6 +140,7 @@ export interface ModelsOpts {
   models?: boolean; // check the model settings and agent files (default true)
   files?: boolean; // check cto's skill/command files in `root` (default true)
   adopt?: boolean; // an advisor switched with /advisor updates the profile (default true; off when cto itself just set it)
+  dryRun?: boolean; // `cto models`: follow an /advisor switch in memory only, never save the profile (pair with autoFix false)
 }
 export interface DriftResult { fixed: string[]; reported: string[] }
 
@@ -174,8 +183,9 @@ function checkModels(root: string, opts: ModelsOpts, profile: ModelsPrefs, autoF
   const managed: Record<string, any> = isObj(m) ? m : {}; // unreadable or broken (e.g. server-managed) = no limits
   const targetSub = getAt(t.json, SUB_PATH);
 
-  // An advisor that is fable or opus but not the profile's was switched on purpose (/advisor): follow it.
-  if (opts.adopt !== false) {
+  // An advisor that is fable or opus but not the profile's was switched on purpose (/advisor): follow it. /advisor writes
+  // the user settings only, so in scope local the project's own value is stale, not a switch: it is drift, fixed below.
+  if (opts.adopt !== false && p.scope === 'global') {
     const a = advisorOf(getAt(t.json, ['advisorModel']));
     if (a && a !== p.advisor) p = { ...p, advisor: a };
   }
@@ -185,7 +195,7 @@ function checkModels(root: string, opts: ModelsOpts, profile: ModelsPrefs, autoF
     const u = advisorOf(getAt(readSettings(userSettingsPath(home)), ['advisorModel']));
     if (u && u !== p.seenUserAdvisor) p = { ...p, ...(opts.adopt !== false && { advisor: u }), seenUserAdvisor: u };
   }
-  if (p !== profile && !saveModels(p, out)) return;
+  if (p !== profile && !opts.dryRun && !saveModels(p, out)) return;
 
   const list = Array.isArray(managed.availableModels) ? managed.availableModels.filter((m: unknown) => typeof m === 'string').map((m: string) => m.toLowerCase()) : undefined;
   const allowed = (k: Key, want: string) => !list || list.includes(want) || list.some((m: string) => k.ok(m, p));
@@ -264,6 +274,13 @@ function checkFiles(root: string, autoFix: boolean, out: DriftResult) {
 // ---------- changing the split ----------
 
 /**
+ * A value cto wrote, so clearing a scope may remove it: model sonnet, sub-agents haiku, and any fable or opus advisor
+ * (whichever one the profile holds now, or one switched with /advisor; the same rule switchScope carries over).
+ */
+export const isOurs = (k: Key, v: unknown): boolean =>
+  k.label === 'advisorModel' ? advisorOf(v) !== undefined : v === k.want(DEFAULT_MODELS);
+
+/**
  * Take the split out of one scope: the three keys (only where they still hold the profile's values) and cto's agent
  * files there. Used when switching scope and when cto is removed.
  */
@@ -271,12 +288,11 @@ export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: Mode
   const out = empty();
   const home = opts.home ?? homedir();
   const show = display(root, home);
-  const p = modelsPrefs();
   const path = targetPath(root, scope, home);
   const t = readSettingsFile(path);
   if (t.json === null) out.reported.push(fileProblem(t, show(path)));
   else {
-    const mine = MODEL_KEYS.filter((k) => getAt(t.json, k.path) === k.want(p));
+    const mine = MODEL_KEYS.filter((k) => isOurs(k, getAt(t.json, k.path)));
     for (const k of mine) delAt(t.json, k.path);
     if (mine.length && writeJsonIfUnchanged(path, t.text, t.json)) for (const k of mine) out.fixed.push(MSG.removed(k.label, show(path)));
   }
@@ -291,14 +307,18 @@ export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: Mode
   return out;
 }
 
-/** Move the split to `to`: clear the old scope (for local, only this project), then write the new one. */
-export function switchScope(root: string, to: ModelsPrefs['scope'], opts: ModelsOpts = {}): DriftResult {
+/**
+ * Move the split to `to`: clear the old scope (for local, only this project), then write the new one. `also` carries
+ * other changes made in the same step (a new advisor); clearScope removes any fable or opus advisor the old scope holds.
+ */
+export function switchScope(root: string, to: ModelsPrefs['scope'], opts: ModelsOpts = {}, also: Partial<ModelsPrefs> = {}): DriftResult {
   const p = modelsPrefs();
   const out = empty();
   if (p.scope === to) return out;
-  // An /advisor switch in the old target since the last session would be lost once that scope is cleared: carry it over.
-  const a = advisorOf(getAt(readSettings(targetPath(root, p.scope, opts.home ?? homedir())), ['advisorModel']));
-  if (!saveModels({ ...p, scope: to, ...(a && { advisor: a }) }, out)) return out; // prefs first: a failed save changes no file
+  // An /advisor switch in the old user settings since the last session would be lost once that scope is cleared: carry it
+  // over. A scope-local file is never a switch (/advisor writes the user settings), so nothing is carried from it.
+  const a = p.scope === 'global' ? advisorOf(getAt(readSettings(targetPath(root, p.scope, opts.home ?? homedir())), ['advisorModel'])) : undefined;
+  if (!saveModels({ ...p, ...(a && { advisor: a }), ...also, scope: to }, out)) return out; // prefs first: a failed save changes no file
   const cleared = clearScope(root, p.scope, opts);
   const written = driftCheck(root, { ...opts, autoFix: true, files: false, adopt: false });
   return { fixed: [...cleared.fixed, ...written.fixed], reported: [...cleared.reported, ...written.reported] };
@@ -308,8 +328,8 @@ export function switchScope(root: string, to: ModelsPrefs['scope'], opts: Models
 export function applyModels(root: string, change: Partial<ModelsPrefs>, opts: ModelsOpts = {}): DriftResult {
   const p = modelsPrefs();
   const out = empty();
+  if (change.scope && change.scope !== p.scope) { const { scope, ...also } = change; return switchScope(root, scope, opts, also); }
   if (!saveModels({ ...p, ...change, scope: p.scope }, out)) return out;
-  if (change.scope && change.scope !== p.scope) return switchScope(root, change.scope, opts);
   if (change.advisor !== undefined || change.autoFix === true) return driftCheck(root, { ...opts, autoFix: true, files: false, adopt: false });
   return out;
 }

@@ -13,9 +13,10 @@ export interface GuardInput { cwd?: string; toolName: string; toolInput: any }
 export interface MenuInput { sessionId?: string; cwd?: string; subagent: boolean; questions: any[]; answers: Record<string, unknown> }
 
 export type AgentName = 'claude' | 'cursor' | 'gemini' | 'codex';
-export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start', 'prompt', 'guard', 'menu'] as const;
+export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start', 'prompt', 'guard', 'menu', 'agent', 'models'] as const;
 export type Phase = (typeof PHASES)[number];
-type Spec = { event: string; matcher?: string };
+/** user: installed in the user's own settings (~/.claude/settings.json), never in a project's. */
+type Spec = { event: string; matcher?: string; user?: true };
 
 export interface Agent {
   label: string;
@@ -31,6 +32,8 @@ export interface Agent {
   prompt?: Spec; // user prompt: signs off the docs on the CTO's Review line when the user agrees
   guard?: Spec; // before an edit tool: the CTO cannot approve its own sign-off docs
   menu?: Spec; // after the user answers a menu: signs the docs whose question got Approve
+  agent?: Spec; // a sub-agent finished: records cto-reviewer's review
+  models?: Spec; // user-level session start: keeps the model split in line in every project, cto or not
   parsePrompt?(i: any): PromptInput;
   parseGuard?(i: any): GuardInput;
   parseMenu?(i: any): MenuInput;
@@ -98,6 +101,8 @@ export const agents: Record<AgentName, Agent> = {
     prompt: { event: 'UserPromptSubmit' },
     guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion' },
     menu: { event: 'PostToolUse', matcher: 'AskUserQuestion' },
+    agent: { event: 'SubagentStop' },
+    models: { event: 'SessionStart', user: true },
     parseMenu: (i) => ({
       sessionId: sessionId(i),
       cwd: str(i?.cwd),
