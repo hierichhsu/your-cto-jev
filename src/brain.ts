@@ -143,7 +143,7 @@ export function applyCredentials(env = process.env): void {
 
 /** Replace the stored keys with exactly `c`; personal prefs in the same file are kept. */
 export function saveCredentials(c: Credentials): string {
-  const raw = readJson(credentialsPath()) ?? {};
+  const raw = readUserFile();
   for (const k of CREDENTIAL_KEYS) delete raw[k];
   return writeUserFile({ ...raw, ...c });
 }
@@ -152,27 +152,66 @@ export function saveCredentials(c: Credentials): string {
 export interface Prefs {
   provider_order?: string[]; // providers to use, in failover order; absent = every provider with a key, default order
   lang?: 'zh-TW' | 'en'; // absent = auto-detect
+  models?: ModelsPrefs; // absent = DEFAULT_MODELS
 }
+
+/** Which model does which job in Claude Code, and where cto writes it (docs/cto_jev/features/models). */
+export interface ModelsPrefs {
+  scope: 'global' | 'local';
+  advisor: 'fable' | 'opus';
+  autoFix: boolean;
+  seenUserAdvisor?: 'fable' | 'opus'; // scope local: the user-level advisorModel last seen, so only a new /advisor switch is followed
+}
+export const DEFAULT_MODELS: ModelsPrefs = { scope: 'global', advisor: 'fable', autoFix: true };
+export const modelsPrefs = (p: Prefs = loadPrefs()): ModelsPrefs => ({ ...DEFAULT_MODELS, ...p.models });
 
 export function loadPrefs(): Prefs {
   const raw = readJson(credentialsPath()) ?? {};
+  const m = raw.models;
+  const models = m && typeof m === 'object' && !Array.isArray(m) && {
+    ...((m.scope === 'global' || m.scope === 'local') && { scope: m.scope }),
+    ...((m.advisor === 'fable' || m.advisor === 'opus') && { advisor: m.advisor }),
+    ...(typeof m.autoFix === 'boolean' && { autoFix: m.autoFix }),
+    ...((m.seenUserAdvisor === 'fable' || m.seenUserAdvisor === 'opus') && { seenUserAdvisor: m.seenUserAdvisor }),
+  };
   return {
     ...(Array.isArray(raw.provider_order) && { provider_order: raw.provider_order.filter((p: unknown) => typeof p === 'string') }),
     ...((raw.lang === 'zh-TW' || raw.lang === 'en') && { lang: raw.lang }),
+    ...(models && { models: { ...DEFAULT_MODELS, ...models } }),
   };
 }
 
+/** provider_order and lang are replaced by `p` (absent = cleared); models is kept unless `p` sets it. */
 export function savePrefs(p: Prefs): string {
-  const raw = readJson(credentialsPath()) ?? {};
+  const raw = readUserFile();
   delete raw.provider_order;
   delete raw.lang;
   return writeUserFile({ ...raw, ...p });
 }
 
+/**
+ * The file holds API keys: a file that exists but does not parse is never overwritten (its keys would be lost).
+ * Throws then; callers that run unattended (SessionStart) catch it and report.
+ */
+function readUserFile(): Record<string, any> {
+  const path = credentialsPath();
+  if (!existsSync(path)) return {};
+  const raw = readJson(path);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${path} is not valid JSON; fix or delete it, cto will not overwrite it`);
+  return raw;
+}
+
 function writeUserFile(data: object): string {
   const path = credentialsPath();
+  const tmp = `${path}.${process.pid}.tmp`;
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+    renameSync(tmp, path); // a crash mid-write never leaves half a key file
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* nothing to clean */ }
+    throw e;
+  }
   return path;
 }
 

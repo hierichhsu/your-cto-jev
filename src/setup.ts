@@ -93,12 +93,12 @@ export function detectAgents(home = homedir()): AgentName[] {
   return agentNames.filter((n) => existsSync(join(home, agents[n].homeDir)));
 }
 
-function readSettings(path: string): any | null {
+export function readSettings(path: string): any | null {
   if (!existsSync(path)) return {};
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
-const isObj = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
+export const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** Settings must be an object; the hook events cto writes must be arrays if present. Checked before anything is written. */
 function validShape(json: any, name: AgentName): boolean {
   if (!isObj(json)) return false;

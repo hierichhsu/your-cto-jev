@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import type { AgentName } from './agents.js';
+import { currentVersion, newer } from './update.js';
 
 // Guidance for coding agents, in two layers:
 // 1. A short rules block in each agent's always-loaded project file (CLAUDE.md, AGENTS.md, GEMINI.md). Skills load
@@ -10,6 +11,52 @@ import type { AgentName } from './agents.js';
 // Every rule names the check that enforces it, and every enforcing check has a rule.
 
 export const SKILL_MARK = '<!-- Managed by `cto setup`. Re-run it to update; local edits are overwritten. -->';
+/** Every file cto writes carries the version that wrote it, so an older cto never downgrades a newer one's files. */
+export const VERSION_LINE = `<!-- cto ${currentVersion()} -->`;
+const SKILL_HEAD = `${SKILL_MARK}\n${VERSION_LINE}`;
+export const fileVersion = (text: string): string | undefined => /^<!-- cto (\d+\.\d+\.\d+(?:-[\w.]+)?) -->\r?$/m.exec(text)?.[1];
+const core = (v: string) => v.split('-')[0]; // newer() compares plain x.y.z; a prerelease counts as its x.y.z
+/** The file was written by a newer cto than this one. Files without a version line are old and update normally. */
+export const tooNew = (text: string | undefined): boolean => {
+  const v = text === undefined ? undefined : fileVersion(text);
+  return !!v && newer(core(v), core(currentVersion()));
+};
+/** Versioned cto files in a repo; when one is newer than this cto, the unversioned rules blocks are left alone too. */
+const versionedFiles = () => [SKILL_PATH, FLOW_SKILL_PATH, FLOW_COMMAND_PATH, ...Object.keys(AGENT_FILES).map((n) => `.claude/agents/${n}`)];
+export const repoTooNew = (root: string): boolean =>
+  versionedFiles().some((rel) => { const p = join(root, rel); return existsSync(p) && tooNew(readFileSync(p, 'utf8')); });
+
+// Sub-agents cto installs for Claude Code (docs/cto_jev/features/models): an Opus reviewer and a Haiku Explore.
+export const AGENT_FILES: Record<string, string> = {
+  'cto-reviewer.md': `---
+name: cto-reviewer
+description: Zero-context code reviewer. Use it to review the current changes before committing; give it only what to review, never your own conclusions.
+tools: Read, Grep, Glob, Bash
+model: opus
+---
+${SKILL_HEAD}
+
+You review changes you have never seen, with no context beyond the repository and the request. Do not trust the author's intent or the request's claims; check the code.
+
+1. Run \`git status\` and \`git diff HEAD\` to see what changed, then read the changed files and the code that calls them.
+2. Look for wrong logic, missed edge cases, broken callers, security holes, data loss, and tests that were skipped, deleted or loosened.
+3. Never edit, write or delete anything. Use Bash only for read-only commands (git diff, git log, git show, running the tests).
+
+Output one finding per line, each starting with P1 (must fix: a bug, a security hole, data loss), P2 (should fix) or P3 (minor), then \`file:line\` and the problem in one sentence. Nothing else before or after. No findings: write \`No findings.\`
+`,
+  'Explore.md': `---
+name: Explore
+description: Read-only search agent. Finds files, code and answers across the repository and reports them with paths.
+tools: Read, Grep, Glob, Bash
+model: haiku
+---
+${SKILL_HEAD}
+
+You search; you never change anything. Find with Glob and Grep, confirm with Read. Use Bash only for read-only commands (ls, git log, git grep). Never write, edit, delete, install or run anything that changes state.
+
+Answer first, then the file paths and line numbers that support it.
+`,
+};
 export const SKILL_PATH = '.agents/skills/cto/SKILL.md';
 const LEGACY_SKILL = '.claude/skills/cto/SKILL.md'; // 0.5.0 pre-release layout, cleaned up on sync
 
@@ -33,7 +80,7 @@ export const FLOW_COMMAND_TEXT = `---
 description: The cto development flow - init, feature, tasks, work, release, docs, decide
 argument-hint: "[init | feature <request> | tasks | work | work all | release | docs | decide]"
 ---
-${SKILL_MARK}
+${SKILL_HEAD}
 
 Read \`${FLOW_SKILL_PATH}\` in full, then do the job named here: $ARGUMENTS
 
@@ -65,7 +112,7 @@ export const SKILL_TEXT = `---
 name: cto
 description: Development rules enforced in this repository by the cto gatekeeper, with what each check looks for and what to do when blocked. Use before committing, before saying a task is done, after a command fails, before running anything destructive, and whenever a cto hook blocks you.
 ---
-${SKILL_MARK}
+${SKILL_HEAD}
 
 # cto: the rules of this repo
 
@@ -117,7 +164,7 @@ export const FLOW_SKILL_TEXT = `---
 name: cto-jev
 description: The development flow of this repo, kept in docs/cto_jev/. Invoked by saying the job's name (in Claude Code: /cto-jev <job>; in Codex: $cto-jev). Its jobs are named so they cannot be confused with another skill's steps - "cto-jev init" (first-time setup, also "set up PRODUCT.md and ARCHITECTURE.md"), "cto-jev feature" (a request bigger than one edit), "cto-jev tasks" (break a signed-off concept down), "cto-jev work" (dispatch, accept, review and commit every wave, without stopping in between), "cto-jev work all" (the same on a branch, one review at the end), "cto-jev release" (review everything unreleased, then merge to main), "cto-jev docs" (clean up old documents), "cto-jev decision" (record an architecture decision), "cto-jev decide" (put everything waiting on the user in one menu). Load it when the user names one of them, and whenever you are about to plan, dispatch, tick a task or commit.
 ---
-${SKILL_MARK}
+${SKILL_HEAD}
 
 # cto-jev
 
@@ -393,13 +440,15 @@ function removeFileAndEmptyDirs(root: string, path: string) {
 export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers: boolean, flow = false, dry = false): { written: string[]; removed: string[] } {
   const written: string[] = [];
   const removed: string[] = [];
+  const keepBlocks = repoTooNew(root); // rules blocks carry no version line: a newer cto's repo keeps its own
   for (const m of MEMORY_FILES) {
     const path = join(root, m.path);
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
     if (m.agents.some((a) => chosen.has(a))) {
+      if (keepBlocks) continue;
       const next = appendMd(current, flow);
       if (next !== current) { if (!dry) writeFileSync(path, next); written.push(m.path); }
-    } else if (removeOthers && mdBlockRe.test(current)) {
+    } else if (removeOthers && !keepBlocks && mdBlockRe.test(current)) {
       const rest = removeMd(current);
       if (!dry) { if (rest.trim()) writeFileSync(path, rest); else unlinkSync(path); }
       removed.push(m.path);
@@ -407,7 +456,8 @@ export function syncGuidance(root: string, chosen: Set<AgentName>, removeOthers:
   }
   const skill = join(root, SKILL_PATH);
   if (chosen.size) {
-    if (!existsSync(skill) || readFileSync(skill, 'utf8') !== SKILL_TEXT) {
+    const current = existsSync(skill) ? readFileSync(skill, 'utf8') : undefined;
+    if (current !== SKILL_TEXT && !tooNew(current)) {
       if (!dry) { mkdirSync(dirname(skill), { recursive: true }); writeFileSync(skill, SKILL_TEXT); }
       written.push(SKILL_PATH);
     }
@@ -435,7 +485,7 @@ export function syncFlowSkill(root: string, enabled: boolean, dry = false, claud
     const current = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
     if (want) {
       // A file of the same name without the marker is the user's own (e.g. their own /cto-jev command): never overwrite it.
-      if (current === text || (current !== undefined && !current.includes(SKILL_MARK))) return;
+      if (current === text || (current !== undefined && !current.includes(SKILL_MARK)) || tooNew(current)) return;
       if (!dry) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
       written.push(rel);
     } else if (current?.includes(SKILL_MARK)) {
@@ -464,13 +514,15 @@ export function staleGuidance(root: string, agentsInUse: AgentName[], flow?: boo
   if (!agentsInUse.length) return [];
   const stale: string[] = [];
   const blocks = (flow === undefined ? [false, true] : [flow]).map((f) => rulesBlock(f).trimEnd());
+  const newerRepo = repoTooNew(root); // written by a newer cto: this one cannot judge, and sync would not touch them
   for (const m of MEMORY_FILES) {
-    if (!m.agents.some((a) => agentsInUse.includes(a))) continue;
+    if (newerRepo || !m.agents.some((a) => agentsInUse.includes(a))) continue;
     const path = join(root, m.path);
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
     if (!blocks.some((b) => current.includes(b))) stale.push(m.path);
   }
   const skill = join(root, SKILL_PATH);
-  if (!existsSync(skill) || readFileSync(skill, 'utf8') !== SKILL_TEXT) stale.push(SKILL_PATH);
+  const text = existsSync(skill) ? readFileSync(skill, 'utf8') : undefined;
+  if (text !== SKILL_TEXT && !tooNew(text)) stale.push(SKILL_PATH);
   return stale;
 }
