@@ -247,8 +247,8 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   assert.equal(setup(root, 'en', { agents: ['claude'] }).code, 0); // idempotent
   const h = readFileSync(hook, 'utf8');
   assert.equal(h.split('YOUR CTO JEV START').length, 2);
-  assert.ok(h.startsWith('#!/bin/sh\n# >>> YOUR CTO JEV START'), 'the cto block is first, after the shebang');
-  assert.ok(h.endsWith('\nnpm run lint\n'), 'the user\'s commands are kept, after it');
+  assert.ok(h.startsWith('#!/bin/sh\nnpm run lint\n'), 'the user\'s commands are kept, first');
+  assert.ok(h.endsWith('# <<< YOUR CTO JEV END <<<\n'), 'the cto block is appended at the end');
   const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(s.hooks.PreToolUse.length, 3); // the user's Edit hook, cto's Bash pre, cto's sign-off guard
   assert.equal(s.hooks.PostToolUseFailure[0].hooks[0].command, 'cto --hook claude-post');
@@ -278,12 +278,12 @@ test('setup installs idempotently and uninstall restores exactly', () => {
   for (const d of ['.claude', '.cursor', '.gemini', '.codex']) assert.ok(!existsSync(join(fresh, d)), d);
   assert.ok(!existsSync(join(fresh, '.gitignore')));
 
-  // an exit 0 in the user's hook: pre-commit's block goes first, so no warning; pre-push's block is appended after the user's
-  // lines, so an exit 0 above it means it never runs, and that is said
+  // an exit 0 in the user's hook: cto's block is appended after the user's lines, so an exit 0 above it means it never runs,
+  // and that is said for every hook
   const early = tmp();
   execFileSync('git', ['init', '-q'], { cwd: early });
   writeFileSync(join(early, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
-  assert.doesNotMatch(setup(early, 'en', { agents: [] }).lines.join('\n'), /exit 0/);
+  assert.match(setup(early, 'en', { agents: [] }).lines.join('\n'), /pre-commit has an exit 0 before the cto block/);
   writeFileSync(join(early, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
   assert.match(setup(early, 'en', { agents: [] }).lines.join('\n'), /exit 0 before the cto block/);
 });

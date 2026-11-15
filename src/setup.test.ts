@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
 import { MSG, driftCheck } from './models.js';
 import { AGENT_FILES, FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userLinesAbove, userModelsHook } from './setup.js';
+import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userModelsHook } from './setup.js';
 import { missingHooks, wiredAgents } from './setup.js';
 import { setupUI } from './setupui.js';
 
@@ -234,8 +234,7 @@ test('setup --refresh rewrites an old git hook block in a repo with no agents wi
   assert.equal(isSetUp(root), true);
   const hook = join(root, '.git', 'hooks', 'pre-commit');
   const current = readFileSync(hook, 'utf8');
-  // the block of an earlier version: the exit-status pass-through as its first line, which pre-commit no longer has
-  const old = current.replace('# >>> YOUR CTO JEV START >>>\n', '# >>> YOUR CTO JEV START >>>\ns=$?; [ $s -eq 0 ] || exit $s\n');
+  const old = current.replace('s=$?; [ $s -eq 0 ] || exit $s\n', ''); // the ≤0.9.8 block: no exit-status guard
   assert.notEqual(old, current, 'the old block was made');
   writeFileSync(hook, old);
   // hooks shared through a global core.hooksPath: another repo with the block but no .cto.json is not set up
@@ -248,7 +247,19 @@ test('setup --refresh rewrites an old git hook block in a repo with no agents wi
   const env = { ...process.env, CTO_NO_UPDATE_CHECK: '1', HOME: home, USERPROFILE: home, APPDATA: home, XDG_CONFIG_HOME: home };
   const out = execFileSync(process.execPath, [cli, 'setup', '--refresh'], { cwd: root, encoding: 'utf8', env });
   assert.doesNotMatch(out, /not set up/);
-  assert.equal(readFileSync(hook, 'utf8'), current, 'refresh writes the current block, without the pass-through');
+  assert.equal(readFileSync(hook, 'utf8'), current, 'refresh writes the current block');
+});
+
+test('refresh moves a block an earlier dev build placed first back to the end, appended', () => {
+  const root = repo();
+  setup(root, 'en', { agents: [] });
+  const hook = join(root, '.git/hooks/pre-commit');
+  const blockText = readFileSync(hook, 'utf8').slice(readFileSync(hook, 'utf8').indexOf('# >>> YOUR CTO JEV START'));
+  writeFileSync(hook, '#!/bin/sh\n' + blockText + 'npx lint-staged\n');
+  setup(root, 'en', { agents: [] });
+  const out = readFileSync(hook, 'utf8');
+  assert.ok(out.indexOf('npx lint-staged') < out.indexOf('YOUR CTO JEV START'), 'the user line is above the block');
+  assert.ok(out.endsWith(blockText), 'the block is the last thing in the file');
 });
 
 test('a hook whose last setup line has no newline comes back byte for byte after install and uninstall', () => {
@@ -262,15 +273,39 @@ test('a hook whose last setup line has no newline comes back byte for byte after
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nexport A=1', 'the same bytes');
 });
 
+test('a hook with no cto on PATH says the commit checks are skipped on stderr, and exits 0', () => {
+  const root = repo();
+  setup(root, 'en', { agents: [] });
+  const hook = join(root, '.git/hooks/pre-commit');
+  const empty = mkdtempSync(join(tmpdir(), 'cto-nopath-'));
+  const shDir = (process.env.PATH ?? '').split(delimiter).find((d) => existsSync(join(d, 'sh')) || existsSync(join(d, 'sh.exe')));
+  assert.ok(shDir, 'a sh on PATH');
+  const r = spawnSync('sh', [hook], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: [empty, shDir].join(delimiter) } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /cto not on PATH, commit checks skipped/);
+});
+
+test('pre-push with no cto on PATH says the push checks are skipped, and exits 0', () => {
+  const root = repo();
+  setup(root, 'en', { agents: [] });
+  const hook = join(root, '.git/hooks/pre-push');
+  const empty = mkdtempSync(join(tmpdir(), 'cto-nopath-'));
+  const shDir = (process.env.PATH ?? '').split(delimiter).find((d) => existsSync(join(d, 'sh')) || existsSync(join(d, 'sh.exe')));
+  assert.ok(shDir, 'a sh on PATH');
+  const r = spawnSync('sh', [hook], { cwd: root, encoding: 'utf8', input: '', env: { ...process.env, PATH: [empty, shDir].join(delimiter) } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /cto not on PATH, push checks skipped/);
+});
+
 test('uninstall leaves the user\'s content as an editor left it: cto adds no newline to a hook file', () => {
-  // The block goes first, so nothing is appended after the user's last line for an editor to strip.
+  // The block is appended, so the last newline an editor strips is the block's own, and uninstall gives back the user's bytes.
   const root = repo();
   const hook = join(root, '.git/hooks/pre-commit');
   writeFileSync(hook, '#!/bin/sh\r\necho mine\r\n');
   setup(root, 'en', { agents: [] });
   writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\r?\n$/, ''));
   setup(root, 'en', { uninstall: true });
-  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine');
+  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\r\necho mine\r\n');
 });
 
 test('setup .gitignore: a user rule added above an existing block covers an entry, so a re-run drops it from the block', () => {
@@ -304,8 +339,8 @@ test('refresh on a fresh husky clone (block in .husky/, core.hooksPath not set y
   assert.equal(isSetUp(root), true);
   const res = setup(root, 'en', { agents: [] }); // what --refresh runs when no agent is wired
   assert.equal(res.code, 0);
-  // The block goes before the user's commands now: the old block is replaced where it is written, not appended after `npm test`.
-  assert.equal(readFileSync(join(root, '.husky/pre-commit'), 'utf8'), want('pre-commit').replace(/^#!\/bin\/sh\n/, '') + 'npm test\n');
+  // The block is appended after the user's commands, as it always was: the old one is replaced by a new block at the end.
+  assert.equal(readFileSync(join(root, '.husky/pre-commit'), 'utf8'), 'npm test\n' + want('pre-commit').replace(/^#!\/bin\/sh\n/, ''));
   assert.equal(readFileSync(join(root, '.husky/pre-push'), 'utf8'), want('pre-push'));
   for (const n of ['pre-commit', 'pre-push']) assert.ok(!existsSync(join(root, '.git/hooks', n)), `.git/hooks/${n}`);
   assert.ok(res.lines.some((l) => l.includes(join('.husky', 'pre-commit'))), res.lines.join('\n'));
@@ -783,30 +818,6 @@ test('setup: pre-push keeps cto\'s block last, after the user\'s content (git-lf
   assert.ok(text.trimEnd().endsWith('# <<< YOUR CTO JEV END <<<'), text);
 });
 
-test('setup: a head line without a newline gets one before the cto block; a command that follows an assignment stays after the block', () => {
-  const root = repo();
-  const hook = join(root, '.git/hooks/pre-commit');
-  writeFileSync(hook, '#!/bin/sh\nexport A=1');
-  setup(root, 'en', { agents: [] });
-  assert.ok(readFileSync(hook, 'utf8').includes('export A=1\n# >>> YOUR CTO JEV START'), readFileSync(hook, 'utf8'));
-  writeFileSync(hook, '#!/bin/sh\nPATH="$HOME/bin:$PATH"\nNODE_OPTIONS=x npx lint-staged\n');
-  setup(root, 'en', { agents: [] });
-  const text = readFileSync(hook, 'utf8');
-  assert.ok(text.indexOf('PATH=') < text.indexOf('# >>> YOUR CTO JEV START'), 'a bare assignment stays above');
-  assert.ok(text.indexOf('# >>> YOUR CTO JEV START') < text.indexOf('NODE_OPTIONS=x npx lint-staged'), 'an assignment that runs a command stays below');
-});
-
-test('setup: pre-commit keeps setup lines (variables, export, source, PATH) above the cto block, and its commands after it', () => {
-  const root = repo();
-  const hook = join(root, '.git/hooks/pre-commit');
-  writeFileSync(hook, '#!/bin/sh\nPATH="$HOME/bin:$PATH"\nexport FOO=1\n. ./env.sh\nnpx biome check\n');
-  setup(root, 'en', { agents: [] });
-  const text = readFileSync(hook, 'utf8');
-  const start = text.indexOf('# >>> YOUR CTO JEV START');
-  assert.ok(text.indexOf('PATH=') < start && text.indexOf('export FOO=1') < start && text.indexOf('. ./env.sh') < start, text);
-  assert.ok(start < text.indexOf('npx biome check'), 'the cto block is before the commands');
-});
-
 test('removing a block: an appended one at the end gives the file back; one after the shebang keeps the shebang newline', () => {
   const base = '#!/bin/sh\nnpx lint-staged';
   assert.equal(removeBlock(appendBlock(base, 'cto-body\n')), base, 'the newline appendBlock added goes with it');
@@ -814,29 +825,3 @@ test('removing a block: an appended one at the end gives the file back; one afte
   assert.equal(removeBlock('#!/bin/sh\n' + block + 'npx lint-staged'), '#!/bin/sh\nnpx lint-staged', 'the user\'s newline stays');
 });
 
-test('hook file: eval, nvm and [ ] && source lines above the block are setup; a command above it is not', () => {
-  const block = '# >>> YOUR CTO JEV START >>>\nx\n# <<< YOUR CTO JEV END <<<\n';
-  assert.equal(userLinesAbove('#!/bin/sh\neval "$(direnv hook sh)"\n[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"\n' + block), false);
-  assert.equal(userLinesAbove('#!/bin/sh\n[ -f ~/.env ] && source ~/.env\n' + block), false);
-  assert.equal(userLinesAbove('#!/bin/sh\nnpx biome check\n' + block), true);
-});
-
-test('pre-commit: a setup line above the block that fails does not decide the commit; refresh drops the status pass-through', () => {
-  const root = repo();
-  setup(root, 'en', { agents: [] });
-  const hook = join(root, '.git/hooks/pre-commit');
-  const placed = readFileSync(hook, 'utf8');
-  assert.ok(!placed.includes('s=$?'), 'the placed pre-commit block has no status pass-through');
-  // nvm-style line that returns 1 above the block: the hook must still exit 0 (no cto on PATH here, so the gate is skipped).
-  // PATH is an empty dir plus the dir of sh: no cto is found, and the setup line and the block use shell builtins only.
-  const empty = mkdtempSync(join(tmpdir(), 'cto-nopath-'));
-  const shDir = (process.env.PATH ?? '').split(delimiter).find((d) => existsSync(join(d, 'sh')) || existsSync(join(d, 'sh.exe')));
-  assert.ok(shDir, 'a sh on PATH');
-  writeFileSync(hook, placed.replace('#!/bin/sh\n', '#!/bin/sh\n[ -s /nonexistent-cto-setup-line ] && . /nonexistent-cto-setup-line\n'));
-  const r = spawnSync('sh', [hook], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: [empty, shDir].join(delimiter) } });
-  assert.equal(r.status, 0, r.stderr);
-  // An install from before the change has the pass-through; refresh rewrites it without.
-  writeFileSync(hook, '#!/bin/sh\n# >>> YOUR CTO JEV START >>>\ns=$?; [ $s -eq 0 ] || exit $s\nif command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n# <<< YOUR CTO JEV END <<<\n');
-  setup(root, 'en', { agents: [] });
-  assert.ok(!readFileSync(hook, 'utf8').includes('s=$?'), 'refresh rewrote the old block');
-});

@@ -16,11 +16,11 @@ test('the flow skill routes every review (docs, wave, release) through the share
   assert.ok(FLOW_SKILL_TEXT.includes('self-review'));
 });
 
-test('work runs every wave with a review each; work all reviews once on a branch; both park instead of stopping and never release', () => {
+test('work runs every wave with a review each; work all reviews every wave on a branch; both park instead of stopping and never release', () => {
   const all = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('### cto-jev work all'), FLOW_SKILL_TEXT.indexOf('## Review findings'));
   const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
   for (const s of ['Do not ask before a wave and do not stop between waves', '**Stop:** when no task is left to run', 'Never release', '**Review before you commit.**', 'would this test fail']) assert.ok(work.includes(s), s);
-  for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', 'never before the review', 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
+  for (const s of ['park the task instead', 'never dispatched again', 'Status: approved', 'git diff <start>..HEAD', "never before the last wave's review", 'Never release', 'Assumed:']) assert.ok(all.includes(s), s);
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
   for (const s of ['never drop a task to get past a block', 'never drop in this run', 'names no end-to-end command', 'never how you accept', '\`manual\` only for a \`(look)\` line', 'written from them first and seen failing', 'the CONCEPT decides', 'screenshots at each width', 'Never change a test to match the code']) assert.ok(FLOW_SKILL_TEXT.includes(s), s);
   assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
@@ -114,4 +114,68 @@ test('syncGuidance: a CLAUDE.md turned CRLF keeps one rules block, and removal l
   writeFileSync(path, readFileSync(path, 'utf8').replace(/\r?\n/g, '\r\n'));
   syncGuidance(root, new Set(), true);
   assert.equal(readFileSync(path, 'utf8'), '# Mine\r\n');
+});
+
+// ---------- MOD-5: the skill's review, wave and escalation text ----------
+
+test('MOD-5: every code review is dispatched as cto-reviewer with no model parameter, on the whole change', () => {
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  assert.ok(work.includes('`subagent_type: "cto-reviewer"` with no model parameter'), 'the wave review');
+  assert.ok(work.includes('the whole uncommitted change of the wave'), 'the whole change, not a part');
+  assert.ok(FLOW_SKILL_TEXT.includes('`subagent_type: "cto-reviewer"` with no model parameter and none of your context'), 'the release review');
+});
+
+test('MOD-5: after fixing P1s the reviewer runs again on the whole change, never on the fix alone', () => {
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  assert.ok(work.includes('dispatch again on the whole change, never on the fix alone'));
+  assert.ok(FLOW_SKILL_TEXT.includes('re-reviews the whole current change, never the fix alone'));
+});
+
+test('MOD-5: work all reviews every wave before its commit; no per-wave or end-of-run review wording is left', () => {
+  const all = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('### cto-jev work all'), FLOW_SKILL_TEXT.indexOf('## Review findings'));
+  assert.ok(all.includes('Every wave is reviewed before its commit'), 'each wave reviewed');
+  for (const s of ['There is no per-wave review', 'reviewed at the end', 'one review at the end', 'one zero-context review']) {
+    assert.ok(!FLOW_SKILL_TEXT.includes(s), `no leftover: ${s}`);
+  }
+  const row = readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8').split('\n').find((l) => l.includes('`cto-jev work all`')) ?? '';
+  assert.ok(row.includes('every wave reviewed'), 'the README job table row');
+  assert.ok(!row.includes('at the end'), 'the README row has no end-of-run review');
+});
+
+test('MOD-5: a P1 still open after three rounds is written into REVIEW.md as escalated to the user, which the gate accepts', () => {
+  assert.ok(FLOW_SKILL_TEXT.includes('If P1s remain after round three, stop fixing: write each one into the REVIEW.md entry marked as escalated to the user (the commit gate accepts that)'));
+});
+
+test('MOD-5: a dispatch prompt names what to review and the verify command; it never dictates the verdict or drops changed paths', () => {
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  assert.ok(work.includes('the verify command from `cto brief`'), 'names the verify command');
+  assert.ok(work.includes('never dictates the verdict and never drops a changed path'), 'no verdict, no dropped paths');
+});
+
+test('without sub-agents, a self-review cannot pass the commit gate where Claude Code is wired: the wave is parked or handed to Claude Code', () => {
+  assert.ok((FLOW_SKILL_TEXT.match(/a self-review cannot pass the commit gate/g) ?? []).length >= 2, 'the work step and the work all step');
+  assert.ok(FLOW_SKILL_TEXT.includes("keep the wave's tasks ticked, leave the tree uncommitted, stop the run, and say in the final report that the wave is waiting for a cto-reviewer review in a Claude Code session"));
+  assert.ok(FLOW_SKILL_TEXT.includes('if the tree holds uncommitted code from ticked tasks'), 'the first step in work');
+  assert.ok(FLOW_SKILL_TEXT.includes('first, if the tree holds uncommitted code from ticked tasks, a Claude Code session reviews it with `cto-reviewer` and commits it before dispatching anything new; any other agent stops there'), 'the first step in work all');
+  assert.ok(FLOW_SKILL_TEXT.includes('Any other agent stops here, reports that the wave is still waiting for a Claude Code session, and dispatches nothing new'), 'the first step in work: other agents stop');
+  assert.ok(FLOW_SKILL_TEXT.includes("run the project's formatter, if any, so the review sees the final tree"), 'the formatter before the reviewer');
+  assert.ok(FLOW_SKILL_TEXT.includes('only a Claude Code session can satisfy the gate, so other agents (with or without sub-agents) hand the wave over'), 'step 5 says who can pass the gate');
+  assert.ok(FLOW_SKILL_TEXT.includes('that self-review cannot pass the commit gate: keep its tasks ticked, leave the tree uncommitted, stop the run, and say in the final report that it is waiting for a cto-reviewer review in a Claude Code session'), 'the review findings rule');
+  assert.ok(!FLOW_SKILL_TEXT.includes("untick the wave's tasks") && !FLOW_SKILL_TEXT.includes('untick its tasks'), 'no untick in the handover');
+  assert.ok(FLOW_SKILL_TEXT.includes('In the `main`-only row without a `work-all` branch the wave review'), 'the main-only row is named');
+  assert.ok(!FLOW_SKILL_TEXT.includes('park the wave') && !FLOW_SKILL_TEXT.includes('park it, or hand it'), 'no park-the-wave wording');
+});
+
+test('a work-all branch in a main-only repo is released by reviewing git diff main...work-all, the user merges, the branch is deleted', () => {
+  assert.ok(FLOW_SKILL_TEXT.includes('`git diff main...work-all`, the user merges it into `main`, then the branch is deleted'));
+  assert.ok(FLOW_SKILL_TEXT.includes('| `main` only, after `work all` |') && FLOW_SKILL_TEXT.includes('| `git diff main...work-all` |'), 'the release table row');
+  assert.ok(FLOW_SKILL_TEXT.includes('| `main` only, no `work-all` branch |'), 'the first row names no work-all branch');
+});
+
+test('README rows: cto-jev work reviews the whole change again with cto-reviewer; work all hands over to release and never merges', () => {
+  const rows = readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8').split('\n');
+  const work = rows.find((l) => l.startsWith('| `cto-jev work` |')) ?? '';
+  const all = rows.find((l) => l.startsWith('| `cto-jev work all` |')) ?? '';
+  assert.ok(work.includes('the whole change reviewed again by `cto-reviewer`'));
+  assert.ok(all.includes('then hands over to `cto-jev release`, never merges'));
 });

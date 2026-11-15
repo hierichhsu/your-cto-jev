@@ -413,22 +413,6 @@ test('switchScope local: user settings lose the three keys and agent files, the 
   assert.ok(existsSync(join(userAgents, 'cto-reviewer.md')));
 });
 
-test('files check: a user command above cto\'s block is reported for cto setup --refresh; the file is not moved, autofix on or off', () => {
-  const { root, opts } = fresh();
-  execFileSync('git', ['init', '-q'], { cwd: root });
-  const hook = join(root, '.git', 'hooks', 'pre-commit');
-  const block = '# >>> YOUR CTO JEV START >>>\nold\n# <<< YOUR CTO JEV END <<<\n';
-  const text = '#!/bin/sh\nnpx biome check\n' + block;
-  write(hook, text);
-  const off = driftCheck(root, { ...opts, models: false, autoFix: false });
-  assert.equal(readFileSync(hook, 'utf8'), text, 'dry run writes nothing');
-  assert.ok(off.reported.some((l) => /pre-commit/.test(l) && /cto setup --refresh/.test(l)), off.reported.join('\n'));
-  const on = driftCheck(root, { ...opts, models: false });
-  assert.equal(readFileSync(hook, 'utf8'), text, 'not moved silently');
-  assert.ok(on.reported.some((l) => /pre-commit/.test(l) && /cto setup --refresh/.test(l)), on.reported.join('\n'));
-  assert.ok(!on.fixed.some((l) => /pre-commit/.test(l)), on.fixed.join('\n'));
-});
-
 test('files check: a .gitignore block without the lock entry gets it on the next session; autofix off only says so', () => {
   const { root, opts } = fresh();
   write(join(root, '.claude', 'settings.local.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cto --hook x-stop' }] }] } }));
@@ -492,16 +476,6 @@ test('files check: a block already first is not moved or re-rendered, and nothin
   const r = driftCheck(root, { ...opts, models: false });
   assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\n' + stale + 'npx biome check\n', 'untouched, the stale body included');
   assert.ok(!r.fixed.some((l) => /pre-commit/.test(l)), r.fixed.join('\n'));
-});
-
-test('files check: a block with a user command above it stays put and its body is not re-rendered', () => {
-  const { root, opts } = fresh();
-  execFileSync('git', ['init', '-q'], { cwd: root });
-  const hook = join(root, '.git', 'hooks', 'pre-commit');
-  const stale = '# >>> YOUR CTO JEV START >>>\nold body\n# <<< YOUR CTO JEV END <<<\n';
-  write(hook, '#!/bin/sh\nnpx biome check\n' + stale);
-  driftCheck(root, { ...opts, models: false });
-  assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\nnpx biome check\n' + stale, 'untouched; the user\'s command is not moved');
 });
 
 test('files check: the guard matcher gains Agent and SubagentStop is added; removed cto hooks and the user\'s own hook stay as they were', () => {

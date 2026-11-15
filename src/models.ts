@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DEFAULT_MODELS, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { appendBlock, hooksDir, isObj, missingIgnores, readSettings, refreshClaudeHooks, userLinesAbove, wiredAgents } from './setup.js';
+import { appendBlock, hooksDir, isObj, missingIgnores, readSettings, refreshClaudeHooks, wiredAgents } from './setup.js';
 import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, SKILL_PATH, fileVersion, syncFlowSkill, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 import { t, type Lang } from './i18n.js';
@@ -36,7 +36,7 @@ export const MSG = {
   stale: (file: string) => t(lang, 'models_stale', { file, hint: hint() }),
   hooksRestart: (file: string) => t(lang, 'models_hooks_restart', { file }),
   hooksPending: (file: string) => t(lang, 'models_hooks_pending', { file }),
-  hookOrderRefresh: (file: string) => t(lang, 'models_hook_order_refresh', { file }),
+
   notWritten: (file: string) => t(lang, 'models_not_written', { file }),
   get fable() { return t(lang, 'models_fable'); },
 };
@@ -260,16 +260,6 @@ function syncAgentFiles(dir: string, write: boolean, show: (p: string) => string
 }
 
 /** cto's own files in a set-up repo, the same sync `cto setup --refresh` runs, without its hooks or output. */
-/**
- * The cto block in pre-commit must come before the user's commands (an install from before that moved it after their
- * formatter, so the formatter runs before the gate). Only said: `setup --refresh` places the block.
- */
-function checkHookOrder(root: string, out: DriftResult) {
-  let path: string;
-  let text: string;
-  try { path = join(hooksDir(root), 'pre-commit'); text = readFileSync(path, 'utf8'); } catch { return; } // not a repo, or no hook
-  if (userLinesAbove(text)) out.reported.push(MSG.hookOrderRefresh(relative(root, path).replace(/\\/g, '/')));
-}
 
 const LOCK_IGNORE = '.cto-brain.json.lock*';
 
@@ -282,7 +272,6 @@ export function writeTextIfUnchanged(path: string, was: string, next: string): b
 }
 
 function checkFiles(root: string, autoFix: boolean, out: DriftResult) {
-  checkHookOrder(root, out);
   const wired = wiredAgents(root);
   if (!wired.length) return;
   // The lock file is the brain's own: a repo set up before it existed gets the entry on the next session.

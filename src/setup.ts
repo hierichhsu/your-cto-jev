@@ -13,13 +13,13 @@ import { FLOW_DIR } from './flow.js';
 const START = '# >>> YOUR CTO JEV START >>>';
 const END = '# <<< YOUR CTO JEV END <<<';
 // Keep the block minimal: all logic (including the git diff call) lives in the package, so npm update upgrades every repo.
-// A hook's result is its last command's. pre-push's block is appended, so a failing line above it would decide the result:
-// KEEP_FAIL passes that status on. pre-commit's block goes first, and a failing setup line above it (nvm's `[ -s … ] && …`)
-// must not decide the commit, so it has no KEEP_FAIL.
+// A hook's result is its last command's. cto's block is appended, so a failing line above it would decide the result:
+// KEEP_FAIL passes that status on.
 const KEEP_FAIL = 's=$?; [ $s -eq 0 ] || exit $s\n';
-const HOOK_BODY = 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nfi\n';
+// Without cto on PATH the commit checks are skipped, and the message says so (not a silent pass).
+const HOOK_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-commit || exit 1\nelse\n  echo "[cto] cto not on PATH, commit checks skipped" >&2\nfi\n';
 // pre-push gets git's ref lines on stdin; they are passed straight through.
-const PUSH_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nfi\n';
+const PUSH_BODY = KEEP_FAIL + 'if command -v cto >/dev/null 2>&1; then\n  cto --hook git-push || exit 1\nelse\n  echo "[cto] cto not on PATH, push checks skipped" >&2\nfi\n';
 export const GIT_HOOKS: [string, string][] = [['pre-commit', HOOK_BODY], ['pre-push', PUSH_BODY]];
 // settings.local.json is Claude Code's per-machine file; often only the global gitignore covers it, which linters like biome never read.
 const IGNORE_BODY = '.cto-brain.json\n.cto-brain.json.*tmp\n.cto-brain.json.lock*\ndebug_stdin.json\n.claude/settings.local.json\n';
@@ -44,48 +44,9 @@ export function appendBlock(content: string, body: string): string {
   return base && !base.endsWith('\n') ? `${base}\n${block(`${ADDED_EOL}\n${body}`)}` : base + block(body);
 }
 
-/**
- * A hook file: cto's block goes first (after a shebang), before the user's commands, so a formatter or linter already in
- * the file cannot run ahead of the gate. The user's content is kept as it is.
- */
-/** Places the block with `body` in `base`: after a shebang and the leading setup lines, before the rest. */
-function placeText(base: string, body: string): string {
-  const shebang = /^#![^\n]*\n/.exec(base)?.[0] ?? '';
-  let rest = base.slice(shebang.length);
-  // Leading lines that only set variables, export, source, or change PATH stay above the block: the block runs after them.
-  let head = '';
-  for (let m = /^[^\n]*(?:\n|$)/.exec(rest); m && m[0] && SETUP_LINE.test(m[0]); m = /^[^\n]*(?:\n|$)/.exec(rest)) {
-    head += m[0];
-    rest = rest.slice(m[0].length);
-  }
-  // A last setup line with no newline gets one from cto: the block marks it, so uninstall takes it back.
-  const eol = head !== '' && !head.endsWith('\n');
-  if (eol) head += '\n';
-  return shebang + head + block(eol ? `${ADDED_EOL}\n${body}` : body) + rest;
-}
-export function placeBlock(content: string, body: string): string {
-  return placeText(removeBlock(content), body);
-}
-/** A line that only sets a variable (bare, or quoted value), exports one, or is a blank or comment line. A command after it is not setup. */
-const ASSIGN = '[A-Za-z_]\\w*=(?:"[^"]*"|\'[^\']*\'|\\S*)';
-// eval "$(direnv hook …)" and nvm's `[ -s … ] && \. …` are one-line environment setup too.
-const SETUP_LINE = new RegExp(`^\\s*(?:export\\s+[A-Za-z_]\\w*\\s*$|(?:export\\s+)?${ASSIGN}\\s*$|source\\s|\\.\\s|eval\\s+["']?\\$\\(|\\[[^\\]]*\\]\\s*&&\\s*(?:\\\\?\\.|source)\\s|#|$)`);
-/** True when a line above the block (after the shebang) is not setup: moving the block would move those lines too. */
-export function userLinesAbove(content: string): boolean {
-  const at = content.indexOf(START);
-  if (at < 0) return false;
-  return content.slice(0, at).replace(/^#![^\n]*\n/, '').split('\n').some((l) => !SETUP_LINE.test(l + '\n'));
-}
 /** An exit 0 outside our block means an appended block never runs (pre-push, where the block is appended). */
 export function hasEarlyExit(content: string): boolean {
   return /^\s*exit\s+0\b/m.test(removeBlock(content));
-}
-/**
- * The block for a git hook: pre-commit gets cto's block first, so a formatter or linter the user wrote runs after the
- * gate. pre-push keeps cto last: git-lfs and others read the ref lines on stdin, and cto's block must not run before them.
- */
-export function placeFor(name: string, content: string, body: string): string {
-  return name === 'pre-commit' ? placeBlock(content, body) : appendBlock(content, body);
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -279,7 +240,7 @@ export function planSetup(root: string, chosenAgents: AgentName[], flow: boolean
   for (const [name, body] of GIT_HOOKS) {
     const p = join(dir, name);
     const c = existsSync(p) ? readFileSync(p, 'utf8') : '';
-    if (!c || placeFor(name, c, body) !== c) at(join(relative(real(root), real(dir)), name).replace(/\\/g, '/'), 'write', p);
+    if (!c || appendBlock(c, body) !== c) at(join(relative(real(root), real(dir)), name).replace(/\\/g, '/'), 'write', p);
   }
   for (const name of agentNames) {
     const p = agents[name].settings;
@@ -410,8 +371,8 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     const hookPath = join(dir, name);
     if (existsSync(hookPath)) {
       const c = readFileSync(hookPath, 'utf8');
-      writeFileSync(hookPath, placeFor(name, c, body));
-      if (name !== 'pre-commit' && hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
+      writeFileSync(hookPath, appendBlock(c, body));
+      if (hasEarlyExit(c)) lines.push(t(lang, 'setup_hook_exit', { path: rel(hookPath) }));
     } else {
       mkdirSync(dirname(hookPath), { recursive: true });
       writeFileSync(hookPath, '#!/bin/sh\n' + block(body));

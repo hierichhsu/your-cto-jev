@@ -487,14 +487,23 @@ const REVIEW_SESSIONS_KEPT = 200;
 // A trailing condition takes the verb phrase in front of it: "Say 'No findings' if there are none." is one conditional answer.
 // A negated clause tells the reviewer what not to do ("Do not just say LGTM; check every file."): not a dictated answer.
 const NEGATED = /\b(?:do\s+not|don'?t|never|not\s+just)\b[^.;,\n]*[.;,\n]?/gi;
-const CONDITIONAL =/(?:\b(?:reply|respond|answer|say|output|print)\b[^.;\n]*?)?\b(?:if|when)\b[^.;,\n]*?\b(?:none|nothing|no\s+\w+|clean|clear|ok)\b[^.;\n]*[.;\n]?|\bwith\s+nothing\s+to\s+report\b[^.;\n]*[.;\n]?|\botherwise\b[^.;\n]*[.;\n]?/gi;
+const CONDITIONAL =/(?:\b(?:reply|respond|answer|say|output|print)\b[^.;\n]*?)?\b(?:if|when)\b[^.;,&\n]*?\b(?:none|nothing|no\s+\w+|clean|clear|ok)\b[^.;,&\n]*(?:,\s*(?:(?:just|then|please|simply)\s+)*(?:say|reply|respond|answer|output|print)\b[^.;\n]*)?[.;\n]?|\bwith\s+nothing\s+to\s+report\b[^.;\n]*[.;\n]?|\botherwise\b[^.;\n]*[.;\n]?/gi;
 // The clause is found on a copy with quoted text blanked (same length), so a period inside quotes does not end it.
 const QUOTED = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”/g;
 function stripConditional(s: string): string {
   const blank = s.replace(QUOTED, (q) => '_'.repeat(q.length));
   let out = '';
   let last = 0;
-  for (const m of blank.matchAll(CONDITIONAL)) { out += `${s.slice(last, m.index)} `; last = m.index! + m[0].length; }
+  for (const m of blank.matchAll(CONDITIONAL)) {
+    const start = m.index!;
+    const end = start + m[0].length;
+    // dictation: a strip whose if/when clause or consequent says exactly or verbatim is never taken (the verb in front may)
+    const text = s.slice(start, end);
+    const from = text.search(/\b(?:if|when)\b/i);
+    if (/\b(?:exactly|verbatim)\b/i.test(from < 0 ? text : text.slice(from))) continue;
+    out += `${s.slice(last, start)} `;
+    last = end;
+  }
   return out + s.slice(last);
 }
 // Only the blatant forms: a reviewer told to reply exactly, to say no findings, or to output a bare verdict word.
@@ -640,7 +649,10 @@ function guardCatchesAgent(settings: string, command: string): boolean {
 }
 /** The main worktree of a checkout: a linked worktree (git worktree add) has its own .claude folder, and the main one holds the wiring. */
 function mainWorktree(root: string): string {
-  try { return dirname(resolve(root, git(root, ['rev-parse', '--git-common-dir']).trim())); } catch { return root; }
+  try {
+    const main = dirname(resolve(root, git(root, ['rev-parse', '--git-common-dir']).trim()));
+    return join(main, git(root, ['rev-parse', '--show-prefix']).trim()); // the same folder in the main checkout, when root is below its top
+  } catch { return root; }
 }
 /** Claude Code is wired here, or in the main worktree this linked checkout came from. */
 const claudeWired = (root: string) => wiredAgents(root).includes('claude') || wiredAgents(mainWorktree(root)).includes('claude');
@@ -651,7 +663,8 @@ function missingReviewHints(root: string, brain: Brain, lang: Lang, hash?: strin
   let settings = '';
   try { settings = readFileSync(join(root, agents.claude.settings), 'utf8'); } catch { /* no settings file */ }
   // The guard must sit on a PreToolUse matcher that catches Agent; an entry without Agent needs setup again, not a restart.
-  if (!guardCatchesAgent(settings, hookCommand('claude', 'guard'))) out.push(t(lang, 'review_setup_refresh'));
+  // A linked worktree with no wiring of its own: --refresh would touch nothing here, so the hint is a plain setup.
+  if (!guardCatchesAgent(settings, hookCommand('claude', 'guard'))) out.push(t(lang, wiredAgents(root).includes('claude') ? 'review_setup_refresh' : 'review_worktree_setup'));
   else if (!Object.keys(brain.review_start ?? {}).length) out.push(t(lang, 'review_restart')); // the guard loads at session start
   // A reviewer started within the last hour on other code: the code changed while it ran. (The git hook has no session id.)
   const recent = Object.values(brain.review_start ?? {}).flat().filter((s) => Date.now() - s.at < 60 * 60_000);
@@ -849,7 +862,24 @@ function disablesHooks(text: string | undefined): boolean {
 /** A here-document's body is text the command reads, not a command: blanked to its tag, the command's own text kept. */
 // A body fed to a shell or interpreter is code: it stays in the text so the same checks read it. Any other body is data.
 // Interpreters count too: a `node - <<EOF` body is a program. Prefixes (VAR=val, sudo, env, …) do not hide the command.
-const SHELL_FEEDS = /(?:^|[;&|(])\s*(?:\w+=\S*\s+|(?:sudo|env|command|exec|nohup|time)\s+(?:-\S+\s+)*)*(?:\S*[\\/])?(?:bash|sh|zsh|dash|ksh|pwsh|powershell|eval|source|\.|xargs|node|nodejs|python3?|ruby|perl|php|deno|bun|tsx)(?=\s|$)/;
+const SHELL_NAME = /^(?:bash|sh|zsh|dash|ksh|pwsh|powershell|eval|source|\.|xargs|node|nodejs|python|py|ruby|perl|php|deno|bun|tsx)$/;
+// Any word of the command that is a shell or interpreter (by its base name): `timeout 5 bash`, `npx tsx`, `nice node` count too.
+const WRAPPER = /^(?:sudo|env|command|exec|nohup|time|nice|stdbuf|timeout|npx|pnpm|yarn|dlx)$/;
+/** The command word of one simple command: past assignments, $ and <, and the options and numbers of wrappers (timeout 5, npx -y). */
+function commandWord(seg: string): string | undefined {
+  const toks = seg.trim().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i].replace(/^[$<]+/, '');
+    if (!t || /^\w+=/.test(t)) continue;
+    // The base name, lowercased, with .exe and a version after a letter removed: /usr/bin/env, Bash, node.exe, python3.12 (the . command stays)
+    const base = t.replace(/["'`]/g, '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').replace(/(?<=[a-z])[\d.]+$/i, '').toLowerCase();
+    if (WRAPPER.test(base)) { while (i + 1 < toks.length && /^(?:-|\d+[smhd]?$|\w+=)/.test(toks[i + 1])) i++; continue; }
+    return base;
+  }
+  return undefined;
+}
+// Only the command word of each simple command is read: `gh pr create --title "bash fix"` is not a shell, its arguments are data.
+const feedsCode = (text: string) => text.split(/[;&|(){}`\n]/).some((seg) => { const c = commandWord(seg); return !!c && SHELL_NAME.test(c); });
 const HEREDOC_TAG = /<<-?[ \t]*(['"]?)(\w+)\1/y;
 /**
  * The here-documents a command starts, found in code only: a `<<TAG` inside quotes or after a comment is text. A `$(…)` inside
@@ -909,8 +939,9 @@ const noHeredocs = (s: string) => {
   for (const h of heredocs(s)) {
     const rest = s.slice(h.ae, s.indexOf('\n', h.ae));
     // The simple command that owns the `<<`: continued lines joined, then the text after the last ; && || | & or newline.
-    const owner = s.slice(0, h.a).replace(/\\\r?\n/g, ' ').split(/&&|\|\||[;|&\n]/).pop() ?? '';
-    if (SHELL_FEEDS.test(`${owner}<<${h.tag}${rest}`)) continue;
+    // A redirect's & (2>&1, >&2, &>) is not a separator.
+    const owner = s.slice(0, h.a).replace(/\\\r?\n/g, ' ').replace(/&>|[<>]&/g, '  ').split(/&&|\|\||[;|&\n]/).pop() ?? '';
+    if (feedsCode(`${owner} ${rest}`)) continue;
     out += `${s.slice(pos, h.a)}<<${h.tag}${rest}`;
     pos = h.end;
   }
@@ -1085,8 +1116,8 @@ const psToken = (name: string) =>
 const psFlowRemoval = (() => {
   const parts = FLOW_DIR.split('/');
   const alts = parts.map((_, i) => `${parts.slice(0, i + 1).join('[\\\\/]')}[\\\\/]?(?=$|[\\s'"])`).join('|');
-  return new RegExp(`\\b(?:remove-item|ri|del|erase|rd|rmdir|rm|move-item|mi|rename-item|ren|mv)\\b[^;&|\\n]*(?:^|[\\s'"\\\\/])(?:${alts})`, 'i');
-})();
+  return new RegExp(`\\b(?:remove-item|ri|del|erase|rd|rmdir|rm|move-item|move|mi|rename-item|ren|mv)\\b[^;&|\\n]*(?:^|[\\s'"\\\\/])(?:${alts})`, 'i');
+})(); // \ before the cmdlet is a word boundary too; a destination counts (accepted false positive: Move-Item notes.md docs\)
 function psProtected(root: string): [RegExp, string][] {
   let hooks = '';
   try { hooks = relative(canon(root), canon(hooksDir(root))).replace(/\\/g, '/'); } catch { /* not a git repo */ }
