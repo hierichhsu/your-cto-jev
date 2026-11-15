@@ -358,15 +358,20 @@ export function setup(cwd: string, lang: Lang, opts: SetupOptions = {}): { code:
     }
     for (const p of [...syncGuidance(root, new Set(), true).removed, ...syncFlowSkill(root, false).removed]) lines.push(t(lang, 'uninstall_skill', { path: p }));
     if (opts.models && removing.includes('claude')) {
-      lines.push(...modelsLines(clearScope(root, modelsPrefs().scope, opts.models)));
-      const h = userModelsHook(opts.models.home ?? homedir(), false);
-      if (h) lines.push(`[cto] ${h}`);
+      // Global scope is shared by every project: this uninstall takes only this project's own files, and says what it kept.
+      const scope = modelsPrefs().scope;
+      if (scope === 'global') lines.push(t(lang, 'uninstall_models_kept'));
+      else {
+        const h = userModelsHook(opts.models.home ?? homedir(), false);
+        if (h) lines.push(`[cto] ${h}`);
+      }
+      lines.push(...modelsLines(clearScope(root, scope === 'global' ? 'local' : scope, opts.models)));
     }
     lines.push(t(lang, 'uninstall_done'));
     return { code: 0, lines };
   }
 
-  // 1. git hooks: cover every agent and humans alike. Our marked block goes before the user's commands; their content is kept.
+  // 1. git hooks: cover every agent and humans alike. Our marked block is appended after the user's commands; their content is kept.
   for (const [name, body] of GIT_HOOKS) {
     const hookPath = join(dir, name);
     if (existsSync(hookPath)) {
@@ -672,7 +677,8 @@ export function modelsCommand(root: string, args: string[], lang: Lang, opts: Mo
     : what === 'scope' && (value === 'global' || value === 'local') ? { scope: value }
     : undefined;
   if (!change) return { code: 1, lines: [t(lang, 'models_usage')] };
-  const lines = applyAndHook(root, change, opts);
+  // Scope local in a folder without cto's Claude wiring (e.g. right after uninstall): clear the user level, write nothing here.
+  const lines = applyAndHook(root, change, change.scope === 'local' && !wiredAgents(root).includes('claude') ? { ...opts, models: false } : opts);
   const p = modelsPrefs();
   // The profile did not take the change (the prefs file is broken): the lines already say why.
   if (!Object.entries(change).every(([k, v]) => p[k as keyof ModelsPrefs] === v)) return { code: 1, lines };

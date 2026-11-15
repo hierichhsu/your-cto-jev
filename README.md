@@ -142,7 +142,7 @@ cto index                                # regenerate docs/cto_jev/INDEX.md (bri
 cto docs                                 # suggest what to do with old planning markdown; changes nothing
 ```
 
-`setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. It never touches your shell rc files.
+`setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. The one exception is the model split in global scope (the default): it is shared by every project, so uninstalling one project keeps the user-level split, the `cto-reviewer` agent and the SessionStart hook. Before removing cto, run `cto models scope local`, which clears them. It never touches your shell rc files.
 
 ## The rules, written down for the agent
 
@@ -427,13 +427,13 @@ The split is written to your user settings (`global`, the default, every project
 cto models                     # status: the split, its scope, and what would change
 cto models advisor fable|opus  # the advisor model
 cto models autofix on|off      # let cto write the split (session start, setup, refresh, update)
-cto models scope global|local  # where the split is written
+cto models scope global|local  # where the split is written, for every project (local in a folder without cto only clears the user level)
 cto models review on|off       # the review gate; for you only, agents cannot change it
 ```
 
 **The review gate.** With Claude Code wired, the gate on (`review_gate` in `.cto.json`) and a `docs/cto_jev/` folder in the repo, a code commit needs a `cto-reviewer` review of the current working tree and no unresolved P1. Code means the files under `src/` when HEAD tracks a `src/` folder, otherwise source files anywhere; other changes need no review. A dispatch prompt that leaves changed paths out or sets the verdict also blocks: dispatch again with a prompt that covers the whole change. The staged code must match the files on disk: a file changed after `git add` is not the reviewed code. A P1 counts as resolved when REVIEW.md contests it with evidence or marks it escalated to the user. Run the project's formatter before dispatching the reviewer: a formatter that changes files after the review needs another review. Only a Claude Code session can satisfy the gate; other agents stop with the wave uncommitted.
 
-Accepted limits: the guards are text heuristics against honest mistakes. They do not stop an agent that deliberately uses nested shells, heredoc or quoting edge cases, aliases, plumbing commands or wrapper forms. There is no review check on push, so code that reaches HEAD without pre-commit (rebase, cherry-pick, plumbing) is not reviewed.
+Accepted limits: the guards are text heuristics against honest mistakes. They do not stop an agent that deliberately uses nested shells, heredoc or quoting edge cases, aliases, plumbing commands or wrapper forms. When HEAD first tracks a file under `src/`, only `src/` counts as code from then on, so the next commit after that first split needs a fresh review. Jev sees the REVIEW.md of the four most recently changed features only: a P1 contested in an older feature's REVIEW.md is not seen. There is no review check on push, so code that reaches HEAD without pre-commit (rebase, cherry-pick, plumbing) is not reviewed.
 
 ## Known limitations
 

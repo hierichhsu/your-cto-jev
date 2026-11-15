@@ -1717,6 +1717,83 @@ test('agent guard: cmd /c rd, pwsh -c "Remove-Item" and $null = Remove-Item of t
   assert.equal(ps('$null = Remove-Item docs\\cto_jev'), 2, 'an assignment before the cmdlet');
 });
 
+test('agent guard: a read-only grep that names setup --agents in its pattern is not the setup command', async () => {
+  const root = gateRepo();
+  assert.equal((await pre(root, 'grep -n "setup --agents" README.md')).code, 0);
+  assert.equal((await pre(root, 'cto setup --agents claude --yes')).code, 2, 'the real command still blocks');
+  assert.equal((await pre(root, 'powershell -Command "cto setup --uninstall"')).code, 2, 'a setup command inside powershell -Command');
+  assert.equal((await pre(root, 'cmd /c "cto setup --agents x"')).code, 2, 'a setup command inside cmd /c');
+});
+
+test('review gate: each feature\'s REVIEW.md keeps its own tail, so a note in an earlier file survives a longer file after it', async () => {
+  jevGate(0.1);
+  const root = gateRepo();
+  mkdirSync(join(root, FLOW_DIR, 'features', 'refund'), { recursive: true });
+  writeFileSync(join(root, FLOW_DIR, 'features', 'refund', 'SPEC.md'), 'Status: approved\n\n## Interface\n\n- refund()\n');
+  writeFileSync(join(root, FLOW_DIR, 'features', 'pay', 'REVIEW.md'), 'x'.repeat(100) + '\nESC-MARK: escalated to the user\n');
+  writeFileSync(join(root, FLOW_DIR, 'features', 'refund', 'REVIEW.md'), 'y'.repeat(6000));
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  review(root, 'P1 src/a.ts: a is never validated');
+  git(root, 'add', '.');
+  await commit(root);
+  assert.match(jevSent.state, /ESC-MARK/);
+});
+
+test('review gate: the REVIEW.md tails sent to Jev are at most four files and 4000 characters in all', async () => {
+  jevGate(0.1);
+  const root = gateRepo();
+  for (const f of ['a1', 'a2', 'a3', 'a4', 'a5']) {
+    mkdirSync(join(root, FLOW_DIR, 'features', f), { recursive: true });
+    writeFileSync(join(root, FLOW_DIR, 'features', f, 'SPEC.md'), 'Status: approved\n\n## Interface\n\n- f()\n');
+    writeFileSync(join(root, FLOW_DIR, 'features', f, 'REVIEW.md'), `note ${f}\n${'z'.repeat(5000)}`);
+  }
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  review(root, 'P1 src/a.ts: a is never validated');
+  git(root, 'add', '.');
+  await commit(root);
+  const tails = jevSent.state.split('REVIEW.md (latest part):\n')[1] ?? '';
+  assert.ok((tails.match(/^### /gm) ?? []).length <= 4, 'at most four files');
+  assert.ok(tails.length <= 4000, `4000 in all, got ${tails.length}`);
+});
+
+test('review gate: room three short REVIEW.md files leave unused goes to the long one: an escalation note about 2500 characters from its end reaches Jev', async () => {
+  jevGate(0.1);
+  const root = gateRepo();
+  const feature = (f: string) => {
+    mkdirSync(join(root, FLOW_DIR, 'features', f), { recursive: true });
+    writeFileSync(join(root, FLOW_DIR, 'features', f, 'SPEC.md'), 'Status: approved\n\n## Interface\n\n- f()\n');
+    return join(root, FLOW_DIR, 'features', f, 'REVIEW.md');
+  };
+  const long = feature('zlong');
+  writeFileSync(long, 'q'.repeat(9000) + '\nESC-MARK: escalated to the user\n' + 'w'.repeat(2400) + '\n');
+  const old = new Date(Date.now() - 3600_000);
+  utimesSync(long, old, old); // the oldest: the short files are placed first and leave their room
+  for (const f of ['t1', 't2', 't3']) writeFileSync(feature(f), `tiny ${f}\n`);
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  review(root, 'P1 src/a.ts: a is never validated');
+  git(root, 'add', '.');
+  await commit(root);
+  assert.match(jevSent.state, /ESC-MARK/);
+});
+
+test('review gate: the newest REVIEW.md (the feature under review) keeps a contest about 3000 characters from its end, with three short older files', async () => {
+  jevGate(0.1);
+  const root = gateRepo();
+  const feature = (f: string) => {
+    mkdirSync(join(root, FLOW_DIR, 'features', f), { recursive: true });
+    writeFileSync(join(root, FLOW_DIR, 'features', f, 'SPEC.md'), 'Status: approved\n\n## Interface\n\n- f()\n');
+    return join(root, FLOW_DIR, 'features', f, 'REVIEW.md');
+  };
+  const old = new Date(Date.now() - 3600_000);
+  for (const f of ['t1', 't2', 't3']) { const p = feature(f); writeFileSync(p, `tiny ${f}\n`); utimesSync(p, old, old); }
+  writeFileSync(feature('anew'), 'q'.repeat(9000) + '\nCONTEST-MARK: P1 contested with evidence\n' + 'w'.repeat(3000) + '\n');
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  review(root, 'P1 src/a.ts: a is never validated');
+  git(root, 'add', '.');
+  await commit(root);
+  assert.match(jevSent.state, /CONTEST-MARK/);
+});
+
 test('heredoc: the command word is read lowercased with the path and .exe off: /usr/bin/env bash and Bash are shells', async () => {
   const root = gateRepo();
   assert.equal((await pre(root, "/usr/bin/env bash <<'EOF'\nrm -rf docs/cto_jev\nEOF")).code, 2, '/usr/bin/env bash');

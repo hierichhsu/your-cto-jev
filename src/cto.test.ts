@@ -305,7 +305,7 @@ test('setup: a failing command after the cto block still blocks the commit', () 
   assert.throws(() => git('commit', '-qm', 'x'));
   assert.throws(() => git('rev-parse', '--verify', 'HEAD'), 'no commit was made');
   // same hook with the line above passing: the fake cto lets the commit through, so the failure above came from `false`
-  writeFileSync(hook, readFileSync(hook, 'utf8').replace('\nfalse\n', '\ntrue\n')); // the block sits above the user's line now
+  writeFileSync(hook, readFileSync(hook, 'utf8').replace('\nfalse\n', '\ntrue\n')); // the block is appended after the user's line
   git('commit', '-qm', 'x');
   git('rev-parse', '--verify', 'HEAD');
 });

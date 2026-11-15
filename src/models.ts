@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -37,6 +38,8 @@ export const MSG = {
   hooksRestart: (file: string) => t(lang, 'models_hooks_restart', { file }),
   hooksPending: (file: string) => t(lang, 'models_hooks_pending', { file }),
   notWritten: (file: string) => t(lang, 'models_not_written', { file }),
+  trackedStale: (file: string) => t(lang, 'models_tracked_stale', { file }),
+  wouldRemove: (file: string) => t(lang, 'models_would_remove', { file }),
   get fable() { return t(lang, 'models_fable'); },
 };
 
@@ -213,11 +216,15 @@ function checkModels(root: string, opts: ModelsOpts, profile: ModelsPrefs, autoF
       else if (!autoFix) out.reported.push(MSG.drift(k.label, shown(v), want));
       else { setAt(t.json, k.path, want); fixes.push(MSG.fixed(k.label, shown(v), want)); }
     }
-    if (fixes.length && writeJsonIfUnchanged(target, t.text, t.json)) out.fixed.push(...fixes);
+    if (fixes.length) {
+      if (writeJsonIfUnchanged(target, t.text, t.json)) out.fixed.push(...fixes);
+      else out.reported.push(MSG.notWritten(show(target))); // EPERM or a concurrent write: said, not dropped
+    }
   }
 
   // Scope global: the project's own files override the user settings. The personal one is cleaned, the shared one only reported.
   if (p.scope === 'global' && !samePath(root, home)) {
+    cleanProjectAgents(root, home, autoFix, show, out);
     const local = join(root, '.claude', 'settings.local.json');
     const l = readSettingsFile(local);
     const set = l.json ? MODEL_KEYS.filter((k) => getAt(l.json, k.path) !== undefined) : [];
@@ -226,6 +233,7 @@ function checkModels(root: string, opts: ModelsOpts, profile: ModelsPrefs, autoF
     else if (set.length) {
       for (const k of set) delAt(l.json, k.path);
       if (writeJsonIfUnchanged(local, l.text, l.json)) for (const k of set) out.fixed.push(MSG.removed(k.label, show(local)));
+      else out.reported.push(MSG.notWritten(show(local)));
     }
     const shared = join(root, '.claude', 'settings.json');
     const s = readSettings(shared);
@@ -243,6 +251,27 @@ function checkModels(root: string, opts: ModelsOpts, profile: ModelsPrefs, autoF
   if (managedSub !== undefined && !isSubagentModel(managedSub)) out.reported.push(MSG.envSet(String(shown(managedSub)), 'managed settings'));
 
   syncAgentFiles(agentsDir(root, p.scope, home), autoFix, show, out);
+}
+
+/** Global scope: cto's agent files a project still holds (from an older local scope) would override the user's. Only files carrying cto's mark go. */
+function cleanProjectAgents(root: string, home: string, autoFix: boolean, show: (p: string) => string, out: DriftResult) {
+  for (const name of Object.keys(AGENT_FILES)) {
+    const file = join(agentsDir(root, 'local', home), name);
+    const text = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+    if (text === undefined || !text.includes(SKILL_MARK)) continue;
+    if (tooNew(text)) { out.reported.push(MSG.tooOld(show(file), fileVersion(text)!)); continue; }
+    // A file git tracks is a teammate's (a local-scope install committed it): cto leaves it, and says so only when it is stale.
+    if (isTracked(root, file)) { if (text.replace(/\r\n/g, '\n') !== AGENT_FILES[name]) out.reported.push(MSG.trackedStale(show(file))); continue; }
+    if (!autoFix) out.reported.push(MSG.wouldRemove(show(file)));
+    else try { unlinkSync(file); out.fixed.push(MSG.deleted(show(file))); } catch { out.reported.push(MSG.notWritten(show(file))); }
+  }
+}
+
+/** Whether git tracks `file`. Only "not tracked" (exit 1) and "not a git repository" count as no; any other failure (git
+ * missing, dubious ownership) counts as tracked, so cto never deletes a file it could not check. */
+export function isTracked(root: string, file: string): boolean {
+  try { execFileSync('git', ['ls-files', '--error-unmatch', '--', relative(root, file)], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' } }); return true; } // C locale: the message below is matched in English
+  catch (e: any) { return !(e?.status === 1 || (e?.status === 128 && /not a git repository/i.test(String(e?.stderr ?? '')))); }
 }
 
 function syncAgentFiles(dir: string, write: boolean, show: (p: string) => string, out: DriftResult) {
@@ -326,14 +355,15 @@ export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: Mode
     const mine = MODEL_KEYS.filter((k) => isOurs(k, getAt(t.json, k.path)));
     for (const k of mine) delAt(t.json, k.path);
     if (mine.length && writeJsonIfUnchanged(path, t.text, t.json)) for (const k of mine) out.fixed.push(MSG.removed(k.label, show(path)));
+    else if (mine.length) out.reported.push(MSG.notWritten(show(path)));
   }
   for (const name of Object.keys(AGENT_FILES)) {
     const file = join(agentsDir(root, scope, home), name);
     const text = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
     if (text === undefined || !text.includes(SKILL_MARK)) continue;
     if (tooNew(text)) { out.reported.push(MSG.tooOld(show(file), fileVersion(text)!)); continue; }
-    unlinkSync(file);
-    out.fixed.push(MSG.deleted(show(file)));
+    if (scope === 'local' && isTracked(root, file)) continue; // a teammate's committed file: same rule as cleanProjectAgents
+    try { unlinkSync(file); out.fixed.push(MSG.deleted(show(file))); } catch { out.reported.push(MSG.notWritten(show(file))); }
   }
   return out;
 }

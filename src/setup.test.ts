@@ -598,9 +598,20 @@ test('setup with Claude Code writes the split, agent files and user hook; uninst
   assert.deepEqual(project.hooks.SubagentStop, [{ hooks: [{ type: 'command', command: 'cto --hook claude-agent' }] }]);
   assert.deepEqual(missingHooks(root), []);
 
-  assert.equal(setup(root, 'en', { uninstall: true, models: opts }).code, 0);
+  // Global scope is shared by every project: this project's uninstall keeps the user-level split and says so.
+  const r = setup(root, 'en', { uninstall: true, models: opts });
+  assert.equal(r.code, 0);
+  assert.ok(r.lines.some((l) => /Kept the user-level model split/.test(l) && /Before removing cto, run cto models scope local/.test(l)), r.lines.join('\n'));
+  assert.ok(hasHook(readJson(user), 'cto --hook claude-models'), 'the user-level hook is kept');
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(existsSync(join(home, '.claude', 'agents', n)), `${n} kept`);
+  // The way out the message names: scope local removes the user-level split, hook and agent files.
+  modelsCommand(root, ['scope', 'local'], 'en', opts);
   assert.deepEqual(readJson(user), { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } });
   for (const n of Object.keys(AGENT_FILES)) assert.ok(!existsSync(join(home, '.claude', 'agents', n)), n);
+  // The project was just uninstalled: scope local writes no split or agent files into it.
+  for (const n of Object.keys(AGENT_FILES)) assert.ok(!existsSync(join(root, '.claude', 'agents', n)), `project ${n}`);
+  const local = join(root, '.claude', 'settings.local.json');
+  if (existsSync(local)) assert.doesNotMatch(readFileSync(local, 'utf8'), /"model"|advisorModel|CLAUDE_CODE_SUBAGENT_MODEL/);
 });
 
 test('an unparsable credentials file gives one clean error line and exit 1 (real CLI)', () => {

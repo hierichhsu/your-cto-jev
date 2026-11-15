@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isMainModel, isSubagentModel, switchScope, writeJsonIfUnchanged, writeTextIfUnchanged } from './models.js';
+import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isMainModel, isSubagentModel, isTracked, switchScope, writeJsonIfUnchanged, writeTextIfUnchanged } from './models.js';
 import { AGENT_FILES, RULES_BLOCK, SKILL_MARK, SKILL_PATH, SKILL_TEXT, VERSION_LINE, fileVersion, staleGuidance, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 
@@ -454,6 +454,85 @@ test('files check: SessionStart adds only the lock line; a block missing another
   write(ignore, block);
   driftCheck(root, { ...opts, models: false, autoFix: true });
   assert.equal(readFileSync(ignore, 'utf8'), block.replace('# <<< YOUR', '.cto-brain.json.lock*\n# <<< YOUR'));
+});
+
+test('global scope: a project agent file cto marked (left by an older local scope) is removed on auto-fix; a user file in the same folder is kept', () => {
+  const { root, opts } = fresh();
+  const dir = join(root, '.claude', 'agents');
+  const name = Object.keys(AGENT_FILES)[0];
+  write(join(dir, name), `${SKILL_MARK}\nold cto text\n`);
+  write(join(dir, 'mine.md'), 'my own agent\n');
+  const off = driftCheck(root, { ...opts, autoFix: false });
+  assert.ok(existsSync(join(dir, name)), 'a dry run removes nothing');
+  assert.ok(off.reported.some((l) => /would be removed/.test(l) && l.includes(name)), off.reported.join('\n'));
+  const on = driftCheck(root, { ...opts, autoFix: true });
+  assert.ok(!existsSync(join(dir, name)), 'the marked file is removed');
+  assert.equal(readFileSync(join(dir, 'mine.md'), 'utf8'), 'my own agent\n', 'the user file is kept');
+  assert.ok(on.fixed.some((l) => l.includes(name)), on.fixed.join('\n'));
+});
+
+test('global scope: a project agent file git tracks is reported and left alone, even on auto-fix', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const dir = join(root, '.claude', 'agents');
+  const name = Object.keys(AGENT_FILES)[0];
+  write(join(dir, name), `${SKILL_MARK}\na teammate's committed text\n`);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'agents'], { cwd: root });
+  const on = driftCheck(root, { ...opts, autoFix: true });
+  assert.ok(existsSync(join(dir, name)), 'tracked: kept');
+  assert.ok(on.reported.some((l) => l.includes(name) && /refresh/.test(l)), on.reported.join('\n'));
+});
+
+test('clearScope local leaves a cto agent file git tracks (a teammate committed it)', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const name = Object.keys(AGENT_FILES)[0];
+  const file = join(root, '.claude', 'agents', name);
+  write(file, AGENT_FILES[name]);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  clearScope(root, 'local', opts);
+  assert.ok(existsSync(file), 'tracked file kept');
+});
+
+test('global scope: a tracked project agent file with the current content is silent; only a stale one is reported', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const dir = join(root, '.claude', 'agents');
+  const name = Object.keys(AGENT_FILES)[0];
+  write(join(dir, name), AGENT_FILES[name]);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'agents'], { cwd: root });
+  const r = driftCheck(root, { ...opts, autoFix: true });
+  assert.ok(existsSync(join(dir, name)), 'kept');
+  assert.ok(!r.reported.some((l) => l.includes(name)), `current content says nothing: ${r.reported.join('\n')}`);
+});
+
+test('isTracked: untracked and outside a repo are no; tracked is yes; a git failure it cannot read (here a missing folder) counts as tracked', () => {
+  const outside = tmp();
+  writeFileSync(join(outside, 'f.md'), 'x');
+  assert.equal(isTracked(outside, join(outside, 'f.md')), false, 'outside a repo');
+  const repo = tmp();
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  writeFileSync(join(repo, 'f.md'), 'x');
+  assert.equal(isTracked(repo, join(repo, 'f.md')), false, 'untracked');
+  execFileSync('git', ['add', 'f.md'], { cwd: repo });
+  assert.equal(isTracked(repo, join(repo, 'f.md')), true, 'tracked (staged)');
+  const gone = join(repo, 'no-such-dir');
+  assert.equal(isTracked(gone, join(gone, 'f.md')), true, 'cannot check: never delete');
+});
+
+test('global scope: a tracked project agent file that is current but checked out with CRLF (autocrlf) is silent', () => {
+  const { root, opts } = fresh();
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const dir = join(root, '.claude', 'agents');
+  const name = Object.keys(AGENT_FILES)[0];
+  write(join(dir, name), AGENT_FILES[name].replace(/\n/g, '\r\n'));
+  execFileSync('git', ['-c', 'core.autocrlf=false', 'add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'agents'], { cwd: root });
+  const r = driftCheck(root, { ...opts, autoFix: true });
+  assert.ok(existsSync(join(dir, name)), 'kept');
+  assert.ok(!r.reported.some((l) => l.includes(name)), `CRLF current content says nothing: ${r.reported.join('\n')}`);
 });
 
 test('writeTextIfUnchanged: writes only when the file still reads as it was read; a missing file reads as empty', () => {

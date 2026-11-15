@@ -632,13 +632,26 @@ const reviewPromptQ: JevQuestion = {
 };
 
 /**
- * The last REVIEW_MD_CHARS of every feature's REVIEW.md, oldest-modified first, so the newest dispute is always in.
- * shortcut: all features rather than the ones this diff touches; narrow it if the tail starts missing disputes.
+ * The tails of the newest REVIEW.md files for the gate's Jev state: at most four features, newest first, sharing
+ * REVIEW_MD_CHARS in all (headers and the \n\n separators included). Shares are filled shortest first: a short file
+ * keeps all of itself, and the room it leaves is split among the longer ones, so neither a short escalation note in an
+ * older file nor a long contest in the newest is cut while the total has room.
+ * shortcut: the four newest features rather than the ones this diff touches; narrow it if the tail starts missing disputes.
  */
 function reviewMdTail(root: string): string {
   const files = listFeatures(root).map((s) => `${FLOW_DIR}/features/${s}/REVIEW.md`).filter((f) => existsSync(join(root, f)))
-    .sort((a, b) => statSync(join(root, a)).mtimeMs - statSync(join(root, b)).mtimeMs);
-  return files.map((f) => `### ${f}\n${readOr(join(root, f))}`).join('\n\n').slice(-REVIEW_MD_CHARS);
+    .sort((a, b) => statSync(join(root, b)).mtimeMs - statSync(join(root, a)).mtimeMs).slice(0, 4)
+    .map((f, i) => ({ head: `${i ? '\n\n' : ''}### ${f}\n`, text: readOr(join(root, f)) }));
+  let left = REVIEW_MD_CHARS - files.reduce((n, f) => n + f.head.length, 0);
+  if (left <= 0) return '';
+  const keep = new Map<(typeof files)[number], number>();
+  const bySize = [...files].sort((a, b) => a.text.length - b.text.length);
+  bySize.forEach((f, i) => {
+    const n = Math.min(f.text.length, Math.floor(left / (bySize.length - i)));
+    keep.set(f, n);
+    left -= n;
+  });
+  return files.map((f) => f.head + f.text.slice(f.text.length - keep.get(f)!)).join('');
 }
 
 function guardCatchesAgent(settings: string, command: string): boolean {
@@ -1005,6 +1018,9 @@ function innerCommands(command: string): string[] {
   return [
     ...command.matchAll(new RegExp(`\\b(?:ba|z|da)?sh\\s+(?:-\\w+\\s+)*-\\w*c\\w*\\s+(?:${quoted})`, 'g')),
     ...command.matchAll(new RegExp(`\\beval\\s+(?:${quoted})`, 'g')),
+    // powershell -Command "…" and cmd /c "…": the quoted text is a command of its own, as sh -c's is.
+    ...command.matchAll(new RegExp(`\\b(?:powershell|pwsh)(?:\\.exe)?\\s+(?:-\\w+\\s+)*-(?:command|c)\\s+(?:${quoted})`, 'gi')),
+    ...command.matchAll(new RegExp(`\\bcmd(?:\\.exe)?\\s+(?:/\\w+\\s+)*/[ck]\\s+(?:${quoted})`, 'gi')),
   ].map((m) => m[1] ?? m[2]);
 }
 /**
@@ -1081,7 +1097,7 @@ function guardedRule(dirs: ReturnType<typeof guardedDirs>, abs: string, ancestor
 function shellRule(raw: string, written: string[], cwd: string, root: string, depth = 0): string | undefined {
   const command = noHeredocs(raw); // the checks read the command, not the text fed to it
   if (modelsReview(command)) return 'models_review_guard';
-  if (SETUP_UNWIRE.test(noMessages(command))) return 'setup_guard'; // a commit message may name the command; the command itself may not
+  if (SETUP_UNWIRE.test(blankQuoted(noMessages(command)))) return 'setup_guard'; // quoted text (a grep pattern, a message) is not the command
   if (skipsHooks(command, root)) return 'hooks_skip_guard';
   if (aliasChange(command)) return 'alias_guard';
   if (stashWrite(command)) return 'stash_guard';
