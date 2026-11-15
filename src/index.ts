@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { applyCredentials, findRoot, loadConfig, loadCredentials, loadPrefs, saveCredentials, savePrefs } from './brain.js';
 import { DEFAULT_ORDER, providerOrder, providers } from './api.js';
-import { agentEdit, agentGuard, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, stagedDiff } from './hooks.js';
+import { agentEdit, agentGuard, agentMenu, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, stagedDiff } from './hooks.js';
 import { checkUpdate, currentVersion, runUpdate } from './update.js';
 import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
@@ -43,7 +43,7 @@ async function runHook(name: string): Promise<HookOutput> {
   }
   const raw = await readStdin();
   if (name === 'git-push') return gitPush(raw, { root: findRoot(), lang });
-  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start|prompt|guard)$/.exec(name);
+  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start|prompt|guard|menu)$/.exec(name);
   if (!m) return { code: 0, stderr: [] };
   const agent = agents[m[1] as AgentName];
   let input: any = {};
@@ -77,6 +77,11 @@ async function runHook(name: string): Promise<HookOutput> {
     if (!agent.parseGuard) return { code: 0, stderr: [] };
     const guard = agent.parseGuard(input);
     return agentGuard(agent, guard, { root: findRoot(guard.cwd ?? process.cwd()), lang });
+  }
+  if (m[2] === 'menu') {
+    if (!agent.parseMenu) return { code: 0, stderr: [] };
+    const menu = agent.parseMenu(input);
+    return agentMenu(menu, { root: findRoot(menu.cwd ?? process.cwd()), lang });
   }
   if (m[2] === 'pre') {
     const pre = agent.parsePre(input);

@@ -9,9 +9,11 @@ export interface StopInput { sessionId?: string; cwd?: string; transcriptPath?: 
 export interface ReplyInput { sessionId?: string; cwd?: string; text: string }
 export interface PromptInput { sessionId?: string; cwd?: string; transcriptPath?: string; prompt: string }
 export interface GuardInput { cwd?: string; toolName: string; toolInput: any }
+/** A menu the user answered: answers maps each question's full text to the chosen label. */
+export interface MenuInput { sessionId?: string; cwd?: string; subagent: boolean; questions: any[]; answers: Record<string, unknown> }
 
 export type AgentName = 'claude' | 'cursor' | 'gemini' | 'codex';
-export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start', 'prompt', 'guard'] as const;
+export const PHASES = ['pre', 'post', 'stop', 'edit', 'reply', 'start', 'prompt', 'guard', 'menu'] as const;
 export type Phase = (typeof PHASES)[number];
 type Spec = { event: string; matcher?: string };
 
@@ -28,8 +30,10 @@ export interface Agent {
   start?: Spec; // session start: `cto brief` goes into the agent's context (agents whose hook stdout reaches the model)
   prompt?: Spec; // user prompt: signs off the docs on the CTO's Review line when the user agrees
   guard?: Spec; // before an edit tool: the CTO cannot approve its own sign-off docs
+  menu?: Spec; // after the user answers a menu: signs the docs whose question got Approve
   parsePrompt?(i: any): PromptInput;
   parseGuard?(i: any): GuardInput;
+  parseMenu?(i: any): MenuInput;
   note?: string; // i18n key printed after install
   /** The done check reads this agent's own transcript instead of cto's turn log. */
   transcriptTurns?: boolean;
@@ -59,10 +63,10 @@ const systemMessage = (msgs: string[]): HookOutput => ({ code: 0, stdout: JSON.s
 const nestedPre = (i: any): PreInput => ({ command: str(i?.tool_input?.command), sessionId: str(i?.session_id), cwd: str(i?.cwd), transcriptPath: str(i?.transcript_path), subagent: !!str(i?.agent_id) });
 const sessionId = (i: any) => str(i?.session_id);
 
-/** UserPromptSubmit reply: context reaches Claude, user reaches the user; nothing at all when both are absent. */
-export function promptOutput(context?: string, user?: string): HookOutput {
+/** UserPromptSubmit (or another event's) reply: context reaches Claude, user reaches the user; nothing at all when both are absent. */
+export function promptOutput(context?: string, user?: string, hookEventName = 'UserPromptSubmit'): HookOutput {
   if (!context && !user) return { code: 0, stderr: [] };
-  const out = { ...(context && { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } }), ...(user && { systemMessage: user }) };
+  const out = { ...(context && { hookSpecificOutput: { hookEventName, additionalContext: context } }), ...(user && { systemMessage: user }) };
   return { code: 0, stdout: JSON.stringify(out), stderr: [] };
 }
 const cursorCwd = (i: any) => str(i?.cwd) ?? str(i?.workspace_roots?.[0]);
@@ -92,7 +96,16 @@ export const agents: Record<AgentName, Agent> = {
     edit: { event: 'PostToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit' },
     start: { event: 'SessionStart' }, // stdout of a SessionStart hook is added to Claude's context
     prompt: { event: 'UserPromptSubmit' },
-    guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell' },
+    guard: { event: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|PowerShell|AskUserQuestion' },
+    menu: { event: 'PostToolUse', matcher: 'AskUserQuestion' },
+    parseMenu: (i) => ({
+      sessionId: sessionId(i),
+      cwd: str(i?.cwd),
+      subagent: !!str(i?.agent_id),
+      questions: Array.isArray(i?.tool_input?.questions) ? i.tool_input.questions : [],
+      // Only what the user chose; tool_input.answers may have been written by the CTO.
+      answers: i?.tool_response?.answers && typeof i.tool_response.answers === 'object' ? i.tool_response.answers : {},
+    }),
     parsePrompt: (i) => ({ sessionId: sessionId(i), cwd: str(i?.cwd), transcriptPath: str(i?.transcript_path), prompt: String(i?.prompt ?? '') }),
     parseGuard: (i) => ({ cwd: str(i?.cwd), toolName: String(i?.tool_name ?? ''), toolInput: i?.tool_input ?? {} }),
     parseEdit: (i) => { const p = str(i?.tool_input?.file_path) ?? str(i?.tool_input?.notebook_path); return p ? [p] : undefined; },

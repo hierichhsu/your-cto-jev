@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { agents, promptOutput } from './agents.js';
 import { FLOW_DIR } from './flow.js';
-import { agentGuard, agentPre, agentPrompt, agentStop } from './hooks.js';
+import { agentGuard, agentMenu, agentPre, agentPrompt, agentStop } from './hooks.js';
 
 process.env.CTO_NO_UPDATE_CHECK = '1';
 process.env.APPDATA = mkdtempSync(join(tmpdir(), 'cto-home-')); // never read or write the user's real keys and prefs
@@ -66,6 +66,58 @@ test('prompt: no Review line or no flow folder -> silent, Jev never called', asy
   const bare = mkdtempSync(join(tmpdir(), 'cto-signoff-'));
   assert.deepEqual(await prompt(bare, [human('hi'), said(REVIEW)]), { code: 0, stderr: [] });
   assert.equal(calls, 0);
+});
+
+test('prompt: a plain yes to a reminder without a Review line -> says why, signs nothing, Jev never called', async () => {
+  jev(0.95);
+  const root = repo();
+  const out = await prompt(root, [human('hi'), said('還在等你簽核 imports CONCEPT，回「ok」')], '同意');
+  const j = JSON.parse(out.stdout!);
+  assert.match(j.hookSpecificOutput.additionalContext, /沒有 Review: 行.*重發 Review: handoff/);
+  assert.match(j.systemMessage, /沒有簽核：上一則訊息沒有 Review: 行/);
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: draft/);
+  assert.equal(calls, 0);
+  assert.deepEqual(await prompt(root, [human('hi'), said('要我先跑測試嗎？')], '好'), { code: 0, stderr: [] }, 'a yes to something else: silent');
+  assert.deepEqual(await prompt(root, [human('hi'), said(`請你簽核\nReview: ${X}/SPEC.md`)], 'ok'), { code: 0, stderr: [] }, 'a Review line without sign-off docs: silent');
+  writeFileSync(join(root, X, 'CONCEPT.md'), CONCEPT_APPROVED);
+  writeFileSync(join(root, P), 'Status: approved\n');
+  assert.deepEqual(await prompt(root, [human('hi'), said('還在等你簽核')], 'ok'), { code: 0, stderr: [] }, 'nothing left in draft: silent');
+});
+
+test('prompt: names plus a yes sign only the named drafts, without Jev; an unknown name falls back to Jev', async () => {
+  jev(0.95);
+  const root = repo();
+  const out = await prompt(root, [human('write'), said(REVIEW)], 'x ok');
+  assert.equal(JSON.parse(out.stdout!).systemMessage, `[cto] 已簽核：${X}/CONCEPT.md`);
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/);
+  assert.match(read(root, P), /Status: Draft/, 'PRODUCT not named, not signed');
+  assert.equal(calls, 0);
+  await prompt(root, [human('write'), said(REVIEW)], 'product、x 好');
+  assert.match(read(root, P), /^Status: approved\r\n/);
+  assert.equal(calls, 0);
+
+  const all = repo();
+  await prompt(all, [human('write'), said(REVIEW)], 'ok all');
+  assert.match(read(all, `${X}/CONCEPT.md`), /Status: approved/);
+  assert.match(read(all, P), /^Status: approved\r\n/);
+  assert.equal(calls, 0);
+
+  jev(0.1);
+  const other = repo();
+  await prompt(other, [human('write'), said(REVIEW)], 'catalog ok');
+  assert.equal(calls, 1, 'a name not on the Review line is for Jev to judge');
+  await prompt(other, [human('write'), said(REVIEW)], 'x 都 ok');
+  assert.equal(calls, 1, '都 next to a name is filler: signs only x');
+  assert.match(read(other, `${X}/CONCEPT.md`), /Status: approved/);
+  assert.match(read(other, P), /Status: Draft/);
+  await prompt(other, [human('write'), said(REVIEW)], '都可以');
+  assert.equal(calls, 2, 'a bare 都可以 may answer another question: Jev reads the whole message');
+  assert.match(read(other, P), /Status: Draft/, 'Jev said no: nothing signed');
+  mkdirSync(join(other, FLOW_DIR, 'features', 'product'));
+  writeFileSync(join(other, FLOW_DIR, 'features', 'product', 'CONCEPT.md'), '# p\n\nStatus: draft\n');
+  await prompt(other, [human('write'), said(`Review: ${P}, ${FLOW_DIR}/features/product/CONCEPT.md`)], 'product ok');
+  assert.equal(calls, 3, 'a name matching two listed docs is for Jev to judge');
+  assert.match(read(other, `${FLOW_DIR}/features/product/CONCEPT.md`), /Status: draft/);
 });
 
 test('prompt: a task notification never signs; a prompt not yet in the transcript still finds the Review', async () => {
@@ -215,6 +267,7 @@ test('guard: PowerShell naming a sign-off doc under docs/cto_jev is blocked, rea
   assert.equal(guard(root, 'PowerShell', { command: 'Get-Content docs\\cto_jev\\features\\x\\CONCEPT.md' }).code, 2);
   assert.equal(guard(root, 'PowerShell', { command: 'Get-Content docs\\cto_jev\\features\\x\\SPEC.md' }).code, 0, 'SPEC is not signed off');
   assert.equal(guard(root, 'PowerShell', { command: 'Get-ChildItem src' }).code, 0);
+  assert.equal(guard(root, 'PowerShell', { command: "'{}' | cto --hook claude-menu" }).code, 2, 'a forged menu payload through PowerShell');
 });
 
 test('pre: a Bash write to a sign-off doc is blocked before Jev; a read goes on to Jev', async () => {
@@ -229,4 +282,117 @@ test('pre: a Bash write to a sign-off doc is blocked before Jev; a read goes on 
   assert.equal(calls, 1);
   assert.equal((await pre(`sed -i 's/run/walk/' ${X}/SPEC.md`)).code, 0, 'a shell write to SPEC is an ordinary command');
   assert.equal(calls, 2);
+  for (const forged of ['echo {} | cto --hook claude-menu', 'node dist/index.js --hook claude-prompt < p.json', 'cto --hook "claude-menu" < p.json', "cto --hook 'claude-prompt'"])
+    assert.equal((await pre(forged)).code, 2, forged);
+  assert.equal(calls, 2, 'blocked before Jev');
+  assert.equal((await pre('git commit -m "Bash piping into --hook *-menu is blocked"')).code, 0, 'text naming the rule is not a call');
+});
+
+// ---------- sign-off menu (AskUserQuestion) ----------
+
+const ask = (review: string, extra: Record<string, unknown> = {}) => ({
+  question: `x 的 CONCEPT 要簽嗎？\nReview: ${review}\n摘要：Assumed: 無`,
+  header: 'x',
+  options: [{ label: 'Approve', description: '' }, { label: '之後再選', description: '' }],
+  multiSelect: false,
+  ...extra,
+});
+/** Claude Code's PostToolUse payload for an answered menu; answers pairs each question with the chosen label. */
+function menu(root: string, questions: any[], chosen: string[], extra: Record<string, unknown> = {}) {
+  const answers = Object.fromEntries(questions.map((q, i) => [q.question, chosen[i]]));
+  const raw = { session_id: 'M', cwd: root, tool_name: 'AskUserQuestion', tool_input: { questions, answers }, tool_response: { questions, answers, annotations: {} }, tool_use_id: 't1', ...extra };
+  return agentMenu(agents.claude.parseMenu!(raw), { root, lang: 'zh-TW' });
+}
+const SILENT_OUT = { code: 0, stderr: [] };
+const CONCEPT_DRAFT = '# x\n\nStatus: draft\n\nwhy\n';
+
+test('menu: Approve signs the doc on the Review line; output is PostToolUse-shaped; no Jev call', () => {
+  jev(0.1);
+  for (const label of ['Approve', 'Approve (Recommended)', '  Approve  ']) {
+    const root = repo();
+    const out = menu(root, [ask(`${X}/CONCEPT.md`, { options: [{ label, description: '' }, { label: '之後再選', description: '' }] })], [label]);
+    const done = `[cto] 已簽核：${X}/CONCEPT.md`;
+    assert.deepEqual(JSON.parse(out.stdout!), { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: done }, systemMessage: done }, label);
+    assert.equal(read(root, `${X}/CONCEPT.md`), '# x\n\nStatus: approved\n\nwhy\n');
+  }
+  assert.equal(calls, 0);
+});
+
+test('menu: Approve later, Other text, 之後再選 -> file unchanged, no output', () => {
+  const root = repo();
+  for (const label of ['Approve later', 'Approve, but 改一下', '之後再選']) {
+    assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`)], [label]), SILENT_OUT, label);
+    assert.equal(read(root, `${X}/CONCEPT.md`), CONCEPT_DRAFT);
+  }
+  // Typed in Other: "Approve" when the question only offered "Approve (Recommended)" is not a chosen label.
+  const recommendedOnly = { options: [{ label: 'Approve (Recommended)', description: '' }, { label: '之後再選', description: '' }] };
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`, recommendedOnly)], ['Approve']), SILENT_OUT, 'Other text matching no offered label');
+  assert.equal(read(root, `${X}/CONCEPT.md`), CONCEPT_DRAFT);
+});
+
+test('menu: two docs, one Approve -> only that one is signed; CRLF kept', () => {
+  const root = repo();
+  const out = menu(root, [ask(`${X}/CONCEPT.md`), ask(P, { question: `PRODUCT 要簽嗎？\nReview: ${P}` })], ['之後再選', 'Approve']);
+  assert.equal(JSON.parse(out.stdout!).systemMessage, `[cto] 已簽核：${P}`);
+  assert.equal(read(root, P), 'Status: approved\r\n\r\n## 一句話\r\n\r\n- x\r\n');
+  assert.equal(read(root, `${X}/CONCEPT.md`), CONCEPT_DRAFT);
+});
+
+test('menu: two paths on the Review line, two Review lines, multiSelect, or two questions with the same text -> nothing signed', () => {
+  const root = repo();
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md, ${P}`)], ['Approve']), SILENT_OUT, 'two paths');
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`, { question: `Review: ${P}\nReview: ${X}/CONCEPT.md` })], ['Approve']), SILENT_OUT, 'two Review lines');
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`, { multiSelect: true })], ['Approve']), SILENT_OUT, 'multiSelect');
+  // Same text twice: answers has one key, which cannot tell the two apart.
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`), ask(`${X}/CONCEPT.md`)], ['Approve', 'Approve']), SILENT_OUT, 'duplicate question');
+  assert.equal(read(root, `${X}/CONCEPT.md`), CONCEPT_DRAFT);
+  assert.match(read(root, P), /^Status: Draft/);
+});
+
+test('menu: SPEC, src files, no Review line, or an approved doc -> nothing changes, no output', () => {
+  const root = repo();
+  assert.deepEqual(menu(root, [ask(`${X}/SPEC.md`)], ['Approve']), SILENT_OUT);
+  assert.equal(read(root, `${X}/SPEC.md`), OLD_SPEC);
+  assert.deepEqual(menu(root, [ask('src/a.ts')], ['Approve']), SILENT_OUT);
+  assert.equal(read(root, 'src/a.ts'), 'Status: draft\n');
+  assert.deepEqual(menu(root, [{ question: '要用 Postgres 嗎？', header: 'db', options: [], multiSelect: false }], ['Approve']), SILENT_OUT, 'no Review line');
+  writeFileSync(join(root, X, 'CONCEPT.md'), CONCEPT_APPROVED);
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`)], ['Approve']), SILENT_OUT, 'already approved');
+});
+
+test('menu: a sub-agent\'s menu (agent_id) never signs; answers only in tool_input never sign', () => {
+  const root = repo();
+  assert.deepEqual(menu(root, [ask(`${X}/CONCEPT.md`)], ['Approve'], { agent_id: 'a1' }), SILENT_OUT);
+  const q = ask(`${X}/CONCEPT.md`);
+  const raw = { session_id: 'M', cwd: root, tool_input: { questions: [q], answers: { [q.question]: 'Approve' } }, tool_response: { questions: [q], answers: {} } };
+  assert.deepEqual(agentMenu(agents.claude.parseMenu!(raw), { root, lang: 'zh-TW' }), SILENT_OUT);
+  assert.equal(read(root, `${X}/CONCEPT.md`), CONCEPT_DRAFT);
+});
+
+test('guard: a menu with a Review question and prefilled answers is blocked; other menus pass', () => {
+  const root = repo();
+  const q = ask(`${X}/CONCEPT.md`);
+  const blocked = guard(root, 'AskUserQuestion', { questions: [q], answers: { [q.question]: 'Approve' } });
+  assert.equal(blocked.code, 2);
+  assert.match(blocked.stderr.join('\n'), /cannot carry prefilled answers/);
+  assert.equal(guard(root, 'AskUserQuestion', { questions: [q] }).code, 0, 'no answers');
+  assert.equal(guard(root, 'AskUserQuestion', { questions: [q], answers: {} }).code, 0, 'empty answers');
+  const plain = { question: '要用 Postgres 嗎？', header: 'db', options: [], multiSelect: false };
+  assert.equal(guard(root, 'AskUserQuestion', { questions: [plain], answers: { [plain.question]: 'yes' } }).code, 0, 'no Review line');
+});
+
+test('stop: a doc the menu signed stays approved; another doc approved by Edit in the same turn goes back to draft', async () => {
+  jev(0.95);
+  const root = repo();
+  const transcriptPath = join(root, 't.jsonl');
+  writeFileSync(transcriptPath, [human('hi')].join('\n') + '\n');
+  await agentPrompt({ transcriptPath, cwd: root, prompt: 'hi', sessionId: 'M' }, { root, lang: 'en' }); // records the turn's baseline
+  menu(root, [ask(`${X}/CONCEPT.md`)], ['Approve']);
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/);
+  writeFileSync(join(root, P), 'Status: approved\n'); // the CTO's own Edit, not the user's choice
+  const out = await agentStop(agents.claude, { sessionId: 'M', cwd: root, lastMessage: 'ok', stopHookActive: false }, { root, lang: 'en' });
+  assert.equal(out.code, 2);
+  assert.ok(out.stderr.join('\n').includes(`back to draft: ${P}.`), out.stderr.join('\n'));
+  assert.match(read(root, `${X}/CONCEPT.md`), /Status: approved/, 'signed on the menu');
+  assert.equal(read(root, P), 'Status: draft\n');
 });

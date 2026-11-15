@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { FLOW_DIR, docStatus, featureIndex, listFeatures, parseTasks, setStatus } from './flow.js';
 import { styleText } from 'node:util';
 import { checkUpdate, currentVersion } from './update.js';
-import { promptOutput, type Agent, type GuardInput, type HookOutput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
+import { promptOutput, type Agent, type GuardInput, type HookOutput, type MenuInput, type PostInput, type PreInput, type PromptInput, type ReplyInput, type StopInput } from './agents.js';
 import { ACCEPT, acceptValue, BOX, droppedUnreported, isCodeFile, isDropped, isManual, isManualAccept, lookText, taskName, reviewMessage, tickedItems, tickedKey, turnActions, turnCounts, turnState } from './turn.js';
 import { shellWrites } from './shellwrites.js';
-import { afterEdit, guardVerdict, powershellHitsSignoffDoc, protectedText, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
+import { afterEdit, guardVerdict, powershellHitsSignoffDoc, protectedText, reviewLineCount, reviewPaths, shellWritesSignoffDoc, signoffDoc, signoffState } from './signoff.js';
 import { evaluate, providerOrder, providers, type EvalResult } from './api.js';
 import { DECISIONS_KEPT, DECISION_STATE_CHARS, freshErrors, loadBrain, loadConfig, saveBrain, type Brain, type CtoConfig, type Decision, type RecentError } from './brain.js';
 import { chunkDiff, filterDiff, pool } from './diff.js';
@@ -415,11 +415,16 @@ async function sessionNotice(brain: Brain, sessionId: string | undefined, lang: 
   else if (!notices.size) notices.add(t(lang, 'fail_open', { detail: '' }));
 }
 
+// shortcut: also blocks a read that quotes it (grep -- "--hook claude-prompt"); split the string to search for it.
+const FORGED_HOOK = /--hook\s+["']?(?:claude|cursor|gemini|codex)-(?:menu|prompt)\b/;
+
 export async function agentPre(agent: Agent, input: PreInput, { root, lang, now }: Env): Promise<HookOutput> {
   const command = input.command;
   if (!command?.trim()) return { code: 0, stderr: [] };
   const written = shellWrites(command);
   if (shellWritesSignoffDoc(root, input.cwd ?? root, written, command)) return agent.block([t(lang, 'signoff_guard')]);
+  // Piping a forged payload into the sign-off hooks would sign with no user. Stops the obvious route, not a determined one.
+  if (FORGED_HOOK.test(command)) return agent.block([t(lang, 'signoff_self_approve')]);
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
@@ -571,16 +576,49 @@ function revertSelfSigned(root: string, sessionId: string | undefined): string[]
   return reverted;
 }
 
+// shortcut: a fixed list of plain yeses. A bare one picks when to warn; names plus one sign those names without Jev (namedYes).
+const YES = String.raw`(?:ok(?:ay)?|好(?:的|啊)?|可以|同意|沒問題|簽(?:核)?|lgtm|yes|👍|go ahead)`;
+const END = String.raw`[\s!！.。~]*`;
+const SHORT_YES = new RegExp(`^${YES}${END}$`, 'iu');
+const NAMED_YES = [new RegExp(`^(.+?)[\\s,，、]*${YES}${END}$`, 'iu'), new RegExp(`^${YES}[\\s,，、]+(.+?)${END}$`, 'iu')];
+const docName = (f: string) => (f.endsWith('/CONCEPT.md') ? f.split('/').at(-2)! : f.split('/').at(-1)!.replace(/\.md$/, '')).toLowerCase();
+// Alone, "all" and "全部" mean every listed draft ("ok all"). "都" is only filler next to names ("imports 跟 catalog 都 ok"):
+// a bare "都可以" may answer another question ("A or B?"), so it goes to Jev, which reads the whole message.
+const ALL = new Set(['all', '全部']);
+const FILLER = new Set(['都']);
+/**
+ * "imports ok", "imports、catalog 好", "ok all": the drafts the reply names, when it is nothing but names from the
+ * Review: line (or "all") and a plain yes, in either order.
+ */
+function namedYes(prompt: string, listed: string[], drafts: string[]): string[] | undefined {
+  const s = prompt.trim();
+  const m = NAMED_YES[0].exec(s) ?? NAMED_YES[1].exec(s);
+  const all = m ? m[1].toLowerCase().split(/[\s,，、和跟]+/).filter((w) => w && !FILLER.has(w)) : [];
+  if (all.length && all.every((w) => ALL.has(w))) return listed.some((f) => ALL.has(docName(f))) ? undefined : drafts;
+  const words = all.filter((w) => !ALL.has(w));
+  // Each word must name exactly one listed doc (a slug "product" would also match PRODUCT.md): anything else is Jev's.
+  if (!words.length || !words.every((w) => listed.filter((f) => docName(f) === w).length === 1)) return undefined;
+  return drafts.filter((f) => words.includes(docName(f)));
+}
+const SIGN_ASK = /簽核|\bsign/i;
+
 async function signoffReply(input: PromptInput, { root, lang, now }: Env): Promise<HookOutput> {
   if (!existsSync(join(root, FLOW_DIR)) || !input.transcriptPath) return SILENT;
   // A background agent's report arrives as a prompt; its text is agent output, never the user's agreement.
   if (/^\s*<task-notification>/.test(input.prompt)) return SILENT;
   const review = reviewMessage(input.transcriptPath, input.prompt);
   if (!review) return SILENT;
+  // A plain yes to a sign-off reminder that dropped the Review: line signs nothing; say so instead of staying silent.
+  if (!reviewPaths(review).length && SIGN_ASK.test(review) && SHORT_YES.test(input.prompt.trim())
+    && signoffDocPaths(root).some((f) => docStatus(readOr(join(root, f))) === 'draft'))
+    return promptOutput(t(lang, 'signoff_no_review'), t(lang, 'signoff_no_review_user'));
   // Review: paths are repo-relative by contract, whatever folder the session runs in.
   const docs = reviewPaths(review).map((p) => signoffDoc(root, root, p)).filter((f): f is string => !!f);
   const files = [...new Set(docs)].filter((f) => docStatus(readOr(join(root, f))) === 'draft');
   if (!files.length) return SILENT;
+  // Names plus a yes is unambiguous: sign exactly those, no Jev call, so a partial yes needs no second round.
+  const named = namedYes(input.prompt, docs, files);
+  if (named) return named.length ? signDocs(root, lang, named).out : SILENT;
 
   const cfg = loadConfig(root);
   const brain = loadBrain(root);
@@ -594,10 +632,14 @@ async function signoffReply(input: PromptInput, { root, lang, now }: Env): Promi
   saveBrain(root, brain);
   if (!r.ok) return promptOutput(undefined, t(lang, r.reason === 'no_keys' ? 'signoff_no_keys' : r.reason === 'cooldown' ? 'signoff_paused' : 'signoff_unavailable'));
   if (exceeded(r.answers, 'signoff_approved', cfg) === undefined) return SILENT;
+  return signDocs(root, lang, files).out;
+}
 
+/** Sets every file to approved, or none when one is no longer a draft; the output in the given hook event's shape. */
+function signDocs(root: string, lang: Lang, files: string[], event?: string): { signed: string[]; out: HookOutput } {
   // Jev took a while: sign only if every file is still a draft now.
   const texts = files.map((f) => readOr(join(root, f)));
-  if (texts.some((x) => docStatus(x) !== 'draft')) return SILENT;
+  if (texts.some((x) => docStatus(x) !== 'draft')) return { signed: [], out: SILENT };
   const signed: string[] = [];
   try {
     files.forEach((f, i) => {
@@ -607,18 +649,67 @@ async function signoffReply(input: PromptInput, { root, lang, now }: Env): Promi
       signed.push(f);
     });
   } catch {
-    return promptOutput(undefined, t(lang, 'signoff_partial', { signed: signed.join(', ') || '-', unsigned: files.slice(signed.length).join(', ') }));
+    return { signed, out: promptOutput(undefined, t(lang, 'signoff_partial', { signed: signed.join(', ') || '-', unsigned: files.slice(signed.length).join(', ') }), event) };
   }
   const done = t(lang, 'signoff_done', { detail: files.join(', ') });
-  return promptOutput(done, done);
+  return { signed, out: promptOutput(done, done, event) };
 }
 
-/** Before Edit/Write/MultiEdit/PowerShell: the CTO cannot approve a sign-off doc or change its protected content. Fails open. */
+const APPROVE = new Set(['Approve', 'Approve (Recommended)']);
+/** The one sign-off doc a menu question offers, or undefined unless it has exactly one Review: line naming one path. */
+function menuDoc(root: string, q: any): string | undefined {
+  const text = typeof q?.question === 'string' ? q.question : '';
+  if (q?.multiSelect === true || reviewLineCount(text) !== 1) return undefined;
+  const paths = reviewPaths(text);
+  return paths.length === 1 ? signoffDoc(root, root, paths[0]) : undefined;
+}
+
+/**
+ * After the user answers a menu (Claude Code): each question answered Approve signs the one doc on its Review: line.
+ * The user's choice is the agreement, so no Jev call. Silent whenever nothing is signed.
+ */
+export function agentMenu(input: MenuInput, { root, lang }: Env): HookOutput {
+  if (input.subagent || !existsSync(join(root, FLOW_DIR))) return SILENT;
+  const files = new Set<string>();
+  for (const [question, answer] of Object.entries(input.answers)) {
+    if (typeof answer !== 'string' || !APPROVE.has(answer.trim())) continue;
+    // Two questions with the same text: the answer cannot be told apart, so neither signs.
+    // Text typed in "Other" arrives like a label; only a label the question offered counts.
+    const asked = input.questions.filter((q) => q?.question === question && Array.isArray(q?.options) && q.options.some((o: any) => o?.label === answer));
+    const f = asked.length === 1 ? menuDoc(root, asked[0]) : undefined;
+    if (f && docStatus(readOr(join(root, f))) === 'draft') files.add(f);
+  }
+  if (!files.size) return SILENT;
+  const { signed, out } = signDocs(root, lang, [...files], 'PostToolUse');
+  // Only these join the turn's baseline; anything else approved this turn is still reverted at stop.
+  const brain = loadBrain(root);
+  const raw = input.sessionId ? brain.signoff_baseline?.[input.sessionId] : undefined;
+  if (raw && signed.length) {
+    const base: Record<string, string> = Array.isArray(raw) ? Object.fromEntries(raw.map((f) => [f, ''])) : { ...raw };
+    for (const f of signed) base[f] = docHash(root, f);
+    brain.signoff_baseline![input.sessionId!] = base;
+    saveBrain(root, brain);
+  }
+  return out;
+}
+
+/** Before Edit/Write/MultiEdit/PowerShell/AskUserQuestion: the CTO cannot approve a sign-off doc, change its protected content, or prefill a sign-off menu. Fails open. */
 export function agentGuard(agent: Agent, input: GuardInput, { root, lang }: Env): HookOutput {
   const cwd = input.cwd ?? root;
   const tool = input.toolName;
   try {
-    if (tool === 'PowerShell') return powershellHitsSignoffDoc(root, cwd, String(input.toolInput?.command ?? '')) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    if (tool === 'PowerShell') {
+      const ps = String(input.toolInput?.command ?? '');
+      if (FORGED_HOOK.test(ps)) return agent.block([t(lang, 'signoff_self_approve')]);
+      return powershellHitsSignoffDoc(root, cwd, ps) ? agent.block([t(lang, 'signoff_guard')]) : SILENT;
+    }
+    if (tool === 'AskUserQuestion') {
+      // A sign-off menu answered in advance would let the CTO choose Approve for the user.
+      const qs: any[] = Array.isArray(input.toolInput?.questions) ? input.toolInput.questions : [];
+      const a = input.toolInput?.answers;
+      const prefilled = !!a && typeof a === 'object' && Object.keys(a).length > 0;
+      return prefilled && qs.some((q) => reviewLineCount(String(q?.question ?? '')) > 0) ? agent.block([t(lang, 'menu_prefilled')]) : SILENT;
+    }
     if (tool !== 'Edit' && tool !== 'Write' && tool !== 'MultiEdit') return SILENT;
     const file = signoffDoc(root, cwd, String(input.toolInput?.file_path ?? ''));
     if (!file) return SILENT;

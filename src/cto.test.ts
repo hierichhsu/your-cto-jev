@@ -856,7 +856,7 @@ test('guidance: rules block in always-loaded files, one skill, only cto content 
   const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
   delete s.hooks.PostToolUse;
   writeFileSync(settingsPath, JSON.stringify(s));
-  assert.deepEqual(missingHooks(repo), ['cto --hook claude-edit']);
+  assert.deepEqual(missingHooks(repo), ['cto --hook claude-edit', 'cto --hook claude-menu']); // both live under PostToolUse
   // what --refresh does: re-run setup for the agents already wired, adding only
   setup(repo, 'en', { agents: wiredAgents(repo) });
   assert.deepEqual(missingHooks(repo), []);
