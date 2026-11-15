@@ -1690,6 +1690,33 @@ test('review gate: a conditional strip whose text says exactly is never taken: "
   assert.equal(dispatch(root, 'If there are no P1s then reply exactly: No findings.').code, 2, 'then');
 });
 
+// ---------- round 23 ----------
+
+test('heredoc: a command substitution inside double quotes still runs ("$(bash <<EOF): its body is code', async () => {
+  const root = gateRepo();
+  assert.equal((await pre(root, "echo \"$(bash <<'EOF'\ngit commit --no-verify -m x\nEOF")).code, 2, 'a command substitution inside double quotes');
+});
+
+test('agent guard: a move at the start of a statement, or after a semicolon, blocks', () => {
+  const root = gateRepo();
+  const ps = (command: string) => agentGuard(agents.claude, { cwd: root, toolName: 'PowerShell', toolInput: { command } }, { root, lang: 'en' }).code;
+  assert.equal(ps('move docs\\cto_jev x'), 2, 'a move at the start of the statement');
+  assert.equal(ps('Write-Output ok; move docs\\cto_jev x'), 2, 'after a semicolon');
+});
+
+test('heredoc: a quoted interpreter path with spaces, "/c/Program Files/nodejs/node.exe" - <<EOF, is node: its body is code', async () => {
+  const root = gateRepo();
+  assert.equal((await pre(root, "\"/c/Program Files/nodejs/node.exe\" - <<'EOF'\ngit commit --no-verify -m x\nEOF")).code, 2);
+});
+
+test('agent guard: cmd /c rd, pwsh -c "Remove-Item" and $null = Remove-Item of the flow folder block (PowerShell tool)', () => {
+  const root = gateRepo();
+  const ps = (command: string) => agentGuard(agents.claude, { cwd: root, toolName: 'PowerShell', toolInput: { command } }, { root, lang: 'en' }).code;
+  assert.equal(ps('cmd /c rd /s /q docs\\cto_jev'), 2, 'cmd /c rd');
+  assert.equal(ps('pwsh -c "Remove-Item docs\\cto_jev"'), 2, 'pwsh -c');
+  assert.equal(ps('$null = Remove-Item docs\\cto_jev'), 2, 'an assignment before the cmdlet');
+});
+
 test('heredoc: the command word is read lowercased with the path and .exe off: /usr/bin/env bash and Bash are shells', async () => {
   const root = gateRepo();
   assert.equal((await pre(root, "/usr/bin/env bash <<'EOF'\nrm -rf docs/cto_jev\nEOF")).code, 2, '/usr/bin/env bash');

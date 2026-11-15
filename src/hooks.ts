@@ -867,7 +867,7 @@ const SHELL_NAME = /^(?:bash|sh|zsh|dash|ksh|pwsh|powershell|eval|source|\.|xarg
 const WRAPPER = /^(?:sudo|env|command|exec|nohup|time|nice|stdbuf|timeout|npx|pnpm|yarn|dlx)$/;
 /** The command word of one simple command: past assignments, $ and <, and the options and numbers of wrappers (timeout 5, npx -y). */
 function commandWord(seg: string): string | undefined {
-  const toks = seg.trim().split(/\s+/).filter(Boolean);
+  const toks = seg.match(/"[^"]*"|'[^']*'|\S+/g) ?? []; // a quoted path with spaces is one word: "/c/Program Files/nodejs/node.exe"
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i].replace(/^[$<]+/, '');
     if (!t || /^\w+=/.test(t)) continue;

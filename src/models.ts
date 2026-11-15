@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DEFAULT_MODELS, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { appendBlock, hooksDir, isObj, missingIgnores, readSettings, refreshClaudeHooks, wiredAgents } from './setup.js';
+import { appendBlock, isObj, missingIgnores, readSettings, refreshClaudeHooks, wiredAgents } from './setup.js';
 import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, SKILL_PATH, fileVersion, syncFlowSkill, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 import { t, type Lang } from './i18n.js';
@@ -36,7 +36,6 @@ export const MSG = {
   stale: (file: string) => t(lang, 'models_stale', { file, hint: hint() }),
   hooksRestart: (file: string) => t(lang, 'models_hooks_restart', { file }),
   hooksPending: (file: string) => t(lang, 'models_hooks_pending', { file }),
-
   notWritten: (file: string) => t(lang, 'models_not_written', { file }),
   get fable() { return t(lang, 'models_fable'); },
 };
@@ -258,8 +257,6 @@ function syncAgentFiles(dir: string, write: boolean, show: (p: string) => string
     else { mkdirSync(dir, { recursive: true }); writeFileSync(path, text); out.fixed.push(MSG.wrote(show(path))); }
   }
 }
-
-/** cto's own files in a set-up repo, the same sync `cto setup --refresh` runs, without its hooks or output. */
 
 const LOCK_IGNORE = '.cto-brain.json.lock*';
 

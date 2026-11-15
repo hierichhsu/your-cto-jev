@@ -412,6 +412,29 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 | `CTO_DEBUG=1` | Write masked hook input to `debug_stdin.json` |
 | `CTO_NO_UPDATE_CHECK=1` | Never check npm for a new version |
 
+## Models and the review gate
+
+On Claude Code, `cto setup` writes a model split:
+
+- **Fable** advises the main agent.
+- **Sonnet** is the main model.
+- **Haiku** runs the sub-agents.
+- **Opus** runs `cto-reviewer`, which reviews code with none of the main agent's context.
+
+The split is written to your user settings (`global`, the default, every project) or to this project only (`local`). Fable advises only after you agree to it in Claude Code with `/model fable`; to use Opus as the advisor instead, run `cto models advisor opus`.
+
+```sh
+cto models                     # status: the split, its scope, and what would change
+cto models advisor fable|opus  # the advisor model
+cto models autofix on|off      # let cto write the split (session start, setup, refresh, update)
+cto models scope global|local  # where the split is written
+cto models review on|off       # the review gate; for you only, agents cannot change it
+```
+
+**The review gate.** With Claude Code wired, the gate on (`review_gate` in `.cto.json`) and a `docs/cto_jev/` folder in the repo, a code commit needs a `cto-reviewer` review of the current working tree and no unresolved P1. Code means the files under `src/` when HEAD tracks a `src/` folder, otherwise source files anywhere; other changes need no review. A dispatch prompt that leaves changed paths out or sets the verdict also blocks: dispatch again with a prompt that covers the whole change. The staged code must match the files on disk: a file changed after `git add` is not the reviewed code. A P1 counts as resolved when REVIEW.md contests it with evidence or marks it escalated to the user. Run the project's formatter before dispatching the reviewer: a formatter that changes files after the review needs another review. Only a Claude Code session can satisfy the gate; other agents stop with the wave uncommitted.
+
+Accepted limits: the guards are text heuristics against honest mistakes. They do not stop an agent that deliberately uses nested shells, heredoc or quoting edge cases, aliases, plumbing commands or wrapper forms. There is no review check on push, so code that reaches HEAD without pre-commit (rebase, cherry-pick, plumbing) is not reviewed.
+
 ## Known limitations
 
 - **Git GUIs hide warnings.** VS Code, SourceTree and GitKraken usually hide hook output when the commit succeeds, so the architecture and complexity warnings are invisible there. Blocks still show.
