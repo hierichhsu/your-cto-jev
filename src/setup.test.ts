@@ -621,7 +621,8 @@ test('setup with --help or an unknown flag prints usage and writes nothing (real
   writeFileSync(gitGlobal, '');
   const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home, CTO_LANG: 'en', CTO_NO_UPDATE_CHECK: '1', GIT_CONFIG_GLOBAL: gitGlobal, GIT_CONFIG_NOSYSTEM: '1' };
   const cli = join(import.meta.dirname, 'index.js');
-  for (const [flags, code] of [[['--help'], 0], [['-h'], 0], [['--uninstal'], 1], [['--agents', '--help'], 0], [['--agents', 'claud', '--yes'], 1], [['--agents', '--yes'], 1]] as const) {
+  for (const [flags, code] of [[['--help'], 0], [['-h'], 0], [['--uninstal'], 1], [['--agents', '--help'], 0], [['--agents', 'claud', '--yes'], 1], [['--agents', '--yes'], 1],
+    [['--agents', ',', '--yes'], 1], [['--agents', ' ', '--yes'], 1], [['--agents', 'claude', '--agents', 'claud', '--yes'], 1]] as const) {
     const flag = flags.join(' ');
     const root = repo();
     const r = spawnSync(process.execPath, [cli, 'setup', ...flags], { cwd: root, env, encoding: 'utf8' });
@@ -629,10 +630,16 @@ test('setup with --help or an unknown flag prints usage and writes nothing (real
     assert.match(code ? r.stderr : r.stdout, /^Usage: /, `${flag}: asked-for help on stdout, an error on stderr`);
     assert.ok(!existsSync(join(root, '.git', 'hooks', 'pre-commit')), `${flag}: no hook written`);
     assert.ok(!existsSync(join(root, '.cto.json')), `${flag}: no config written`);
+    assert.ok(!existsSync(join(root, '.claude')) && !existsSync(join(root, 'CLAUDE.md')), `${flag}: no project files written`);
+    assert.ok(!existsSync(join(home, '.claude')), `${flag}: nothing written under the user's home`);
+    assert.ok(!existsSync(join(process.env.APPDATA!, 'your-cto-jev')), `${flag}: no prefs written`);
   }
-  const top = spawnSync(process.execPath, [cli, '--help'], { cwd: repo(), env, encoding: 'utf8' });
-  assert.equal(top.status, 0, 'cto --help');
-  assert.match(top.stdout, /\[--flow\|--no-flow\]/, 'usage lists the flow flags');
+  for (const h of ['--help', '-h']) {
+    const top = spawnSync(process.execPath, [cli, h], { cwd: repo(), env, encoding: 'utf8' });
+    assert.equal(top.status, 0, `cto ${h}`);
+    assert.match(top.stdout, /^Usage: /, `cto ${h}: usage on stdout`);
+    assert.match(top.stdout, /\[--flow\|--no-flow\]/, 'usage lists the flow flags');
+  }
   const bare = spawnSync(process.execPath, [cli], { cwd: repo(), env, encoding: 'utf8' });
   assert.equal(bare.status, 0, 'bare cto');
   assert.match(bare.stdout, /^Usage: /, 'bare cto: usage on stdout');
@@ -641,7 +648,7 @@ test('setup with --help or an unknown flag prints usage and writes nothing (real
   assert.match(typo.stderr, /^Usage: /, 'cto foo: usage on stderr');
   // Every documented flag is still accepted: setup runs, no usage text.
   const root = repo();
-  for (const flags of [['--agents', 'claude', '--flow', '--yes'], ['--refresh'], ['--no-flow', '--yes'], ['--uninstall']]) {
+  for (const flags of [['--agents', 'claude,cursor', '--flow', '--yes'], ['--refresh'], ['--no-flow', '--yes'], ['--uninstall']]) {
     const r = spawnSync(process.execPath, [cli, 'setup', ...flags], { cwd: root, env, encoding: 'utf8' });
     assert.equal(r.status, 0, `${flags.join(' ')}: ${r.stderr}`);
     assert.doesNotMatch(r.stdout + r.stderr, /Usage: /, flags.join(' '));

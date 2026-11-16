@@ -122,10 +122,12 @@ if (args[0] === '--hook' && args[1]) {
   // An unknown flag (--help, a typo) prints usage instead of running the whole setup with defaults.
   const SETUP_FLAGS = ['--uninstall', '--refresh', '--flow', '--no-flow', '--yes', '--agents'];
   const unknown = args.slice(1).filter((a, i, all) => !SETUP_FLAGS.includes(a) && (all[i - 1] !== '--agents' || a.startsWith('-')));
-  const agentsArg = flag('--agents');
-  // A missing --agents value, or a name cto does not know (a typo like "claud"), would set up no agents at all.
-  if (args.includes('--agents') && (!agentsArg || agentsArg.startsWith('-') || agentsArg.split(',').map((s) => s.trim()).filter(Boolean).some((s) => !(agentNames as string[]).includes(s))))
-    unknown.push(`--agents ${agentsArg ?? ''}`);
+  // --agents once, with at least one name cto knows and no other: a missing value, an empty list or a typo ("claud")
+  // would set up no agents at all, and a second --agents would be ignored.
+  const agentValues = args.flatMap((a, i) => (a === '--agents' ? [args[i + 1] ?? ''] : []));
+  const names = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
+  if (agentValues.length > 1 || agentValues.some((v) => v.startsWith('-') || !names(v).length || names(v).some((s) => !(agentNames as string[]).includes(s))))
+    unknown.push(`--agents ${agentValues.join(' ')}`);
   if (unknown.length) {
     const help = args.includes('--help') || args.includes('-h'); // asked for help: usage is the answer, not an error
     writeSync(help ? 1 : 2, t(lang, 'usage') + '\n'); // sync: process.exit right after must not cut a piped write short
