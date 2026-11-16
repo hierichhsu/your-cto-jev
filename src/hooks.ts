@@ -569,6 +569,26 @@ function dispatchTexts(path: unknown): string[] {
 }
 
 /**
+ * A background subagent hands its report back through a SubagentHandback tool call, so SubagentStop's
+ * last_assistant_message is empty: the report is the newest such call's `message` in the transcript.
+ * Format checked on a real Claude Code 2026-11 transcript: {type:"assistant", message.content:[{type:"tool_use", name:"SubagentHandback", input:{message}}]}.
+ */
+function handbackText(path: unknown): string {
+  if (typeof path !== 'string') return '';
+  try {
+    for (const line of readFileSync(path, 'utf8').split('\n').reverse()) {
+      if (!line.includes('"SubagentHandback"')) continue;
+      let e: any;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e?.type !== 'assistant' || !Array.isArray(e?.message?.content)) continue;
+      const call = e.message.content.findLast((x: any) => x?.type === 'tool_use' && x.name === 'SubagentHandback');
+      if (typeof call?.input?.message === 'string') return call.input.message;
+    }
+  } catch { /* unreadable: no report */ }
+  return '';
+}
+
+/**
  * SubagentStop (Claude Code): keep cto-reviewer's final message with the hash of the code it saw. A review is recorded
  * only when a start of its session has the same code hash and a dispatch prompt that appears in the subagent's
  * transcript (the SubagentStop event carries agent_id and the transcript path, not the PreToolUse tool_use_id). A
@@ -580,8 +600,11 @@ function dispatchTexts(path: unknown): string[] {
  */
 export function recordReview(raw: any, { root, now }: Env): HookOutput {
   try {
-    const text = typeof raw?.last_assistant_message === 'string' ? raw.last_assistant_message : '';
-    if (raw?.agent_type !== 'cto-reviewer' || !text.trim()) return { code: 0, stderr: [] };
+    if (raw?.agent_type !== 'cto-reviewer') return { code: 0, stderr: [] };
+    const last = typeof raw?.last_assistant_message === 'string' ? raw.last_assistant_message : '';
+    // Both: a background reviewer may hand its findings back and then close with a short line; neither alone is the whole report.
+    const text = [handbackText(raw?.agent_transcript_path), last].filter((s) => s.trim()).join('\n\n');
+    if (!text.trim()) return { code: 0, stderr: [] };
     const diffHash = treeHash(root);
     const sessionId = sid(raw);
     const texts = dispatchTexts(raw?.agent_transcript_path);

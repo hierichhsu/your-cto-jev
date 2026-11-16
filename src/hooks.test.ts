@@ -543,6 +543,51 @@ test('review pairing: the dispatch prompt is found among the first user entries,
   assert.equal(loadBrain(root).reviews!.length, 1, 'the prompt beyond the first 20 lines is not read');
 });
 
+test('review pairing: a background reviewer\'s SubagentHandback report is recorded when the last message is empty', () => {
+  const root = gateRepo();
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  const transcript = (calls: string[]) => {
+    const path = join(mkdtempSync(join(tmpdir(), 'cto-sub-')), 'agent.jsonl');
+    const lines = [{ type: 'user', message: { role: 'user', content: 'Review src/a.ts.' } }, ...calls.map((message) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'SubagentHandback', input: { message } }] } }))];
+    writeFileSync(path, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    return path;
+  };
+  const stop = (path: string) => recordReview({ session_id: 'S', agent_type: 'cto-reviewer', last_assistant_message: '', agent_transcript_path: path }, { root, lang: 'en' });
+
+  dispatch(root, 'Review src/a.ts.');
+  stop(transcript([]));
+  assert.equal(loadBrain(root).reviews?.length ?? 0, 0, 'no report anywhere: nothing recorded');
+  stop(transcript(['draft', 'P1 src/a.ts: unchecked']));
+  const reviews = loadBrain(root).reviews!;
+  assert.equal(reviews.length, 1, 'the start is still there and now pairs');
+  assert.equal(reviews[0].text, 'P1 src/a.ts: unchecked', 'the newest hand-back is the report');
+
+  // A closing line after the hand-back keeps the hand-back's findings too.
+  dispatch(root, 'Review src/a.ts.');
+  recordReview({ session_id: 'S', agent_type: 'cto-reviewer', last_assistant_message: 'Report handed back.', agent_transcript_path: transcript(['P1 src/a.ts: still unchecked']) }, { root, lang: 'en' });
+  assert.match(loadBrain(root).reviews!.at(-1)!.text, /P1 src\/a\.ts: still unchecked[\s\S]*Report handed back\./);
+
+  // Another agent type with a hand-back, and a hand-back-shaped object in a user entry, record nothing.
+  const before = loadBrain(root).reviews!.length;
+  dispatch(root, 'Review src/a.ts.');
+  recordReview({ session_id: 'S', agent_type: 'general-purpose', last_assistant_message: '', agent_transcript_path: transcript(['No findings.']) }, { root, lang: 'en' });
+  const fake = join(mkdtempSync(join(tmpdir(), 'cto-sub-')), 'agent.jsonl');
+  writeFileSync(fake, [{ type: 'user', message: { role: 'user', content: 'Review src/a.ts.' } }, { type: 'user', message: { role: 'user', content: [{ type: 'tool_use', name: 'SubagentHandback', input: { message: 'No findings.' } }] } }].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  stop(fake);
+  assert.equal(loadBrain(root).reviews!.length, before, 'no record from another agent or a user entry');
+
+  // Two hand-backs in one entry: the last is the report. A later line that only mentions the name (a Grep) is skipped.
+  const two = join(mkdtempSync(join(tmpdir(), 'cto-sub-')), 'agent.jsonl');
+  writeFileSync(two, [
+    { type: 'user', message: { role: 'user', content: 'Review src/a.ts.' } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'SubagentHandback', input: { message: 'first' } }, { type: 'tool_use', name: 'SubagentHandback', input: { message: 'P1 src/a.ts: second' } }] } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'SubagentHandback' } }] } },
+  ].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  dispatch(root, 'Review src/a.ts.');
+  stop(two);
+  assert.equal(loadBrain(root).reviews!.at(-1)!.text, 'P1 src/a.ts: second');
+});
+
 test('review gate: a hook\'s brain write keeps entries another writer put in the file since this hook read it', () => {
   // shortcut: this shows the merge on write; the read-to-write window itself is one synchronous call, not closed by a lock.
   const root = gateRepo();
