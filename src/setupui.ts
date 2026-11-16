@@ -4,7 +4,7 @@ import type { Readable, Writable } from 'node:stream';
 import { styleText } from 'node:util';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { DEFAULT_ORDER, probeProvider, providers } from './api.js';
-import type { Credentials } from './brain.js';
+import { DEFAULT_MODELS, type Credentials, type ModelsPrefs } from './brain.js';
 import { t, type Lang } from './i18n.js';
 import type { FileChange } from './setup.js';
 import { MEMORY_FILES } from './skill.js';
@@ -16,6 +16,7 @@ export interface SetupState {
   lang?: 'zh-TW' | 'en';
   goal: string; // sprint_goal, carried through unchanged: it is set in .cto.json, not asked in setup
   flow?: boolean; // the cto development flow; absent = off
+  models?: ModelsPrefs; // the Claude Code model split; absent = DEFAULT_MODELS
 }
 
 export interface UIOptions {
@@ -140,6 +141,25 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
     return isCancel(r) ? BACK : { ...s, flow: r === 'yes' };
   };
 
+  // Three questions in a row (Esc goes back one); index.ts applies the result with the same function as `cto models`.
+  const pick = <V extends string>(message: string, initialValue: V, options: { value: V; label: string }[]) =>
+    select<V>({ ...io, showInstructions: false, message, initialValue, options: options as Parameters<typeof select<V>>[0]['options'] });
+  const advisorStep: Step = async (s) => {
+    const m = s.models ?? DEFAULT_MODELS;
+    const r = await pick(t(lang, 'ui_models_advisor_q'), m.advisor, [{ value: 'fable', label: 'Fable' }, { value: 'opus', label: 'Opus' }]);
+    return isCancel(r) ? BACK : { ...s, models: { ...m, advisor: r } };
+  };
+  const scopeStep: Step = async (s) => {
+    const m = s.models ?? DEFAULT_MODELS;
+    const r = await pick(t(lang, 'ui_models_scope_q'), m.scope, [{ value: 'global', label: t(lang, 'ui_models_global') }, { value: 'local', label: t(lang, 'ui_models_local') }]);
+    return isCancel(r) ? BACK : { ...s, models: { ...m, scope: r } };
+  };
+  const autoFixStep: Step = async (s) => {
+    const m = s.models ?? DEFAULT_MODELS;
+    const r = await pick(t(lang, 'ui_models_autofix_q'), m.autoFix ? 'on' : 'off', [{ value: 'on', label: t(lang, 'ui_on') }, { value: 'off', label: t(lang, 'ui_off') }]);
+    return isCancel(r) ? BACK : { ...s, models: { ...m, autoFix: r === 'on' } };
+  };
+
   const langStep: Step = async (s) => {
     const r = await select({
       ...io,
@@ -170,11 +190,15 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
   }
 
   for (let first = firstRun; ; first = false) {
+    const m = state.models ?? DEFAULT_MODELS;
+    const modelsNow = t(lang, 'ui_models_row', { advisor: m.advisor === 'fable' ? 'Fable' : 'Opus', scope: t(lang, `models_scope_${m.scope}`), autofix: t(lang, m.autoFix ? 'ui_on' : 'ui_off') });
     const rows: [string, string, string][] = [
       ['agents', t(lang, 'ui_m_agents'), state.agents.map((n) => agents[n].label).join(', ') || t(lang, 'doc_none')],
       ['providers', t(lang, 'ui_m_providers'), state.providers.map((p, i) => `${i + 1}. ${providers[p].label}`).join('  ') || t(lang, 'doc_none')],
       ['keys', t(lang, 'ui_m_keys'), state.providers.map((p) => { const v = providers[p].keys.map((k) => (state.keys as Record<string, string>)[k] ?? env[k]).filter(Boolean).pop(); return v ? `${providers[p].label} ${tail(v)}` : ''; }).filter(Boolean).join('  ') || t(lang, 'doc_none')],
       ['flow', t(lang, 'ui_m_flow'), t(lang, state.flow ? 'ui_on' : 'ui_off')],
+      // SPEC: the Fable reminder rides on this row whenever the advisor is Fable.
+      ['models', t(lang, 'ui_m_models'), m.advisor === 'fable' ? `${modelsNow} · ${t(lang, 'models_fable')}` : modelsNow],
       ['lang', t(lang, 'ui_m_lang'), state.lang ?? t(lang, 'ui_lang_auto')],
     ];
     const width = Math.max(...rows.map(([, l]) => displayWidth(l)));
@@ -200,6 +224,7 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
       providers: [providersStep, keysStepFor(state.providers)],
       keys: [keysStepFor(null)],
       flow: [flowStep],
+      models: [advisorStep, scopeStep, autoFixStep],
       lang: [langStep],
     };
     const r = await walk(steps[choice]);

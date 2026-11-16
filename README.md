@@ -142,7 +142,7 @@ cto index                                # regenerate docs/cto_jev/INDEX.md (bri
 cto docs                                 # suggest what to do with old planning markdown; changes nothing
 ```
 
-`setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. It never touches your shell rc files.
+`setup` appends marked blocks and merges JSON. It never overwrites your existing hooks or settings, and `--uninstall` puts them back exactly as they were. The one exception is the model split in global scope (the default): it is shared by every project, so uninstalling one project keeps the user-level split, the `cto-reviewer` agent and the SessionStart hook. Before removing cto, run `cto models scope local`, which clears them. It never touches your shell rc files.
 
 ## The rules, written down for the agent
 
@@ -263,8 +263,8 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
 | `cto-jev feature` | talks the CONCEPT through first (who it is for, business rules, what the user sees when it works, what is out of scope, the simpler option it rejected), writes CONCEPT, then writes the SPEC itself (data migration and rollback, what other features may call, how a production failure gets noticed, the acceptance scenarios), has a zero-context reviewer check that a newcomer could build from them without making design decisions, that nothing unneeded or already in the code gets built and that every acceptance scenario has a result a script can check and a CONCEPT rule behind it, walks you through the CONCEPT, hands it over with a [Review handoff](#sign-off) and stops for your sign-off |
 | `cto-jev tasks` | breaks a feature with a signed-off CONCEPT into parent/child tasks with files, dependencies and an acceptance command each |
-| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first (and only the fixes reviewed again, at most three rounds in all; P1s left after that go to you), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits the wave to the review branch and starts the next one, without asking, until nothing is Ready; tasks that need you (credentials, money, anything irreversible, a drop) are parked, not waited on; ends with one report of what is done and everything for you to look at. Never releases |
-| `cto-jev work all` | for a new project or a big batch: the same run on a `work-all` branch with one zero-context review of everything at the end instead of one per wave. Never releases |
+| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, then the whole change reviewed again by `cto-reviewer` (at most three rounds in all; P1s left after that go to you), P2 findings become tasks, a finding is contested only with evidence the reviewer could read, then it commits the wave to the review branch and starts the next one, without asking, until nothing is Ready; tasks that need you (credentials, money, anything irreversible, a drop) are parked, not waited on; ends with one report of what is done and everything for you to look at. Never releases |
+| `cto-jev work all` | for a new project or a big batch: the same run on a `work-all` branch, every wave reviewed by a zero-context `cto-reviewer` before its commit, then hands over to `cto-jev release`, never merges. Never releases |
 | `cto-jev release` | reviews the whole unreleased diff against the SPECs (looking hardest at waves marked `self-review`), files P1/P2/P3 tasks under the same findings rules, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
 | `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
 
@@ -411,6 +411,29 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 | `CTO_LANG` | `en` or `zh-TW` (default: your locale) |
 | `CTO_DEBUG=1` | Write masked hook input to `debug_stdin.json` |
 | `CTO_NO_UPDATE_CHECK=1` | Never check npm for a new version |
+
+## Models and the review gate
+
+On Claude Code, `cto setup` writes a model split:
+
+- **Fable** advises the main agent.
+- **Sonnet** is the main model.
+- **Haiku** runs the sub-agents.
+- **Opus** runs `cto-reviewer`, which reviews code with none of the main agent's context.
+
+The split is written to your user settings (`global`, the default, every project) or to this project only (`local`). Fable advises only after you agree to it in Claude Code with `/model fable`; to use Opus as the advisor instead, run `cto models advisor opus`.
+
+```sh
+cto models                     # status: the split, its scope, and what would change
+cto models advisor fable|opus  # the advisor model
+cto models autofix on|off      # let cto write the split (session start, setup, refresh, update)
+cto models scope global|local  # where the split is written, for every project (local in a folder without cto only clears the user level)
+cto models review on|off       # the review gate; for you only, agents cannot change it
+```
+
+**The review gate.** With Claude Code wired, the gate on (`review_gate` in `.cto.json`) and a `docs/cto_jev/` folder in the repo, a code commit needs a `cto-reviewer` review of the current working tree and no unresolved P1. Code means the files under `src/` when HEAD tracks a `src/` folder, otherwise source files anywhere; other changes need no review. A dispatch prompt that leaves changed paths out or sets the verdict also blocks: dispatch again with a prompt that covers the whole change. The staged code must match the files on disk: a file changed after `git add` is not the reviewed code. A P1 counts as resolved when REVIEW.md contests it with evidence or marks it escalated to the user. Run the project's formatter before dispatching the reviewer: a formatter that changes files after the review needs another review. Only a Claude Code session can satisfy the gate; other agents stop with the wave uncommitted.
+
+Accepted limits: the guards are text heuristics against honest mistakes. They do not stop an agent that deliberately uses nested shells, heredoc or quoting edge cases, aliases, plumbing commands or wrapper forms. When HEAD first tracks a file under `src/`, only `src/` counts as code from then on, so the next commit after that first split needs a fresh review. Jev sees the REVIEW.md of the four most recently changed features only: a P1 contested in an older feature's REVIEW.md is not seen. There is no review check on push, so code that reaches HEAD without pre-commit (rebase, cherry-pick, plumbing) is not reviewed.
 
 ## Known limitations
 

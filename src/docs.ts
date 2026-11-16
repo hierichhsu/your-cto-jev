@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluate, type EvalCtx } from './api.js';
+import { loadBrain, saveKeeping } from './brain.js';
 import { estimateTokens } from './diff.js';
 import { featureIndex, renderIndex } from './flow.js';
 import { t, type Lang } from './i18n.js';
@@ -109,6 +110,14 @@ export async function judgeDocs(root: string, candidates: DocCandidate[], ctx: E
 /** The whole `cto docs` report: rules, then Jev on what the rules left open. No network call when nothing is `ask`. */
 export async function docsReport(root: string, ctx: EvalCtx): Promise<string[]> {
   return renderDocs(await judgeDocs(root, docCandidates(root), ctx), ctx.lang);
+}
+
+/** `cto docs`: the report, then the brain saved with what other hooks wrote during the Jev calls (saveKeeping). */
+export async function runDocs(root: string, lang: Lang): Promise<string[]> {
+  const brain = loadBrain(root);
+  const lines = await docsReport(root, { brain, lang, timeoutMs: 5000, notices: new Set() });
+  saveKeeping(root, brain); // provider cooldowns, as the hook paths do
+  return lines;
 }
 
 const GROUPS: DocVerdict[] = ['delete', 'merge', 'archive', 'ask'];

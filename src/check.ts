@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { loadBrain, loadConfig, saveBrain } from './brain.js';
-import { BLOCKING_COMMIT, DIFF_ARGS, WARNING_COMMIT, localLines, reviewDiff } from './hooks.js';
+import { loadBrain, loadConfig, saveKeeping } from './brain.js';
+import { BLOCKING_COMMIT, DIFF_ARGS, WARNING_COMMIT, countCheck, localLines, reviewDiff, reviewGate } from './hooks.js';
 import { personaDict, t, type Lang } from './i18n.js';
 import { localCommitChecks } from './local.js';
 import type { Signal } from './types.js';
@@ -36,14 +36,20 @@ export async function runCheck(root: string, lang: Lang, base?: string): Promise
   const brain = loadBrain(root);
   const { diff, source } = pendingDiff(root, base);
   const local = localCommitChecks(diff, cfg, root);
-  const review = await reviewDiff(diff, cfg, brain, lang, undefined, 'check', root, !!base);
-  saveBrain(root, brain); // provider cooldowns and the decision log; check runs are not counted as blocks
-  if (!review) return { code: 0, lines: [t(lang, 'check_nothing')] };
+  // The review records are local to this machine, so a branch diff for CI (--base) has none to match.
+  const [gate, review] = await Promise.all([
+    base ? { block: false, lines: [] as string[], answered: false } : reviewGate(diff, cfg, brain, root, lang, undefined, 'check', source === 'staged'),
+    reviewDiff(diff, cfg, brain, lang, undefined, 'check', root, !!base),
+  ]);
+  if (gate.answered) countCheck(brain); // the gate's Jev calls count as one check, like a commit's
+  saveKeeping(root, brain); // provider cooldowns and the decision log; check runs are not counted as blocks
+  // The gate decides even when no commit check has anything to judge (every section filtered out): its block stands.
+  if (!review) return gate.block ? { code: 1, lines: gate.lines } : { code: 0, lines: [t(lang, 'check_nothing'), ...gate.lines] };
 
   const head = source === 'staged' ? 'check_head_staged' : source === 'working' ? 'check_head_working' : 'check_head_base';
   const lines = [t(lang, head, { files: review.files, base: base ?? '' }), ...review.notices];
-  let code = local.some((f) => f.block) ? 1 : 0;
-  const verdicts: string[] = localLines(lang, local);
+  let code = local.some((f) => f.block) || gate.block ? 1 : 0;
+  const verdicts: string[] = [...localLines(lang, local), ...gate.lines];
   if (!Object.keys(review.scores).length) {
     lines.push(t(lang, 'check_unchecked'), ...verdicts);
     return { code, lines };

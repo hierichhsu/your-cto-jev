@@ -3,15 +3,16 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentNames, agents, type AgentName } from './agents.js';
-import { applyCredentials, findRoot, loadConfig, loadCredentials, loadPrefs, saveCredentials, savePrefs } from './brain.js';
+import { applyCredentials, credentialsPath, findRoot, loadConfig, loadCredentials, loadPrefs, modelsPrefs, saveCredentials, savePrefs } from './brain.js';
 import { DEFAULT_ORDER, providerOrder, providers } from './api.js';
-import { agentEdit, agentGuard, agentMenu, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, stagedDiff } from './hooks.js';
+import { agentEdit, agentGuard, agentMenu, agentPost, agentPre, agentPrompt, agentReply, agentStop, gitCommit, gitPush, recordReview, stagedDiff } from './hooks.js';
 import { checkUpdate, currentVersion, runUpdate } from './update.js';
 import { doctor } from './doctor.js';
 import type { HookOutput } from './agents.js';
 import { detectLang, t } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
-import { detectAgents, gitRoot, isSetUp, planSetup, setup, wiredAgents } from './setup.js';
+import { setModelsLang } from './models.js';
+import { applyModelsChange, claudeModels, claudeStart, detectAgents, gitRoot, isSetUp, modelsCommand, planSetup, prefsSaveError, setup, wiredAgents } from './setup.js';
 import type { SetupState } from './setupui.js';
 
 async function readStdin(): Promise<string> {
@@ -43,15 +44,20 @@ async function runHook(name: string): Promise<HookOutput> {
   }
   const raw = await readStdin();
   if (name === 'git-push') return gitPush(raw, { root: findRoot(), lang });
-  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start|prompt|guard|menu)$/.exec(name);
+  const m = /^(claude|cursor|gemini|codex)-(pre|post|stop|edit|reply|start|prompt|guard|menu|agent|models)$/.exec(name);
   if (!m) return { code: 0, stderr: [] };
   const agent = agents[m[1] as AgentName];
   let input: any = {};
   try { input = JSON.parse(raw); } catch { /* fail-open below */ }
+  const cwd = typeof input?.cwd === 'string' ? input.cwd : process.cwd();
   if (m[2] === 'start') {
     const { brief } = await import('./brief.js');
-    return { code: 0, stdout: brief(findRoot(typeof input?.cwd === 'string' ? input.cwd : process.cwd())).join('\n'), stderr: [] };
+    const root = findRoot(cwd);
+    // Only Claude Code has a start hook; its JSON carries the brief to Claude and the drift line to the user too.
+    return m[1] === 'claude' ? claudeStart(root, brief(root), lang) : { code: 0, stdout: brief(root).join('\n'), stderr: [] };
   }
+  if (m[2] === 'models') return m[1] === 'claude' ? claudeModels(findRoot(cwd), lang) : { code: 0, stderr: [] };
+  if (m[2] === 'agent') return m[1] === 'claude' ? recordReview(input, { root: findRoot(cwd), lang }) : { code: 0, stderr: [] };
   if (m[2] === 'edit') {
     const cwd = typeof input?.cwd === 'string' ? input.cwd : typeof input?.workspace_roots?.[0] === 'string' ? input.workspace_roots[0] : process.cwd();
     return agentEdit(agent.parseEdit?.(input), { root: findRoot(cwd), lang }, agent.transcriptTurns ? undefined : agent.session(input));
@@ -103,6 +109,7 @@ const flag = (name: string) => {
 };
 
 applyCredentials();
+setModelsLang(lang);
 if (args[0] === '--hook' && args[1]) {
   try {
     emit(await runHook(args[1]));
@@ -115,6 +122,8 @@ if (args[0] === '--hook' && args[1]) {
   const uninstall = args.includes('--uninstall');
   let chosen: AgentName[] | undefined;
   let interactive = false; // the menu lists every agent, so what is left unticked loses its cto hooks (exact mode)
+  let modelsAfter: (() => string[]) | undefined;
+  let writeLater = false;
   let flow = args.includes('--flow') ? true : args.includes('--no-flow') ? false : undefined;
   const root = gitRoot(process.cwd());
   const list = flag('--agents');
@@ -141,20 +150,39 @@ if (args[0] === '--hook' && args[1]) {
       lang: prefs.lang,
       goal: loadConfig(root).sprint_goal,
       flow: loadConfig(root).flow,
+      models: modelsPrefs(prefs),
     };
     const firstRun = !wired.length && !providerOrder().length;
     const { setupUI } = await import('./setupui.js'); // clack loads only for interactive setup, never on the hook path
-    const s = await setupUI(initial, firstRun, lang, { detected: detectAgents(), plan: (st) => planSetup(root, st.agents, st.flow ?? false, st.goal) });
+    const before = initial.models!;
+    const changed = (m: typeof before) => m.advisor !== before.advisor || m.scope !== before.scope || m.autoFix !== before.autoFix;
+    // Same rule as the save: setup writes the split when the saved profile's auto-fix is on, a menu change writes it anyway.
+    const plan = (st: SetupState) => planSetup(root, st.agents, st.flow ?? false, st.goal,
+      { prefs: st.models ?? before, before, write: before.autoFix || changed(st.models ?? before) });
+    const s = await setupUI(initial, firstRun, lang, { detected: detectAgents(), plan });
     if (!s) process.exit(0); // quit without saving: nothing was written
-    saveCredentials(s.keys);
-    savePrefs({ provider_order: s.providers, ...(s.lang && { lang: s.lang }) });
+    try {
+      saveCredentials(s.keys);
+      savePrefs({ provider_order: s.providers, ...(s.lang && { lang: s.lang }) });
+    } catch (e) {
+      console.error(prefsSaveError(e, lang, credentialsPath())); // one clean line for a broken key file; anything else rethrows
+      process.exit(1);
+    }
+    if (s.models && changed(s.models)) {
+      if (!s.agents.includes('claude')) console.log(t(lang, 'models_not_applied'));
+      else {
+        modelsAfter = () => applyModelsChange(root, before, s.models!);
+        writeLater = s.models.scope !== before.scope; // the old scope is not written just to be cleared
+      }
+    }
     chosen = s.agents;
     interactive = true;
     flow = s.flow ?? false;
   } else if (!uninstall) {
     chosen = detectAgents();
   }
-  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: interactive, flow });
+  const r = setup(process.cwd(), lang, { uninstall, agents: chosen, exact: interactive, flow, models: {}, modelsWriteLater: writeLater });
+  if (!r.code && modelsAfter) r.lines.push(...modelsAfter()); // a split chosen in the menu, once the setup itself went through
   const latest = r.code ? undefined : await checkUpdate();
   if (latest) r.lines.push(t(lang, 'update_available', { latest, current: currentVersion() }));
   (r.code ? process.stderr : process.stdout).write(r.lines.join('\n') + '\n');
@@ -214,11 +242,20 @@ if (args[0] === '--hook' && args[1]) {
     const r = writeIndex(root);
     console.log(r.changed ? `[cto] ${r.path} updated` : `[cto] ${r.path} is up to date`);
   } else {
-    const { docsReport } = await import('./docs.js');
-    const { loadBrain, saveBrain } = await import('./brain.js');
-    const brain = loadBrain(root);
-    console.log((await docsReport(root, { brain, lang, timeoutMs: 5000, notices: new Set() })).join('\n'));
-    saveBrain(root, brain); // provider cooldowns, as the hook paths do
+    const { runDocs } = await import('./docs.js');
+    console.log((await runDocs(root, lang)).join('\n'));
+  }
+} else if (args[0] === 'models') {
+  const root = gitRoot(process.cwd());
+  // These write into a project (.cto.json, or the project's settings in scope local): only inside a git repo.
+  const needsProject = args[1] === 'review' || args[1] === 'scope' || ((args[1] === 'advisor' || args[1] === 'autofix') && modelsPrefs().scope === 'local');
+  if (!root && needsProject) {
+    process.stderr.write(t(lang, 'setup_not_git') + '\n');
+    process.exitCode = 1;
+  } else {
+    const r = modelsCommand(root ?? findRoot(), args.slice(1), lang);
+    (r.code ? process.stderr : process.stdout).write(r.lines.join('\n') + '\n');
+    process.exitCode = r.code;
   }
 } else if (args[0] === 'doctor') {
   const r = await doctor(process.cwd(), lang);
