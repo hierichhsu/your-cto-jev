@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -313,7 +313,8 @@ test('forgery: a forged review payload, shell writes to cto state, edits to the 
   assert.equal(guard(root, 'Write', { file_path: '.cto.json', content: '{"sprint_goal": "x"}' }).code, 0, 'dropping the key keeps the gate on');
   writeFileSync(join(root, '.cto.json'), '{"review_gate": false}');
   assert.equal(guard(root, 'Write', { file_path: '.cto.json', content: '{}' }).code, 2, 'turning it back on is the user\'s call too');
-  assert.equal(guard(root, 'Write', { file_path: '.CTO.json', content: '{}' }).code, 2, 'a different case of .cto.json');
+  // On a case-insensitive file system .CTO.json is .cto.json (blocked); on a case-sensitive one it is another file, not cto's config.
+  assert.equal(guard(root, 'Write', { file_path: '.CTO.json', content: '{}' }).code, existsSync(join(root, '.CTO.json')) ? 2 : 0, 'a different case of .cto.json');
   assert.equal(guard(root, 'Write', { file_path: '.CTO-BRAIN.JSON', content: '{}' }).code, 2, 'a different case of the brain');
 });
 
