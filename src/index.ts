@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentNames, agents, type AgentName } from './agents.js';
 import { applyCredentials, credentialsPath, findRoot, loadConfig, loadCredentials, loadPrefs, modelsPrefs, saveCredentials, savePrefs } from './brain.js';
@@ -119,6 +119,18 @@ if (args[0] === '--hook' && args[1]) {
     process.exitCode = 0;
   }
 } else if (args[0] === 'setup') {
+  // An unknown flag (--help, a typo) prints usage instead of running the whole setup with defaults.
+  const SETUP_FLAGS = ['--uninstall', '--refresh', '--flow', '--no-flow', '--yes', '--agents'];
+  const unknown = args.slice(1).filter((a, i, all) => !SETUP_FLAGS.includes(a) && (all[i - 1] !== '--agents' || a.startsWith('-')));
+  const agentsArg = flag('--agents');
+  // A missing --agents value, or a name cto does not know (a typo like "claud"), would set up no agents at all.
+  if (args.includes('--agents') && (!agentsArg || agentsArg.startsWith('-') || agentsArg.split(',').map((s) => s.trim()).filter(Boolean).some((s) => !(agentNames as string[]).includes(s))))
+    unknown.push(`--agents ${agentsArg ?? ''}`);
+  if (unknown.length) {
+    const help = args.includes('--help') || args.includes('-h'); // asked for help: usage is the answer, not an error
+    writeSync(help ? 1 : 2, t(lang, 'usage') + '\n'); // sync: process.exit right after must not cut a piped write short
+    process.exit(help ? 0 : 1);
+  }
   const uninstall = args.includes('--uninstall');
   let chosen: AgentName[] | undefined;
   let interactive = false; // the menu lists every agent, so what is left unticked loses its cto hooks (exact mode)
@@ -264,6 +276,7 @@ if (args[0] === '--hook' && args[1]) {
 } else if (args[0] === '--version' || args[0] === '-v') {
   console.log(currentVersion());
 } else {
-  process.stderr.write(t(lang, 'usage') + '\n');
-  process.exitCode = args.length ? 1 : 0;
+  const asked = !args.length || args[0] === '--help' || args[0] === '-h';
+  (asked ? process.stdout : process.stderr).write(t(lang, 'usage') + '\n');
+  process.exitCode = asked ? 0 : 1;
 }

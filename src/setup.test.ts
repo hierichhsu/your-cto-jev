@@ -614,6 +614,41 @@ test('setup with Claude Code writes the split, agent files and user hook; uninst
   if (existsSync(local)) assert.doesNotMatch(readFileSync(local, 'utf8'), /"model"|advisorModel|CLAUDE_CODE_SUBAGENT_MODEL/);
 });
 
+test('setup with --help or an unknown flag prints usage and writes nothing (real CLI)', () => {
+  const { home } = modelsEnv();
+  // An empty global git config: a machine-wide hooks path would put the hook outside .git/hooks and hide a setup run.
+  const gitGlobal = join(home, 'empty.gitconfig');
+  writeFileSync(gitGlobal, '');
+  const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home, CTO_LANG: 'en', CTO_NO_UPDATE_CHECK: '1', GIT_CONFIG_GLOBAL: gitGlobal, GIT_CONFIG_NOSYSTEM: '1' };
+  const cli = join(import.meta.dirname, 'index.js');
+  for (const [flags, code] of [[['--help'], 0], [['-h'], 0], [['--uninstal'], 1], [['--agents', '--help'], 0], [['--agents', 'claud', '--yes'], 1], [['--agents', '--yes'], 1]] as const) {
+    const flag = flags.join(' ');
+    const root = repo();
+    const r = spawnSync(process.execPath, [cli, 'setup', ...flags], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(r.status, code, flag);
+    assert.match(code ? r.stderr : r.stdout, /^Usage: /, `${flag}: asked-for help on stdout, an error on stderr`);
+    assert.ok(!existsSync(join(root, '.git', 'hooks', 'pre-commit')), `${flag}: no hook written`);
+    assert.ok(!existsSync(join(root, '.cto.json')), `${flag}: no config written`);
+  }
+  const top = spawnSync(process.execPath, [cli, '--help'], { cwd: repo(), env, encoding: 'utf8' });
+  assert.equal(top.status, 0, 'cto --help');
+  assert.match(top.stdout, /\[--flow\|--no-flow\]/, 'usage lists the flow flags');
+  const bare = spawnSync(process.execPath, [cli], { cwd: repo(), env, encoding: 'utf8' });
+  assert.equal(bare.status, 0, 'bare cto');
+  assert.match(bare.stdout, /^Usage: /, 'bare cto: usage on stdout');
+  const typo = spawnSync(process.execPath, [cli, 'foo'], { cwd: repo(), env, encoding: 'utf8' });
+  assert.equal(typo.status, 1, 'cto foo');
+  assert.match(typo.stderr, /^Usage: /, 'cto foo: usage on stderr');
+  // Every documented flag is still accepted: setup runs, no usage text.
+  const root = repo();
+  for (const flags of [['--agents', 'claude', '--flow', '--yes'], ['--refresh'], ['--no-flow', '--yes'], ['--uninstall']]) {
+    const r = spawnSync(process.execPath, [cli, 'setup', ...flags], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(r.status, 0, `${flags.join(' ')}: ${r.stderr}`);
+    assert.doesNotMatch(r.stdout + r.stderr, /Usage: /, flags.join(' '));
+    if (flags[0] === '--agents') assert.ok(existsSync(join(root, '.cto.json')), 'setup ran');
+  }
+});
+
 test('an unparsable credentials file gives one clean error line and exit 1 (real CLI)', () => {
   const { home } = modelsEnv();
   mkdirSync(join(process.env.APPDATA!, 'your-cto-jev'), { recursive: true });
