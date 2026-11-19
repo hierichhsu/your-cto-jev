@@ -141,9 +141,14 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
     return isCancel(r) ? BACK : { ...s, flow: r === 'yes' };
   };
 
-  // Three questions in a row (Esc goes back one); index.ts applies the result with the same function as `cto models`.
+  // Four questions in a row (Esc goes back one); index.ts applies the result with the same function as `cto models`.
   const pick = <V extends string>(message: string, initialValue: V, options: { value: V; label: string }[]) =>
     select<V>({ ...io, showInstructions: false, message, initialValue, options: options as Parameters<typeof select<V>>[0]['options'] });
+  const mainStep: Step = async (s) => {
+    const m = s.models ?? DEFAULT_MODELS;
+    const r = await pick(t(lang, 'ui_models_main_q'), m.main, [{ value: 'sonnet', label: 'Sonnet' }, { value: 'opus', label: 'Opus' }]);
+    return isCancel(r) ? BACK : { ...s, models: { ...m, main: r } };
+  };
   const advisorStep: Step = async (s) => {
     const m = s.models ?? DEFAULT_MODELS;
     const r = await pick(t(lang, 'ui_models_advisor_q'), m.advisor, [{ value: 'fable', label: 'Fable' }, { value: 'opus', label: 'Opus' }]);
@@ -191,7 +196,7 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
 
   for (let first = firstRun; ; first = false) {
     const m = state.models ?? DEFAULT_MODELS;
-    const modelsNow = t(lang, 'ui_models_row', { advisor: m.advisor === 'fable' ? 'Fable' : 'Opus', scope: t(lang, `models_scope_${m.scope}`), autofix: t(lang, m.autoFix ? 'ui_on' : 'ui_off') });
+    const modelsNow = t(lang, 'ui_models_row', { main: m.main === 'opus' ? 'Opus' : 'Sonnet', advisor: m.advisor === 'fable' ? 'Fable' : 'Opus', scope: t(lang, `models_scope_${m.scope}`), autofix: t(lang, m.autoFix ? 'ui_on' : 'ui_off') });
     const rows: [string, string, string][] = [
       ['agents', t(lang, 'ui_m_agents'), state.agents.map((n) => agents[n].label).join(', ') || t(lang, 'doc_none')],
       ['providers', t(lang, 'ui_m_providers'), state.providers.map((p, i) => `${i + 1}. ${providers[p].label}`).join('  ') || t(lang, 'doc_none')],
@@ -224,7 +229,7 @@ export async function setupUI(initial: SetupState, firstRun: boolean, lang: Lang
       providers: [providersStep, keysStepFor(state.providers)],
       keys: [keysStepFor(null)],
       flow: [flowStep],
-      models: [advisorStep, scopeStep, autoFixStep],
+      models: [mainStep, advisorStep, scopeStep, autoFixStep],
       lang: [langStep],
     };
     const r = await walk(steps[choice]);

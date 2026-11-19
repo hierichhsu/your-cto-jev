@@ -417,7 +417,7 @@ Defaults: `credential_leak` 0.5, `destructive_command` 0.7, `infinite_loop` 0.6,
 On Claude Code, `cto setup` writes a model split:
 
 - **Fable** advises the main agent.
-- **Sonnet** is the main model.
+- **Sonnet** is the main model by default; `cto models main opus` switches it to Opus (better on long multi-step work, uses more of your plan).
 - **Haiku** runs the sub-agents.
 - **Opus** runs `cto-reviewer`, which reviews code with none of the main agent's context.
 
@@ -425,6 +425,7 @@ The split is written to your user settings (`global`, the default, every project
 
 ```sh
 cto models                     # status: the split, its scope, and what would change
+cto models main sonnet|opus    # the main model
 cto models advisor fable|opus  # the advisor model
 cto models autofix on|off      # let cto write the split (session start, setup, refresh, update)
 cto models scope global|local  # where the split is written, for every project (local in a folder without cto only clears the user level)
