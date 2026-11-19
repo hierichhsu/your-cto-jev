@@ -12,7 +12,7 @@ import type { HookOutput } from './agents.js';
 import { detectLang, t } from './i18n.js';
 import { maskDiff, maskSensitiveState } from './masker.js';
 import { setModelsLang } from './models.js';
-import { applyModelsChange, claudeModels, claudeStart, detectAgents, gitRoot, isSetUp, modelsCommand, planSetup, prefsSaveError, setup, wiredAgents } from './setup.js';
+import { applyModelsChange, claudeModels, claudeStart, detectAgents, gitRoot, isSetUp, modelsChange, modelsCommand, planSetup, prefsSaveError, setup, wiredAgents } from './setup.js';
 import type { SetupState } from './setupui.js';
 
 async function readStdin(): Promise<string> {
@@ -169,7 +169,7 @@ if (args[0] === '--hook' && args[1]) {
     const firstRun = !wired.length && !providerOrder().length;
     const { setupUI } = await import('./setupui.js'); // clack loads only for interactive setup, never on the hook path
     const before = initial.models!;
-    const changed = (m: typeof before) => m.main !== before.main || m.advisor !== before.advisor || m.scope !== before.scope || m.autoFix !== before.autoFix;
+    const changed = (m: typeof before) => Object.keys(modelsChange(before, m)).length > 0;
     // Same rule as the save: setup writes the split when the saved profile's auto-fix is on, a menu change writes it anyway.
     const plan = (st: SetupState) => planSetup(root, st.agents, st.flow ?? false, st.goal,
       { prefs: st.models ?? before, before, write: before.autoFix || changed(st.models ?? before) });

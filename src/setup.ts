@@ -625,12 +625,18 @@ export function prefsSaveError(e: unknown, lang: Lang, path: string): string {
 
 /** Apply a model split chosen in the setup menu: only what changed, through the same function as `cto models`. */
 export function applyModelsChange(root: string, before: ModelsPrefs, after: ModelsPrefs, opts: ModelsOpts = {}): string[] {
+  const change = modelsChange(before, after);
+  return Object.keys(change).length ? applyAndHook(root, change, opts) : [];
+}
+
+/** What the menu changed in the split; the setup preview and the save both read it, so they agree. */
+export function modelsChange(before: ModelsPrefs, after: ModelsPrefs): Partial<ModelsPrefs> {
   const change: Partial<ModelsPrefs> = {};
   if (after.main !== before.main) change.main = after.main;
   if (after.advisor !== before.advisor) change.advisor = after.advisor;
   if (after.autoFix !== before.autoFix) change.autoFix = after.autoFix;
   if (after.scope !== before.scope) change.scope = after.scope;
-  return Object.keys(change).length ? applyAndHook(root, change, opts) : [];
+  return change;
 }
 
 function applyAndHook(root: string, change: Partial<ModelsPrefs>, opts: ModelsOpts): string[] {

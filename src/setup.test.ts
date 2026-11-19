@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
 import { MSG, driftCheck } from './models.js';
 import { AGENT_FILES, FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userModelsHook } from './setup.js';
+import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsChange, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userModelsHook } from './setup.js';
 import { missingHooks, wiredAgents } from './setup.js';
 import { setupUI } from './setupui.js';
 
@@ -571,8 +571,8 @@ test('cto models advisor opus writes the target and the profile; the status show
   assert.match(fable.lines.join('\n'), /\/model fable/);
   assert.match(fable.lines.join('\n'), /cto models advisor opus/);
   assert.match(fable.lines.join('\n'), /Review gate: on/);
+  assert.match(fable.lines.join('\n'), /main sonnet/, 'the status prints the saved main');
   assert.ok(!existsSync(user), 'the status is a dry run');
-  assert.match(fable.lines.join('\n'), /main sonnet/);
   const r = modelsCommand(root, ['advisor', 'opus'], 'en', opts);
   assert.equal(r.code, 0);
   assert.equal(readJson(user).advisorModel, 'opus');
@@ -826,6 +826,12 @@ test('main from the menu: alone it rewrites model (the preview lists it); with s
   applyModelsChange(root, b2, { ...b2, scope: 'local', main: 'opus' }, opts);
   assert.deepEqual(readJson(user), { theme: 'dark' }, 'the old scope loses its sonnet');
   assert.equal(readJson(join(root, '.claude', 'settings.local.json')).model, 'opus');
+});
+
+test('modelsChange: each field the menu changed, main included; nothing when unchanged', () => {
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, DEFAULT_MODELS), {});
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, { ...DEFAULT_MODELS, main: 'opus' }), { main: 'opus' });
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, { scope: 'local', main: 'opus', advisor: 'opus', autoFix: false }), { main: 'opus', advisor: 'opus', autoFix: false, scope: 'local' });
 });
 
 test('clearing a sonnet split keeps a model opus the user set themselves', () => {
