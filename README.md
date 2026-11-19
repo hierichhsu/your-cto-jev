@@ -146,11 +146,11 @@ cto docs                                 # suggest what to do with old planning 
 
 ## The rules, written down for the agent
 
-`cto setup` also writes the development rules of the repo for coding agents, where every rule names the check that enforces it. Agents read them before they work, so they get blocked less, and when they are blocked they know why and how to fix it.
+`cto setup` also writes the development rules of the repo for coding agents, where every rule names the check that enforces it, if it has one. Agents read them before they work, so they get blocked less, and when they are blocked they know why and how to fix it.
 
 The rules go where agents always look: a short marked block appended to `CLAUDE.md` (Claude Code), `AGENTS.md` (Codex, Cursor) and `GEMINI.md` (Gemini CLI), only for the agents you picked. Your own content in those files is left alone, and uninstall takes out exactly the block. The details, including what each check looks for and how to handle a block, live in one skill at `.agents/skills/cto/SKILL.md`; the rules block points every agent there.
 
-| Rule | Enforced by |
+| Rule | Check |
 |---|---|
 | Secrets stay out of code | `credential_leak` blocks the commit |
 | Fix the code, not the tests | `test_tampering` blocks the commit |
@@ -159,6 +159,7 @@ The rules go where agents always look: a short marked block appended to `CLAUDE.
 | Ask before anything irreversible | `destructive_command` blocks the command |
 | Stay on the sprint goal, or inside the feature's SPEC | `architecture_violation` warns |
 | Keep it simple | `code_complexity` warns |
+| A TODO in the code is not the task | not checked |
 | Work is planned in `docs/cto_jev/` (flow only); no work without sign-off | `flow_signoff` blocks the commit |
 
 The rules also tell the agent to run `cto check` before committing, and never to bypass a block with `--no-verify` or by editing thresholds. Commit these files so the whole team's agents follow the same rules. `cto update` refreshes them (and any new hooks) in the repo you run it from; `cto doctor` flags a repo whose rules or hooks are older than the installed version, and `cto setup --refresh` brings it up to date.
