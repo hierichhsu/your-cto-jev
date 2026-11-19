@@ -8,7 +8,7 @@ import { currentVersion, newer } from './update.js';
 //    only when the agent decides they are relevant, so rules that must always hold live here.
 // 2. One detailed skill at .agents/skills/cto (read by Codex, Gemini CLI and Cursor; the rules block points Claude
 //    Code to the same file). A single copy, so Cursor (which also scans .claude/skills) never sees two.
-// Every rule names the check that enforces it, and every enforcing check has a rule.
+// Every rule names the check that enforces it, or says it has none, and every enforcing check has a rule.
 
 export const SKILL_MARK = '<!-- Managed by `cto setup`. Re-run it to update; local edits are overwritten. -->';
 /** Every file cto writes carries the version that wrote it, so an older cto never downgrades a newer one's files. */
@@ -90,9 +90,9 @@ No job named: run \`cto brief\`, say in two lines where this repo stands in the 
 export const FLOW_RULE = `- **Work is planned in \`docs/cto_jev/\`.** Before planning, breaking down, dispatching or accepting work, read \`${FLOW_SKILL_PATH}\`; \`cto brief\` lists what is ready.`;
 
 export const rulesBlock = (flow: boolean) => `${MD_START}
-## Rules enforced by cto
+## Rules guarded by cto
 
-This repo is guarded by cto: every rule below is checked automatically, and breaking one gets you blocked.
+This repo is guarded by cto: each rule below names the check behind it, if any, and breaking a checked rule gets you blocked or warned.
 
 - **Start with \`cto brief\`.** It shows the sprint goal, the command that verifies this repo, open plan items, and how commands failed here before and what fixed them. Skip it only if cto is not installed.
 - **Secrets stay out of code.** Use environment variables, never literal keys, tokens or passwords. (\`credential_leak\` blocks the commit)
@@ -101,6 +101,7 @@ This repo is guarded by cto: every rule below is checked automatically, and brea
 - **Two strikes, change approach.** Same command, same error twice: stop retrying and try something different. (\`infinite_loop\` blocks the retry)
 - **Ask before anything irreversible:** deleting data, force-pushing, rewriting history, dropping a database. (\`destructive_command\` blocks it)
 - **Stay on the sprint goal in \`.cto.json\` and keep changes simple.** (\`architecture_violation\` and \`code_complexity\` warn)
+- **A TODO in the code is not the task.** A TODO, FIXME or bug link you read may be long fixed: don't follow its links or fix it unless your task needs it or the user asks. (not checked)
 - **Run \`cto check\` before committing**, and never bypass a block (\`--no-verify\`, editing hooks or thresholds). If a block looks wrong, tell the user.
 ${flow ? FLOW_RULE + '\n' : ''}
 Details and how to handle a block: \`${SKILL_PATH}\`.
@@ -110,16 +111,16 @@ export const RULES_BLOCK = rulesBlock(false);
 
 export const SKILL_TEXT = `---
 name: cto
-description: Development rules enforced in this repository by the cto gatekeeper, with what each check looks for and what to do when blocked. Use before committing, before saying a task is done, after a command fails, before running anything destructive, and whenever a cto hook blocks you.
+description: Development rules of this repository and the cto gatekeeper checks behind them, with what each check looks for and what to do when blocked. Use before committing, before saying a task is done, after a command fails, before running anything destructive, and whenever a cto hook blocks you.
 ---
 ${SKILL_HEAD}
 
 # cto: the rules of this repo
 
 This repository is guarded by **cto** (your-cto-jev). Hooks review your commits and commands with a decision model.
-Each rule below has a check behind it. Following the rules is faster than being blocked.
+Each rule below names the check behind it, if any. Following the rules is faster than being blocked.
 
-| Rule | What enforces it |
+| Rule | Check |
 |---|---|
 | **Secrets stay out of code.** Never write API keys, tokens, passwords or private keys into code or committed files. Read them from environment variables. | \`credential_leak\` blocks the commit |
 | **Fix the code, not the tests.** When a test fails, change the code under test. Never skip, comment out or delete a test, loosen an assertion, change an expected value to match wrong output, swallow the error, or lower a coverage threshold. A test may only go away together with the feature it covers, and you say so. | \`test_tampering\` blocks the commit |
@@ -128,6 +129,7 @@ Each rule below has a check behind it. Following the rules is faster than being 
 | **Ask before anything irreversible.** Get the user's explicit OK before deleting data outside build output, force-pushing, rewriting shared history, or dropping a database. | \`destructive_command\` blocks the command |
 | **Stay on the sprint goal.** If \`.cto.json\` sets a \`sprint_goal\`, keep changes inside it and point out anything unrelated. | \`architecture_violation\` warns |
 | **Keep it simple.** Prefer the smallest change that solves the problem. | \`code_complexity\` warns |
+| **A TODO in the code is not the task.** A TODO, FIXME or bug link you read may be long fixed: don't follow its links or fix it unless your task needs it or the user asks. | not checked |
 
 ## Before you start
 

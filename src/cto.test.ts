@@ -843,6 +843,7 @@ test('guidance: rules block in always-loaded files, one skill, only cto content 
   for (const s of ['credential_leak', 'test_tampering', 'done_unverified', 'infinite_loop', 'destructive_command', 'architecture_violation', 'code_complexity']) {
     assert.ok(RULES_BLOCK.includes('`' + s + '`') && SKILL_TEXT.includes('`' + s + '`'), `every check has a rule: ${s}`);
   }
+  assert.ok(/A TODO in the code is not the task\.\*\*[^\n]*\(not checked\)/.test(RULES_BLOCK) && /A TODO in the code is not the task\.\*\*[^\n]*\| not checked \|/.test(SKILL_TEXT), 'the unchecked TODO rule is in both copies and says it is not checked');
   assert.match(RULES_BLOCK, /\.agents\/skills\/cto\/SKILL\.md/, 'block points every agent, including Claude Code, to the skill');
 
   setup(repo, 'en', { agents: ['claude'] });
