@@ -158,7 +158,10 @@ async function drive<T>(run: (io: { input: PassThrough; output: Writable }) => P
     await new Promise((r) => setTimeout(r, 100)); // > clack's 50 ms escape timeout, so a lone Esc is read as Esc
     input.write(k);
   }
-  return { result: await p, out };
+  // A prompt waiting for a key the list does not have would hang the file: fail fast and say which output it stopped at.
+  let timer: NodeJS.Timeout | undefined;
+  const stuck = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`UI still waiting for input after all keys were sent:\n${out.slice(-500)}`)), 30_000); });
+  try { return { result: await Promise.race([p, stuck]), out }; } finally { clearTimeout(timer); }
 }
 
 test('setup UI: flow is the last first-run step and an overview item; no sprint goal is asked', async () => {
