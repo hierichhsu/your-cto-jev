@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
-import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isMainModel, isSubagentModel, isTracked, switchScope, writeJsonIfUnchanged, writeTextIfUnchanged } from './models.js';
+import { MSG, advisorOf, applyModels, clearScope, driftCheck, fableReminder, isSubagentModel, mainOf, isTracked, switchScope, writeJsonIfUnchanged, writeTextIfUnchanged } from './models.js';
 import { AGENT_FILES, RULES_BLOCK, SKILL_MARK, SKILL_PATH, SKILL_TEXT, VERSION_LINE, fileVersion, staleGuidance, syncGuidance, tooNew } from './skill.js';
 import { currentVersion } from './update.js';
 
@@ -26,8 +26,11 @@ function fresh(models?: Partial<ModelsPrefs>) {
 }
 
 test('matchers: sonnet main, fable or Opus 5+ advisor, haiku subagent', () => {
-  for (const v of ['sonnet', 'SONNET', 'claude-sonnet-4-6', 'claude-sonnet-5[1m]', 'sonnet[1m]']) assert.ok(isMainModel(v), v);
-  for (const v of ['opus', 'haiku', 'claude-sonnet', undefined, 3]) assert.ok(!isMainModel(v), String(v));
+  for (const v of ['sonnet', 'SONNET', 'claude-sonnet-4-6', 'claude-sonnet-5[1m]', 'sonnet[1m]']) assert.equal(mainOf(v), 'sonnet', v);
+  for (const v of ['opus', 'haiku', 'claude-sonnet', undefined, 3]) assert.notEqual(mainOf(v), 'sonnet', String(v));
+  assert.equal(mainOf('claude-sonnet-5-5[1m]'), 'sonnet');
+  assert.equal(mainOf('claude-opus-5-5[1m]'), 'opus');
+  for (const v of ['claude-opus-4-8[1m]', 'claude-sonnet', 'haiku', 'fable', undefined]) assert.equal(mainOf(v), undefined, String(v));
   assert.equal(advisorOf('fable'), 'fable');
   assert.equal(advisorOf('claude-fable-1'), 'fable');
   assert.equal(advisorOf('opus'), 'opus');
@@ -41,12 +44,14 @@ test('matchers: sonnet main, fable or Opus 5+ advisor, haiku subagent', () => {
 
 test('prefs: models defaults when absent, validated on load, kept by other saves', () => {
   fresh();
-  assert.deepEqual(modelsPrefs(), { scope: 'global', advisor: 'fable', autoFix: true });
+  assert.deepEqual(modelsPrefs(), { scope: 'global', main: 'sonnet', advisor: 'fable', autoFix: true });
   assert.equal(loadPrefs().models, undefined);
-  write(credentialsPath(), JSON.stringify({ models: { scope: 'nowhere', advisor: 'opus', autoFix: 'yes' } }));
-  assert.deepEqual(loadPrefs().models, { scope: 'global', advisor: 'opus', autoFix: true });
+  write(credentialsPath(), JSON.stringify({ models: { scope: 'nowhere', main: 'haiku', advisor: 'opus', autoFix: 'yes' } }));
+  assert.deepEqual(loadPrefs().models, { scope: 'global', main: 'sonnet', advisor: 'opus', autoFix: true });
   savePrefs({ lang: 'en' });
   assert.equal(loadPrefs().models?.advisor, 'opus', 'a save without models keeps them');
+  write(credentialsPath(), JSON.stringify({ models: { main: 'opus' } }));
+  assert.equal(loadPrefs().models?.main, 'opus');
 });
 
 test('auto-fix: model opus becomes sonnet, other keys untouched, agent files written', () => {
@@ -60,6 +65,39 @@ test('auto-fix: model opus becomes sonnet, other keys untouched, agent files wri
   assert.match(readFileSync(join(home, '.claude', 'agents', 'Explore.md'), 'utf8'), /^model: haiku$/m);
   assert.ok(!('CLAUDE_CODE_SUBAGENT_MODEL_FORCE' in json(user).env));
   assert.deepEqual(r.reported, []);
+});
+
+test('main opus: sonnet becomes opus, any Opus 5+ spelling is kept, `[1m]` too; Opus 4 is drift', () => {
+  const { user, root, opts } = fresh({ main: 'opus' });
+  write(user, CONSISTENT);
+  const r = driftCheck(root, opts);
+  assert.equal(json(user).model, 'opus');
+  assert.ok(r.fixed.includes(MSG.fixed('model', 'sonnet', 'opus')));
+  for (const v of ['OPUS', 'claude-opus-5-5', 'opus[1m]', 'claude-opus-5[1m]']) {
+    write(user, { ...CONSISTENT, model: v });
+    driftCheck(root, opts);
+    assert.equal(json(user).model, v, v);
+  }
+  write(user, { ...CONSISTENT, model: 'claude-opus-4-8' });
+  driftCheck(root, opts);
+  assert.equal(json(user).model, 'opus');
+});
+
+test('cto models main: applyModels writes the model at once, and back to sonnet', () => {
+  const { user, root, opts } = fresh();
+  write(user, CONSISTENT);
+  applyModels(root, { main: 'opus' }, opts);
+  assert.equal(modelsPrefs().main, 'opus');
+  assert.equal(json(user).model, 'opus');
+  applyModels(root, { main: 'sonnet' }, opts);
+  assert.equal(json(user).model, 'sonnet');
+});
+
+test('clearing a scope removes model opus that cto wrote, like sonnet', () => {
+  const { user, root, opts } = fresh({ main: 'opus' });
+  write(user, { theme: 'dark', ...CONSISTENT, model: 'opus' });
+  clearScope(root, 'global', opts);
+  assert.deepEqual(json(user), { theme: 'dark' });
 });
 
 test('a missing file gets all three keys, never the FORCE env', () => {

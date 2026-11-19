@@ -176,11 +176,12 @@ export interface Prefs {
 /** Which model does which job in Claude Code, and where cto writes it (docs/cto_jev/features/models). */
 export interface ModelsPrefs {
   scope: 'global' | 'local';
+  main: 'sonnet' | 'opus'; // the model that answers and does the work; opus costs more usage, does better on long multi-step work
   advisor: 'fable' | 'opus';
   autoFix: boolean;
   seenUserAdvisor?: 'fable' | 'opus'; // scope local: the user-level advisorModel last seen, so only a new /advisor switch is followed
 }
-export const DEFAULT_MODELS: ModelsPrefs = { scope: 'global', advisor: 'fable', autoFix: true };
+export const DEFAULT_MODELS: ModelsPrefs = { scope: 'global', main: 'sonnet', advisor: 'fable', autoFix: true };
 export const modelsPrefs = (p: Prefs = loadPrefs()): ModelsPrefs => ({ ...DEFAULT_MODELS, ...p.models });
 
 export function loadPrefs(): Prefs {
@@ -188,6 +189,7 @@ export function loadPrefs(): Prefs {
   const m = raw.models;
   const models = m && typeof m === 'object' && !Array.isArray(m) && {
     ...((m.scope === 'global' || m.scope === 'local') && { scope: m.scope }),
+    ...((m.main === 'sonnet' || m.main === 'opus') && { main: m.main }),
     ...((m.advisor === 'fable' || m.advisor === 'opus') && { advisor: m.advisor }),
     ...(typeof m.autoFix === 'boolean' && { autoFix: m.autoFix }),
     ...((m.seenUserAdvisor === 'fable' || m.seenUserAdvisor === 'opus') && { seenUserAdvisor: m.seenUserAdvisor }),

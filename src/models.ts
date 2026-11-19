@@ -8,7 +8,7 @@ import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_SKILL_PATH, SKILL_MARK, SKILL_PATH
 import { currentVersion } from './update.js';
 import { t, type Lang } from './i18n.js';
 
-// The model split for Claude Code (docs/cto_jev/features/models/SPEC.md): Sonnet does the work, Fable or Opus advises,
+// The model split for Claude Code (docs/cto_jev/features/models/SPEC.md): Sonnet (or Opus, profile.main) does the work, Fable or Opus advises,
 // Haiku runs sub-agents, an Opus agent reviews. cto keeps the settings in line and says what it fixed.
 
 // Every user-visible item in one place; the text is in i18n.ts. English unless the CLI sets the language (tests stay English).
@@ -48,7 +48,13 @@ export const fableReminder = (p: ModelsPrefs = modelsPrefs()): string | undefine
 
 // ---------- model matchers (case-insensitive) ----------
 
-export const isMainModel = (v: unknown): boolean => typeof v === 'string' && /^(sonnet|claude-sonnet-[\w.-]+)(\[1m\])?$/i.test(v);
+/** sonnet or opus (Opus 5 and up), with or without `[1m]`; anything else undefined. */
+export function mainOf(v: unknown): 'sonnet' | 'opus' | undefined {
+  if (typeof v !== 'string') return undefined;
+  const base = v.replace(/\[1m\]$/i, '');
+  if (/^(sonnet|claude-sonnet-[\w.-]+)$/i.test(base)) return 'sonnet';
+  return advisorOf(base) === 'opus' ? 'opus' : undefined;
+}
 export const isSubagentModel = (v: unknown): boolean => typeof v === 'string' && (/^haiku$/i.test(v) || /^claude-haiku-[\w.-]+$/i.test(v));
 /** fable or opus (Opus 5 and up; the bare alias counts), anything else undefined. */
 export function advisorOf(v: unknown): 'fable' | 'opus' | undefined {
@@ -62,7 +68,7 @@ export function advisorOf(v: unknown): 'fable' | 'opus' | undefined {
 
 type Key = { label: string; path: string[]; ok: (v: unknown, p: ModelsPrefs) => boolean; want: (p: ModelsPrefs) => string };
 export const MODEL_KEYS: Key[] = [
-  { label: 'model', path: ['model'], ok: isMainModel, want: () => 'sonnet' },
+  { label: 'model', path: ['model'], ok: (v, p) => mainOf(v) === p.main, want: (p) => p.main },
   { label: 'advisorModel', path: ['advisorModel'], ok: (v, p) => advisorOf(v) === p.advisor, want: (p) => p.advisor },
   // Never CLAUDE_CODE_SUBAGENT_MODEL_FORCE: with it Claude Code ignores cto-reviewer's own `model: opus`.
   { label: 'CLAUDE_CODE_SUBAGENT_MODEL', path: ['env', 'CLAUDE_CODE_SUBAGENT_MODEL'], ok: isSubagentModel, want: () => 'haiku' },
@@ -334,17 +340,20 @@ function checkFiles(root: string, autoFix: boolean, out: DriftResult) {
 // ---------- changing the split ----------
 
 /**
- * A value cto wrote, so clearing a scope may remove it: model sonnet, sub-agents haiku, and any fable or opus advisor
- * (whichever one the profile holds now, or one switched with /advisor; the same rule switchScope carries over).
+ * A value cto wrote, so clearing a scope may remove it: model equal to the cleared scope's main (`main`, so a user's
+ * own `opus` under a sonnet split stays), sub-agents haiku, and any fable or opus advisor (whichever one the profile
+ * holds now, or one switched with /advisor; the same rule switchScope carries over).
  */
-export const isOurs = (k: Key, v: unknown): boolean =>
-  k.label === 'advisorModel' ? advisorOf(v) !== undefined : v === k.want(DEFAULT_MODELS);
+export const isOurs = (k: Key, v: unknown, main: ModelsPrefs['main'] = modelsPrefs().main): boolean =>
+  k.label === 'advisorModel' ? advisorOf(v) !== undefined
+  : k.label === 'model' ? v === main
+  : v === k.want(DEFAULT_MODELS);
 
 /**
  * Take the split out of one scope: the three keys (only where they still hold the profile's values) and cto's agent
  * files there. Used when switching scope and when cto is removed.
  */
-export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: ModelsOpts = {}): DriftResult {
+export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: ModelsOpts = {}, main: ModelsPrefs['main'] = modelsPrefs().main): DriftResult {
   const out = empty();
   const home = opts.home ?? homedir();
   const show = display(root, home);
@@ -352,7 +361,7 @@ export function clearScope(root: string, scope: ModelsPrefs['scope'], opts: Mode
   const t = readSettingsFile(path);
   if (t.json === null) out.reported.push(fileProblem(t, show(path)));
   else {
-    const mine = MODEL_KEYS.filter((k) => isOurs(k, getAt(t.json, k.path)));
+    const mine = MODEL_KEYS.filter((k) => isOurs(k, getAt(t.json, k.path), main));
     for (const k of mine) delAt(t.json, k.path);
     if (mine.length && writeJsonIfUnchanged(path, t.text, t.json)) for (const k of mine) out.fixed.push(MSG.removed(k.label, show(path)));
     else if (mine.length) out.reported.push(MSG.notWritten(show(path)));
@@ -380,17 +389,17 @@ export function switchScope(root: string, to: ModelsPrefs['scope'], opts: Models
   // over. A scope-local file is never a switch (/advisor writes the user settings), so nothing is carried from it.
   const a = p.scope === 'global' ? advisorOf(getAt(readSettings(targetPath(root, p.scope, opts.home ?? homedir())), ['advisorModel'])) : undefined;
   if (!saveModels({ ...p, ...(a && { advisor: a }), ...also, scope: to }, out)) return out; // prefs first: a failed save changes no file
-  const cleared = clearScope(root, p.scope, opts);
+  const cleared = clearScope(root, p.scope, opts, p.main); // the old scope holds the old main
   const written = driftCheck(root, { ...opts, autoFix: true, files: false, adopt: false });
   return { fixed: [...cleared.fixed, ...written.fixed], reported: [...cleared.reported, ...written.reported] };
 }
 
-/** `cto models advisor|autofix|scope`: save the change, then write it at once (turning autofix off writes nothing). */
+/** `cto models main|advisor|autofix|scope`: save the change, then write it at once (turning autofix off writes nothing). */
 export function applyModels(root: string, change: Partial<ModelsPrefs>, opts: ModelsOpts = {}): DriftResult {
   const p = modelsPrefs();
   const out = empty();
   if (change.scope && change.scope !== p.scope) { const { scope, ...also } = change; return switchScope(root, scope, opts, also); }
   if (!saveModels({ ...p, ...change, scope: p.scope }, out)) return out;
-  if (change.advisor !== undefined || change.autoFix === true) return driftCheck(root, { ...opts, autoFix: true, files: false, adopt: false });
+  if (change.main !== undefined || change.advisor !== undefined || change.autoFix === true) return driftCheck(root, { ...opts, autoFix: true, files: false, adopt: false });
   return out;
 }

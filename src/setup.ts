@@ -283,7 +283,7 @@ function planModels(root: string, claude: boolean, wasWired: boolean, m: ModelsP
   const planClear = (scope: ModelsPrefs['scope']) => {
     const shown = shownIn(scope), target = targetPath(root, scope, home), s = readSettings(target);
     const hook = scope === 'global' && Array.isArray(s?.hooks?.SessionStart) && s.hooks.SessionStart.some(hasModelsHook);
-    if (isObj(s) && (hook || MODEL_KEYS.some((k) => isOurs(k, valueAt(s, k.path))))) at(shown(target), 'write', target);
+    if (isObj(s) && (hook || MODEL_KEYS.some((k) => isOurs(k, valueAt(s, k.path), (m.before ?? p).main)))) at(shown(target), 'write', target);
     for (const n of Object.keys(AGENT_FILES)) {
       const f = join(agentsDir(root, scope, home), n);
       if (existsSync(f) && readFileSync(f, 'utf8').includes(SKILL_MARK)) at(shown(f), 'remove', f);
@@ -625,11 +625,18 @@ export function prefsSaveError(e: unknown, lang: Lang, path: string): string {
 
 /** Apply a model split chosen in the setup menu: only what changed, through the same function as `cto models`. */
 export function applyModelsChange(root: string, before: ModelsPrefs, after: ModelsPrefs, opts: ModelsOpts = {}): string[] {
+  const change = modelsChange(before, after);
+  return Object.keys(change).length ? applyAndHook(root, change, opts) : [];
+}
+
+/** What the menu changed in the split; the setup preview and the save both read it, so they agree. */
+export function modelsChange(before: ModelsPrefs, after: ModelsPrefs): Partial<ModelsPrefs> {
   const change: Partial<ModelsPrefs> = {};
+  if (after.main !== before.main) change.main = after.main;
   if (after.advisor !== before.advisor) change.advisor = after.advisor;
   if (after.autoFix !== before.autoFix) change.autoFix = after.autoFix;
   if (after.scope !== before.scope) change.scope = after.scope;
-  return Object.keys(change).length ? applyAndHook(root, change, opts) : [];
+  return change;
 }
 
 function applyAndHook(root: string, change: Partial<ModelsPrefs>, opts: ModelsOpts): string[] {
@@ -638,7 +645,7 @@ function applyAndHook(root: string, change: Partial<ModelsPrefs>, opts: ModelsOp
   return lines;
 }
 
-/** `cto models [advisor fable|opus | autofix on|off | scope global|local | review on|off]`. */
+/** `cto models [main sonnet|opus | advisor fable|opus | autofix on|off | scope global|local | review on|off]`. */
 export function modelsCommand(root: string, args: string[], lang: Lang, opts: ModelsOpts = {}): { code: number; lines: string[] } {
   const [what, value] = args;
   const onoff = (b: boolean) => t(lang, b ? 'ui_on' : 'ui_off');
@@ -657,7 +664,7 @@ export function modelsCommand(root: string, args: string[], lang: Lang, opts: Mo
     return {
       code: 0,
       lines: [
-        t(lang, 'models_split', { advisor: p.advisor }),
+        t(lang, 'models_split', { main: p.main, advisor: p.advisor }),
         t(lang, 'models_scope', { scope: t(lang, `models_scope_${p.scope}`), file: p.scope === 'global' ? USER_SETTINGS_SHOWN : '.claude/settings.local.json' }),
         t(lang, 'models_autofix', { state: onoff(p.autoFix) }),
         t(lang, 'models_review', { state: onoff(loadConfig(root).review_gate) }),
@@ -672,7 +679,8 @@ export function modelsCommand(root: string, args: string[], lang: Lang, opts: Mo
     return { code: 0, lines: [t(lang, 'models_set', { what: 'review_gate', value })] };
   }
   const change: Partial<ModelsPrefs> | undefined =
-    what === 'advisor' && (value === 'fable' || value === 'opus') ? { advisor: value }
+    what === 'main' && (value === 'sonnet' || value === 'opus') ? { main: value }
+    : what === 'advisor' && (value === 'fable' || value === 'opus') ? { advisor: value }
     : what === 'autofix' && (value === 'on' || value === 'off') ? { autoFix: value === 'on' }
     : what === 'scope' && (value === 'global' || value === 'local') ? { scope: value }
     : undefined;

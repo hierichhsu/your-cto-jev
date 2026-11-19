@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { DEFAULT_MODELS, credentialsPath, loadConfig, loadPrefs, modelsPrefs, savePrefs, type ModelsPrefs } from './brain.js';
 import { MSG, driftCheck } from './models.js';
 import { AGENT_FILES, FLOW_RULE, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, RULES_BLOCK, SKILL_MARK, rulesBlock, staleGuidance } from './skill.js';
-import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userModelsHook } from './setup.js';
+import { FLOW_SKELETON, appendBlock, applyModelsChange, claudeStart, docsPublisher, isSetUp, modelsChange, modelsCommand, planSetup, prefsSaveError, removeBlock, setup, userModelsHook } from './setup.js';
 import { missingHooks, wiredAgents } from './setup.js';
 import { setupUI } from './setupui.js';
 
@@ -158,7 +158,10 @@ async function drive<T>(run: (io: { input: PassThrough; output: Writable }) => P
     await new Promise((r) => setTimeout(r, 100)); // > clack's 50 ms escape timeout, so a lone Esc is read as Esc
     input.write(k);
   }
-  return { result: await p, out };
+  // A prompt waiting for a key the list does not have would hang the file: fail fast and say which output it stopped at.
+  let timer: NodeJS.Timeout | undefined;
+  const stuck = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`UI still waiting for input after all keys were sent:\n${out.slice(-500)}`)), 30_000); });
+  try { return { result: await Promise.race([p, stuck]), out }; } finally { clearTimeout(timer); }
 }
 
 test('setup UI: flow is the last first-run step and an overview item; no sprint goal is asked', async () => {
@@ -571,10 +574,16 @@ test('cto models advisor opus writes the target and the profile; the status show
   assert.match(fable.lines.join('\n'), /\/model fable/);
   assert.match(fable.lines.join('\n'), /cto models advisor opus/);
   assert.match(fable.lines.join('\n'), /Review gate: on/);
+  assert.match(fable.lines.join('\n'), /main sonnet/, 'the status prints the saved main');
   assert.ok(!existsSync(user), 'the status is a dry run');
   const r = modelsCommand(root, ['advisor', 'opus'], 'en', opts);
   assert.equal(r.code, 0);
   assert.equal(readJson(user).advisorModel, 'opus');
+  assert.equal(modelsCommand(root, ['main', 'opus'], 'en', opts).code, 0);
+  assert.equal(readJson(user).model, 'opus');
+  assert.match(modelsCommand(root, [], 'en', opts).lines.join('\n'), /main opus/);
+  assert.equal(modelsCommand(root, ['main', 'haiku'], 'en', opts).code, 1);
+  assert.equal(modelsCommand(root, ['main', 'sonnet'], 'en', opts).code, 0);
   assert.equal(modelsPrefs().advisor, 'opus');
   assert.ok(!modelsCommand(root, [], 'en', opts).lines.join('\n').includes('/model fable'));
   writeFileSync(join(root, '.cto.json'), JSON.stringify({ sprint_goal: 'x' })); // review needs a set-up project
@@ -671,16 +680,17 @@ test('an unparsable credentials file gives one clean error line and exit 1 (real
   assert.equal(readFileSync(credentialsPath(), 'utf8'), '{ "OPENROUTER_API_KEY": "k", broken', 'the key file is left alone');
 });
 
-test('setup UI: the model split row shows the Fable reminder and walks advisor, scope and auto-fix', async () => {
+test('setup UI: the model split row shows the Fable reminder and walks main, advisor, scope and auto-fix', async () => {
   const initial = { agents: [], providers: [], keys: {}, goal: '', models: DEFAULT_MODELS };
   const r = await drive((io) => setupUI(initial, false, 'en', { ...io, env: {} }), [
     KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview (agents, providers, keys, flow, models) -> Model split
+    KEY.down, KEY.enter, // main: Sonnet -> Opus
     KEY.down, KEY.enter, // advisor: Fable -> Opus
     KEY.down, KEY.enter, // scope: global -> local
     KEY.down, KEY.enter, // auto-fix: on -> off
     KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter, // overview -> save
   ]);
-  assert.deepEqual(r.result?.models, { scope: 'local', advisor: 'opus', autoFix: false });
+  assert.deepEqual(r.result?.models, { scope: 'local', main: 'opus', advisor: 'opus', autoFix: false });
   assert.match(r.out, /Model split/);
   assert.match(r.out, /\/model fable/, 'reminder on the row while the advisor is Fable');
 });
@@ -801,6 +811,39 @@ test('advisor and scope changed together (global fable -> local opus): the old s
   assert.deepEqual(readJson(user), { theme: 'dark' }, 'user settings lose advisorModel fable');
   assert.equal(readJson(join(root, '.claude', 'settings.local.json')).advisorModel, 'opus');
   assert.deepEqual({ scope: modelsPrefs().scope, advisor: modelsPrefs().advisor }, { scope: 'local', advisor: 'opus' });
+});
+
+test('main from the menu: alone it rewrites model (the preview lists it); with scope the old sonnet is cleared, the new scope gets opus', () => {
+  const { user, opts } = modelsEnv();
+  const root = repo();
+  writeJson(user, { theme: 'dark' });
+  setup(root, 'en', { agents: ['claude'], models: opts }); // the split and the user hook are in place: an unchanged plan lists nothing there
+  const before = modelsPrefs();
+  const planFor = (main: ModelsPrefs['main']) => planSetup(root, ['claude'], false, '', { prefs: { ...before, main }, before, write: true, home: opts.home }).map((f) => `${f.path}:${f.change}`);
+  assert.ok(!planFor('sonnet').includes('~/.claude/settings.json:update'), planFor('sonnet').join('\n'));
+  assert.ok(planFor('opus').includes('~/.claude/settings.json:update'), `the model change is listed:\n${planFor('opus').join('\n')}`);
+  applyModelsChange(root, before, { ...before, main: 'opus' }, opts);
+  assert.equal(readJson(user).model, 'opus');
+  applyModelsChange(root, modelsPrefs(), { ...modelsPrefs(), main: 'sonnet' }, opts);
+  const b2 = modelsPrefs();
+  applyModelsChange(root, b2, { ...b2, scope: 'local', main: 'opus' }, opts);
+  assert.deepEqual(readJson(user), { theme: 'dark' }, 'the old scope loses its sonnet');
+  assert.equal(readJson(join(root, '.claude', 'settings.local.json')).model, 'opus');
+});
+
+test('modelsChange: each field the menu changed, main included; nothing when unchanged', () => {
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, DEFAULT_MODELS), {});
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, { ...DEFAULT_MODELS, main: 'opus' }), { main: 'opus' });
+  assert.deepEqual(modelsChange(DEFAULT_MODELS, { scope: 'local', main: 'opus', advisor: 'opus', autoFix: false }), { main: 'opus', advisor: 'opus', autoFix: false, scope: 'local' });
+});
+
+test('clearing a sonnet split keeps a model opus the user set themselves', () => {
+  const { user, opts } = modelsEnv({ autoFix: false });
+  const root = repo();
+  writeJson(user, { model: 'opus', advisorModel: 'fable' });
+  const before = modelsPrefs();
+  applyModelsChange(root, before, { ...before, scope: 'local' }, opts);
+  assert.equal(readJson(user).model, 'opus');
 });
 
 test('unticking Claude Code in one project: a global split stays whole; a local split leaves with the project', () => {
