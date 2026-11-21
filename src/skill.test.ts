@@ -33,6 +33,8 @@ test('findings below P1 wait for a per-feature cleanup wave, and what its review
   for (const s of ['batched, not chained', 'one review over the whole cleanup and one commit', 'does not become a task', 'Left for the user:', 'parked tasks, finding tasks and tasks blocked on a finding task do not count', 'in any wording']) assert.ok(rules.includes(s), s);
   assert.ok(!rules.includes('no other open task'), 'a parked task or a second finding task never holds the cleanup back');
   assert.ok(work.includes('in English whatever language'), 'one fixed marker to recognise finding tasks by');
+  assert.ok(work.includes("A cleanup wave's review is the exception: its P2s become no task"), 'step 5 does not file cleanup findings as tasks');
+  assert.ok(work.includes('A cleanup wave runs alone'), 'one review never mixes a cleanup with a normal wave');
   const reviewer = AGENT_FILES['cto-reviewer.md'];
   assert.ok(reviewer.includes('names the input or state that produces the wrong result') && reviewer.includes('is not reported'), 'the reviewer drops behaviour findings without a failure case');
   assert.ok(reviewer.includes('skipped, deleted or loosened, a broken Constraint or Interface') && reviewer.includes('report them as they are'), 'findings that have no failing input are still reported');
