@@ -29,10 +29,13 @@ test('work runs every wave with a review each; work all reviews every wave on a 
 test('findings below P1 wait for a per-feature cleanup wave, and what its review finds is parked, so findings never chain wave after wave', () => {
   const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
   const rules = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## Review findings'), FLOW_SKILL_TEXT.indexOf('## cto-jev release'));
-  assert.ok(work.includes('wait until their feature has no other open task') && work.includes('Review finding (wave <ids>):'), 'work defers and marks finding tasks');
-  for (const s of ['batched, not chained', 'one review over the whole cleanup and one commit', 'parked for this run']) assert.ok(rules.includes(s), s);
+  assert.ok(work.includes('wait while their feature has any other Ready task you would dispatch') && work.includes('Review finding (wave <ids>):'), 'work defers and marks finding tasks');
+  for (const s of ['batched, not chained', 'one review over the whole cleanup and one commit', 'does not become a task', 'Left for the user:', 'parked tasks, finding tasks and tasks blocked on a finding task do not count', 'in any wording']) assert.ok(rules.includes(s), s);
+  assert.ok(!rules.includes('no other open task'), 'a parked task or a second finding task never holds the cleanup back');
+  assert.ok(work.includes('in English whatever language'), 'one fixed marker to recognise finding tasks by');
   const reviewer = AGENT_FILES['cto-reviewer.md'];
-  assert.ok(reviewer.includes('names the input or state that produces the wrong result') && reviewer.includes('is not reported'), 'the reviewer drops findings without a failure case');
+  assert.ok(reviewer.includes('names the input or state that produces the wrong result') && reviewer.includes('is not reported'), 'the reviewer drops behaviour findings without a failure case');
+  assert.ok(reviewer.includes('skipped, deleted or loosened, a broken Constraint or Interface') && reviewer.includes('report them as they are'), 'findings that have no failing input are still reported');
 });
 
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
