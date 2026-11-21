@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, SKILL_MARK, SKILL_TEXT, syncFlowSkill, syncGuidance } from './skill.js';
+import { AGENT_FILES, FLOW_COMMAND_PATH, FLOW_COMMAND_TEXT, FLOW_SKILL_PATH, FLOW_SKILL_TEXT, SKILL_MARK, SKILL_TEXT, syncFlowSkill, syncGuidance } from './skill.js';
 
 test('the cto skill lists every user-facing command, including the flow ones', () => {
   for (const cmd of ['cto brief', 'cto check', 'cto doctor', 'cto index', 'cto docs']) assert.ok(SKILL_TEXT.includes(`\`${cmd}\``), cmd);
@@ -24,6 +24,20 @@ test('work runs every wave with a review each; work all reviews every wave on a 
   assert.ok(FLOW_COMMAND_TEXT.includes('work all'));
   for (const s of ['never drop a task to get past a block', 'never drop in this run', 'names no end-to-end command', 'never how you accept', '\`manual\` only for a \`(look)\` line', 'written from them first and seen failing', 'the CONCEPT decides', 'screenshots at each width', 'Never change a test to match the code']) assert.ok(FLOW_SKILL_TEXT.includes(s), s);
   assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
+});
+
+test('findings below P1 wait for a per-feature cleanup wave, and what its review finds is parked, so findings never chain wave after wave', () => {
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  const rules = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## Review findings'), FLOW_SKILL_TEXT.indexOf('## cto-jev release'));
+  assert.ok(work.includes('wait while their feature has any other Ready task you would dispatch') && work.includes('Review finding (wave <ids>):'), 'work defers and marks finding tasks');
+  for (const s of ['batched, not chained', 'one review over the whole cleanup and one commit', 'does not become a task', 'Left for the user:', 'parked tasks, finding tasks and tasks blocked on a finding task do not count', 'in any wording']) assert.ok(rules.includes(s), s);
+  assert.ok(!rules.includes('no other open task'), 'a parked task or a second finding task never holds the cleanup back');
+  assert.ok(work.includes('in English whatever language'), 'one fixed marker to recognise finding tasks by');
+  assert.ok(work.includes("A cleanup wave's review is the exception: its P2s become no task"), 'step 5 does not file cleanup findings as tasks');
+  assert.ok(work.includes('A cleanup wave runs alone'), 'one review never mixes a cleanup with a normal wave');
+  const reviewer = AGENT_FILES['cto-reviewer.md'];
+  assert.ok(reviewer.includes('names the input or state that produces the wrong result') && reviewer.includes('is not reported'), 'the reviewer drops behaviour findings without a failure case');
+  assert.ok(reviewer.includes('skipped, deleted or loosened, a broken Constraint or Interface') && reviewer.includes('report them as they are'), 'findings that have no failing input are still reported');
 });
 
 test('the flow skill hands docs over with a Review: line, signs via hook or the user, caps reviews at three rounds', () => {
