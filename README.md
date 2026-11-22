@@ -233,8 +233,8 @@ A task is one checklist line, and everything else is computed from it:
 - [ ] CUST-1 Customer list
   - [x] CUST-1.1 List API, filtered by role (after: PERM-2) (files: src/customers/api/)
         accept: npm test -- customers/api
-  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/, e2e/customers.spec.ts)
-        accept: npx playwright test e2e/customers.spec.ts
+  - [ ] CUST-1.2 List UI (after: CUST-1.1) (files: src/customers/ui/, e2e/customers/)
+        accept: npx playwright test e2e/customers/
   - [ ] CUST-1.3 List matches the brand (look) (after: CUST-1.2) (files: src/customers/ui/)
         accept: manual: list page against the brand sheet, at 375px and 1280px @ http://localhost:3000/customers
 ```
@@ -249,7 +249,7 @@ The trade: fewer stops, later discovery. A SPEC that drifted from what you meant
 Features · 2 · 1 active · 1 planned · sign-off pending: billing (concept draft)
 
 Ready · 3 (run together: CUST-1.2, PERM-3)
-  CUST-1.2  P1 List UI  files src/customers/ui/, e2e/customers.spec.ts  accept: npx playwright test e2e/customers.spec.ts
+  CUST-1.2  P1 List UI  files src/customers/ui/, e2e/customers/  accept: npx playwright test e2e/customers/
   PERM-3    Role cache  files src/auth/cache/  accept: npm test -- auth
   CUST-2    Export  files src/customers/  accept: npm test -- export  (overlaps CUST-1.2: run after)
 
@@ -264,7 +264,7 @@ The skill gives the agent seven named jobs, so they cannot be confused with anot
 | `cto-jev init` | scans the repo, fills PRODUCT.md and ARCHITECTURE.md, asks you the rest a few questions at a time, walks you through the result until you say it is complete |
 | `cto-jev feature` | talks the CONCEPT through first (who it is for, business rules, what the user sees when it works, what is out of scope, the simpler option it rejected), writes CONCEPT, then writes the SPEC itself (data migration and rollback, what other features may call, how a production failure gets noticed, the acceptance scenarios), has a zero-context reviewer check that a newcomer could build from them without making design decisions, that nothing unneeded or already in the code gets built and that every acceptance scenario has a result a script can check and a CONCEPT rule behind it, walks you through the CONCEPT, hands it over with a [Review handoff](#sign-off) and stops for your sign-off |
 | `cto-jev tasks` | breaks a feature with a signed-off CONCEPT into parent/child tasks with files, dependencies and an acceptance command each |
-| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, then the whole change reviewed again by `cto-reviewer` (at most three rounds in all; P1s left after that go to you), P2 findings become tasks that wait until the feature has nothing else Ready and then run as one cleanup wave with one review (what that review finds below P1 is written into REVIEW.md and listed for you, not filed as tasks, so findings never chain), a finding is contested only with evidence the reviewer could read, then it commits the wave to the review branch and starts the next one, without asking, until nothing is Ready; tasks that need you (credentials, money, anything irreversible, a drop) are parked, not waited on; ends with one report of what is done and everything for you to look at. Never releases |
+| `cto-jev work` | dispatches Ready tasks to sub-agents with the narrowest brief, runs each acceptance command itself before ticking (only the wave's own tasks and the `e2e/<slug>/` tests of the features it touches; the whole suites run once per feature cleanup and at release), never opens a question menu mid-run, has a zero-context reviewer read the diff **before every commit**: P1 findings are fixed first, then the whole change reviewed again by `cto-reviewer` (at most three rounds in all; P1s left after that go to you), P2 findings become tasks that wait until the feature has nothing else Ready and then run as one cleanup wave with one review (what that review finds below P1 is written into REVIEW.md and listed for you, not filed as tasks, so findings never chain), a finding is contested only with evidence the reviewer could read, then it commits the wave to the review branch and starts the next one, without asking, until nothing is Ready; tasks that need you (credentials, money, anything irreversible, a drop) are parked, not waited on; ends with one report of what is done and everything for you to look at. Never releases |
 | `cto-jev work all` | for a new project or a big batch: the same run on a `work-all` branch, every wave reviewed by a zero-context `cto-reviewer` before its commit, then hands over to `cto-jev release`, never merges. Never releases |
 | `cto-jev release` | reviews the whole unreleased diff against the SPECs (looking hardest at waves marked `self-review`), files P1/P2/P3 tasks under the same findings rules, requires every P1 ticked and `cto check --base <release branch>` green, then prepares the merge, PR or tag for you to perform |
 | `cto-jev docs` | runs `cto docs` and brings you the list; acts only on what you decide |
