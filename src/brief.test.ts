@@ -131,6 +131,18 @@ test('flowIssues: missing feature files, orphan src dirs, missing headings; brie
   assert.ok(b.indexOf('Flow issues ·') < b.indexOf('Failures in the last'), 'before the tail');
 });
 
+test('flowIssues: open e2e or manual tasks in a feature whose SPEC has no ## Acceptance; done tasks, unit-tested tasks and a SPEC with scenarios are fine', () => {
+  const tasks = (accept: string, box = ' ') => `- [${box}] UI-1 Screen (files: src/ui/)\n      驗收: ${accept}\n`;
+  const issues = (files: Record<string, string>) => flowIssues(repo({ 'src/ui/x.ts': '', [`${F}/ui/CONCEPT.md`]: CONCEPT, [`${F}/ui/REVIEW.md`]: '', ...files }));
+  const ISSUE = 'features/ui/SPEC.md: open user-facing tasks but no ## Acceptance scenarios to test';
+  for (const accept of ['npx playwright test e2e/ui/', 'pnpm test:e2e e2e/ui', 'manual: the list @ /ui']) {
+    assert.ok(issues({ [`${F}/ui/SPEC.md`]: SPEC, [`${F}/ui/TASKS.md`]: tasks(accept) }).includes(ISSUE), accept);
+  }
+  assert.ok(!issues({ [`${F}/ui/SPEC.md`]: SPEC, [`${F}/ui/TASKS.md`]: tasks('npx playwright test e2e/ui/', 'x') }).includes(ISSUE), 'a done task');
+  assert.ok(!issues({ [`${F}/ui/SPEC.md`]: SPEC, [`${F}/ui/TASKS.md`]: tasks('npm test -- ui') }).includes(ISSUE), 'a unit-tested task');
+  assert.ok(!issues({ [`${F}/ui/SPEC.md`]: `${SPEC}## Acceptance\n- a scenario\n`, [`${F}/ui/TASKS.md`]: tasks('npx playwright test e2e/ui/') }).includes(ISSUE), 'a SPEC with scenarios');
+});
+
 test('flowIssues: a clean flow yields nothing, a long list is capped at 12 lines', () => {
   const clean = repo({
     'src/billing/index.ts': '',

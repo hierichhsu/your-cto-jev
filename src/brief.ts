@@ -93,6 +93,11 @@ export function flowIssues(root: string): string[] {
   for (const slug of features) {
     headings(`features/${slug}/SPEC.md`, ['Interface', 'Constraints', 'Internals']);
     headings(`features/${slug}/CONCEPT.md`, ['目的']);
+    // An open task accepted end to end or by eye has no scenario to test against without ## Acceptance, so its test gets invented.
+    const userFacing = tasks.some((t) => t.feature === slug && !t.done && /\be2e\b|playwright|cypress|^manual\b/i.test(t.accept ?? ''));
+    let spec = '';
+    try { spec = readFileSync(join(root, FLOW_DIR, 'features', slug, 'SPEC.md'), 'utf8'); } catch { /* reported as a missing file above */ }
+    if (userFacing && spec && !/^##\s*Acceptance\s*$/m.test(spec)) out.push(`features/${slug}/SPEC.md: open user-facing tasks but no ## Acceptance scenarios to test`);
   }
   for (const [file, names] of HEADINGS) headings(file, names);
   return out.length > ISSUE_CAP ? [...out.slice(0, ISSUE_CAP), `… ${out.length - ISSUE_CAP} more`] : out;

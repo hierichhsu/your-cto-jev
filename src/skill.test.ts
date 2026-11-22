@@ -26,6 +26,17 @@ test('work runs every wave with a review each; work all reviews every wave on a 
   assert.ok(FLOW_SKILL_TEXT.includes('(dropped: <reason>)') && FLOW_SKILL_TEXT.includes('"<id> dropped"'), 'how to close a task without doing it');
 });
 
+test('a wave runs only its own acceptance and its features e2e; full suites at cleanup and release; no menu mid-run; e2e only for Acceptance scenarios', () => {
+  const t = FLOW_SKILL_TEXT;
+  const work = t.slice(t.indexOf('## cto-jev work'), t.indexOf('### cto-jev work all'));
+  assert.ok(work.includes("plus the end-to-end tests of the features it touches (\`e2e/<slug>/\`)") && work.includes('run the whole end-to-end suite instead'), 'scoped e2e, full on shared files');
+  assert.ok(work.includes('once in a feature\'s cleanup wave and once in the release, never in every wave'), 'full suites not per wave');
+  assert.ok(t.slice(t.indexOf('## cto-jev release')).includes('The whole unit and end-to-end suites and \`cto check --base'), 'release runs everything');
+  assert.ok(t.includes('Never open the question menu (AskUserQuestion) or ask a question in the middle of') && t.includes("You stop at a sign-off, a run's final report and the release, never mid-run."), 'no menu mid-run');
+  for (const s of ['End-to-end tests live in \`e2e/<feature slug>/\`', 'Only Acceptance scenarios get an end-to-end test', 'one shared check per page', "A finding task's test is a unit or database test"]) assert.ok(t.includes(s), s);
+  assert.ok(!t.includes('customers.spec.ts'), 'the example uses the per-feature folder');
+});
+
 test('findings below P1 wait for a per-feature cleanup wave, and what its review finds is parked, so findings never chain wave after wave', () => {
   const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
   const rules = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## Review findings'), FLOW_SKILL_TEXT.indexOf('## cto-jev release'));
