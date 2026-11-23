@@ -11,6 +11,7 @@ export interface CtoConfig {
   thresholds: Record<Signal, number>;
   review_gate: boolean; // commits wait for a cto-reviewer review (MOD-4); `cto models review on|off`
   turn_limits: TurnLimits; // a turn past any of these gets one reminder to stop and report; 0 turns a limit off
+  e2e_folders: boolean; // false: the user chose to keep e2e tests flat, so brief stops asking to split them
 }
 
 export interface TurnLimits { minutes: number; tool_calls: number; agents: number }
@@ -85,6 +86,7 @@ export const DEFAULT_CONFIG: CtoConfig = {
   },
   review_gate: true,
   turn_limits: { minutes: 20, tool_calls: 150, agents: 4 },
+  e2e_folders: true,
 };
 
 const emptyBrain = (): Brain => ({
@@ -128,6 +130,7 @@ export function loadConfig(root: string): CtoConfig {
     thresholds,
     review_gate: raw.review_gate !== false,
     turn_limits: turnLimits(raw.turn_limits),
+    e2e_folders: raw.e2e_folders !== false,
   };
 }
 
