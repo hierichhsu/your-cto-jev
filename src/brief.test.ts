@@ -143,6 +143,16 @@ test('flowIssues: open e2e or manual tasks in a feature whose SPEC has no ## Acc
   assert.ok(!issues({ [`${F}/ui/SPEC.md`]: `${SPEC}## Acceptance\n- a scenario\n`, [`${F}/ui/TASKS.md`]: tasks('npx playwright test e2e/ui/') }).includes(ISSUE), 'a SPEC with scenarios');
 });
 
+test('flowIssues: test files in the e2e/ root are flagged for a feature folder; helpers and tests already in e2e/<slug>/ are not', () => {
+  const base = { 'src/ui/x.ts': '', [`${F}/ui/CONCEPT.md`]: CONCEPT, [`${F}/ui/SPEC.md`]: SPEC, [`${F}/ui/TASKS.md`]: '- [ ] UI-1 Screen (files: src/ui/)\n', [`${F}/ui/REVIEW.md`]: '' };
+  const loose = (files: Record<string, string>) => flowIssues(repo({ ...base, ...files })).filter((l) => l.startsWith('e2e/'));
+  assert.deepEqual(loose({ 'e2e/ui-list.spec.ts': '', 'e2e/smoke.test.js': '', 'e2e/fixtures.ts': '', 'e2e/ui/edit.spec.ts': '' }),
+    ['e2e/: 2 test files not in a feature folder (smoke.test.js, ui-list.spec.ts): move each into e2e/<feature slug>/']);
+  assert.match(loose({ 'e2e/a.spec.ts': '', 'e2e/b.spec.ts': '', 'e2e/c.spec.ts': '', 'e2e/d.spec.tsx': '' })[0], /^e2e\/: 4 test files .*\(a\.spec\.ts, b\.spec\.ts, c\.spec\.ts, …\)/);
+  assert.deepEqual(loose({ 'e2e/fixtures.ts': '', 'e2e/ui/edit.spec.ts': '' }), [], 'only helpers in the root');
+  assert.deepEqual(loose({}), [], 'no e2e/ at all');
+});
+
 test('flowIssues: a clean flow yields nothing, a long list is capped at 12 lines', () => {
   const clean = repo({
     'src/billing/index.ts': '',

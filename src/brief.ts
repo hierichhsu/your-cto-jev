@@ -90,6 +90,11 @@ export function flowIssues(root: string): string[] {
     .sort();
   if (orphans.length > 3) out.push(`${orphans.join(', ')} belong to no feature`);
   else for (const dir of orphans) out.push(`${dir} belongs to no feature`);
+  // A wave runs only e2e/<slug>/ of the features it touches; a test left in the e2e/ root is run by none of them.
+  // shortcut: only a top-level e2e/ is looked at, not a playwright testDir elsewhere; read the config if a repo needs it.
+  const loose = !existsSync(join(root, 'e2e')) ? [] : readdirSync(join(root, 'e2e'), { withFileTypes: true })
+    .filter((d) => d.isFile() && /\.(spec|test)\.[cm]?[jt]sx?$/.test(d.name)).map((d) => d.name).sort();
+  if (loose.length) out.push(`e2e/: ${loose.length} test file${loose.length > 1 ? 's' : ''} not in a feature folder (${loose.slice(0, 3).join(', ')}${loose.length > 3 ? ', …' : ''}): move each into e2e/<feature slug>/`);
   for (const slug of features) {
     headings(`features/${slug}/SPEC.md`, ['Interface', 'Constraints', 'Internals']);
     headings(`features/${slug}/CONCEPT.md`, ['目的']);

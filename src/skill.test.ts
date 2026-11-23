@@ -35,6 +35,8 @@ test('a wave runs only its own acceptance and its features e2e; full suites at c
   assert.ok(t.includes('Never open the question menu (AskUserQuestion) or ask a question in the middle of') && t.includes("You stop at a sign-off, a run's final report and the release, never mid-run."), 'no menu mid-run');
   for (const s of ['End-to-end tests live in \`e2e/<feature slug>/\`', 'Only Acceptance scenarios get an end-to-end test', 'one shared check per page', "A finding task's test is a unit or database test"]) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('customers.spec.ts'), 'the example uses the per-feature folder');
+  assert.ok(work.includes("Until a feature's end-to-end tests are in \`e2e/<slug>/\`, a wave that touches it runs the whole end-to-end suite"), 'an old flat layout is never skipped');
+  assert.ok(work.includes('When \`cto brief\` lists test files in the \`e2e/\` root, move them before the run\'s first wave'), 'old repos migrate once');
 });
 
 test('findings below P1 wait for a per-feature cleanup wave, and what its review finds is parked, so findings never chain wave after wave', () => {
