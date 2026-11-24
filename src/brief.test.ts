@@ -152,9 +152,11 @@ test('flowIssues: test files in the e2e/ root ask whether to split them; helpers
   assert.deepEqual(loose({ 'e2e/fixtures.ts': '', 'e2e/ui/edit.spec.ts': '', 'e2e/platform/smoke.spec.ts': '' }), [], 'split: only helpers in the root');
   assert.deepEqual(loose({}), [], 'no e2e/ at all');
   assert.deepEqual(loose({ 'e2e/ui-list.spec.ts': '', '.cto.json': '{"e2e_folders": false}' }), [], 'the user chose to keep them flat');
-  const split = (box: string) => ({ 'e2e/ui-list.spec.ts': '', [`${F}/platform/TASKS.md`]: `- [${box}] PLAT-1 Split the e2e tests into feature folders (files: e2e/)\n` });
+  const split = (box: string, text = 'Split the end-to-end tests into feature folders') => ({ 'e2e/ui-list.spec.ts': '', [`${F}/platform/TASKS.md`]: `- [${box}] PLAT-1 ${text} (seq) (files: e2e/, playwright.config.ts)\n` });
   assert.deepEqual(loose(split(' ')), [], 'the user said yes and the split task is open: not asked again');
   assert.equal(loose(split('x')).length, 1, 'a done split task that left tests in the root is flagged again');
+  assert.equal(loose(split(' ', '(P2) Review finding (wave UI-1): tidy the tree card')).length, 1, 'another open task owning e2e/ does not silence it');
+  assert.equal(loose(split(' ', '(P2) Review finding (wave PLAT-1): Split the end-to-end tests into feature folders left smoke in the root')).length, 1, 'a finding that only quotes the title does not silence it');
 });
 
 test('flowIssues: a clean flow yields nothing, a long list is capped at 12 lines', () => {

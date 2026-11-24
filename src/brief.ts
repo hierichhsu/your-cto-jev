@@ -92,9 +92,10 @@ export function flowIssues(root: string): string[] {
   else for (const dir of orphans) out.push(`${dir} belongs to no feature`);
   // A wave runs only e2e/<slug>/ of the features it touches; a test left in the e2e/ root is run by none of them.
   // Whole-app checks go to e2e/platform/, so a split leaves only helpers here. Quiet when the user chose flat
-  // (e2e_folders false) or said yes and the split task (files: e2e/) is still open, so the question is not asked twice.
+  // (e2e_folders false) or said yes and the split task is still open, so the question is not asked twice. The task is
+  // known by its text: other open tasks (a harness, a finding) also own e2e/.
   // shortcut: only a top-level e2e/ is looked at, not a playwright testDir elsewhere; read the config if a repo needs it.
-  const splitOpen = tasks.some((t) => !t.done && t.files.some((f) => /^e2e\/?$/.test(f.replace(/\\/g, '/'))));
+  const splitOpen = tasks.some((t) => !t.done && /^(\(P\d\)\s*)?split the end-to-end tests into feature folders/i.test(t.text.trim()));
   const loose = splitOpen || !loadConfig(root).e2e_folders || !existsSync(join(root, 'e2e')) ? [] : readdirSync(join(root, 'e2e'), { withFileTypes: true })
     .filter((d) => d.isFile() && /\.(spec|test|cy)\.[cm]?[jt]sx?$/.test(d.name)).map((d) => d.name).sort();
   if (loose.length) out.push(`e2e/: ${loose.length} test file${loose.length > 1 ? 's' : ''} not in a feature folder (${loose.slice(0, 3).join(', ')}${loose.length > 3 ? ', …' : ''}): ask in the run's final report menu, never mid-run, whether to split them into e2e/<feature slug>/`);
