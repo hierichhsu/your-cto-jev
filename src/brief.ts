@@ -90,14 +90,22 @@ export function flowIssues(root: string): string[] {
     .sort();
   if (orphans.length > 3) out.push(`${orphans.join(', ')} belong to no feature`);
   else for (const dir of orphans) out.push(`${dir} belongs to no feature`);
-  // A wave runs only e2e/<slug>/ of the features it touches; a test left in the e2e/ root is run by none of them.
-  // Whole-app checks go to e2e/platform/, so a split leaves only helpers here. Quiet when the user chose flat
-  // (e2e_folders false) or said yes and the split task is still open, so the question is not asked twice. The task is
-  // known by its text: other open tasks (a harness, a finding) also own e2e/.
+  // A wave runs only e2e/<slug>/ of the features it touches; a test outside every feature folder (in the e2e/ root, or a
+  // flat e2e/tests/) is run by none of them. Whole-app checks go to e2e/platform/, so a split leaves only helpers outside.
+  // Quiet when the user chose flat (e2e_folders false) or said yes and the split task is still open, so the question is
+  // not asked twice. The task is known by its text (parseTasks has already dropped its (Pn)): other open tasks (a
+  // harness, a finding) also own e2e/.
   // shortcut: only a top-level e2e/ is looked at, not a playwright testDir elsewhere; read the config if a repo needs it.
-  const splitOpen = tasks.some((t) => !t.done && /^(\(P\d\)\s*)?split the end-to-end tests into feature folders/i.test(t.text.trim()));
-  const loose = splitOpen || !loadConfig(root).e2e_folders || !existsSync(join(root, 'e2e')) ? [] : readdirSync(join(root, 'e2e'), { withFileTypes: true })
-    .filter((d) => d.isFile() && /\.(spec|test|cy)\.[cm]?[jt]sx?$/.test(d.name)).map((d) => d.name).sort();
+  const splitOpen = tasks.some((t) => !t.done && /^split the end-to-end tests into feature folders/i.test(t.text.trim()));
+  const homes = new Set([...features, 'platform']);
+  // Walks by hand, one level down only (a flat e2e/tests/), so feature folders, dot folders (.output, .auth),
+  // node_modules and deep trees (a fixture app's own unit tests, reports) are never entered.
+  const list = (dir: string) => { try { return readdirSync(join(root, dir), { withFileTypes: true }); } catch { return []; } }; // an unreadable folder (a root-owned volume) must not crash brief
+  const testsIn = (dir: string, rel: string): string[] => list(dir).flatMap((d) => {
+    if (d.isDirectory()) return rel || d.name.startsWith('.') || d.name === 'node_modules' || homes.has(d.name) ? [] : testsIn(`${dir}/${d.name}`, `${d.name}/`);
+    return d.isFile() && /\.(spec|test|cy)\.[cm]?[jt]sx?$/.test(d.name) ? [`${rel}${d.name}`] : [];
+  });
+  const loose = splitOpen || !loadConfig(root).e2e_folders || !existsSync(join(root, 'e2e')) ? [] : testsIn('e2e', '').sort();
   if (loose.length) out.push(`e2e/: ${loose.length} test file${loose.length > 1 ? 's' : ''} not in a feature folder (${loose.slice(0, 3).join(', ')}${loose.length > 3 ? ', …' : ''}): ask in the run's final report menu, never mid-run, whether to split them into e2e/<feature slug>/`);
   for (const slug of features) {
     headings(`features/${slug}/SPEC.md`, ['Interface', 'Constraints', 'Internals']);
