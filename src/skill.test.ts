@@ -37,8 +37,8 @@ test('a wave runs only its own acceptance and its features e2e; full suites at c
   assert.ok(!t.includes('customers.spec.ts'), 'the example uses the per-feature folder');
   assert.ok(!/e2e\/[\w-]+\.(spec|test)\.[jt]s/.test(t), 'no example test file sits in the e2e/ root');
   assert.ok(work.includes('add a \`platform\` task for the split whose text starts exactly \`Split the end-to-end tests into feature folders\`, in English whatever language') && work.includes('tagged \`(seq)\`, whose \`(files:)\` hold \`e2e/\` plus each file') && work.includes("that holds the test runner's file pattern"), 'brief knows the split task by its text, and its runner config is in scope');
-  assert.ok(work.includes("Until a feature's end-to-end tests are in \`e2e/<slug>/\`, a wave that touches it runs the whole end-to-end suite"), 'an old flat layout is never skipped');
-  assert.ok(work.includes('When \`cto brief\` lists test files in the \`e2e/\` root, do not move them on your own: put "split the end-to-end tests into feature folders?" in the run\'s final report menu'), 'the split is asked, at the end of a run');
+  assert.ok(work.includes("never in every wave. Like a wave that changes a \`platform\` or shared file, a wave that touches a feature whose end-to-end tests are not yet in \`e2e/<slug>/\` runs the whole end-to-end suite"), 'an old flat layout is never skipped, and it reads as an exception like platform files');
+  assert.ok(work.includes('When \`cto brief\` lists test files outside every feature folder (in the \`e2e/\` root or a flat folder such as \`e2e/tests/\`), do not move them on your own: put "split the end-to-end tests into feature folders?" in the run\'s final report menu'), 'the split is asked, at the end of a run');
   for (const s of ['The split goes test by test, not file by file', 'goes to the feature whose SPEC holds its scenario', 'goes to \`e2e/platform/\`', 'with as many tests as before', 'set \`"e2e_folders": false\` in \`.cto.json\`']) assert.ok(work.includes(s), s);
 });
 

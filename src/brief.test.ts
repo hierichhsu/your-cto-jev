@@ -143,7 +143,7 @@ test('flowIssues: open e2e or manual tasks in a feature whose SPEC has no ## Acc
   assert.ok(!issues({ [`${F}/ui/SPEC.md`]: `${SPEC}## Acceptance\n- a scenario\n`, [`${F}/ui/TASKS.md`]: tasks('npx playwright test e2e/ui/') }).includes(ISSUE), 'a SPEC with scenarios');
 });
 
-test('flowIssues: test files in the e2e/ root ask whether to split them; helpers, split tests and e2e_folders false are quiet', () => {
+test('flowIssues: test files outside every feature folder (e2e/ root, flat e2e/tests/) ask whether to split them; helpers, split tests and e2e_folders false are quiet', () => {
   const base = { 'src/ui/x.ts': '', [`${F}/ui/CONCEPT.md`]: CONCEPT, [`${F}/ui/SPEC.md`]: SPEC, [`${F}/ui/TASKS.md`]: '- [ ] UI-1 Screen (files: src/ui/)\n', [`${F}/ui/REVIEW.md`]: '' };
   const loose = (files: Record<string, string>) => flowIssues(repo({ ...base, ...files })).filter((l) => l.startsWith('e2e/'));
   assert.deepEqual(loose({ 'e2e/ui-list.spec.ts': '', 'e2e/smoke.test.js': '', 'e2e/fixtures.ts': '', 'e2e/ui/edit.spec.ts': '' }),
@@ -151,9 +151,12 @@ test('flowIssues: test files in the e2e/ root ask whether to split them; helpers
   assert.match(loose({ 'e2e/a.spec.ts': '', 'e2e/b.spec.ts': '', 'e2e/c.spec.ts': '', 'e2e/d.cy.tsx': '' })[0], /^e2e\/: 4 test files .*\(a\.spec\.ts, b\.spec\.ts, c\.spec\.ts, …\)/);
   assert.deepEqual(loose({ 'e2e/fixtures.ts': '', 'e2e/ui/edit.spec.ts': '', 'e2e/platform/smoke.spec.ts': '' }), [], 'split: only helpers in the root');
   assert.deepEqual(loose({}), [], 'no e2e/ at all');
+  assert.deepEqual(loose({ 'e2e/tests/login.spec.ts': '', 'e2e/specs/cart.spec.ts': '', 'e2e/fixtures/app/src/util.test.ts': '', 'e2e/ui/deep/edit.spec.ts': '', 'e2e/.output/trace.spec.ts': '', 'e2e/node_modules/a.spec.js': '', 'e2e/helpers/page.ts': '' }),
+    ["e2e/: 2 test files not in a feature folder (specs/cart.spec.ts, tests/login.spec.ts): ask in the run's final report menu, never mid-run, whether to split them into e2e/<feature slug>/"], 'a flat folder one level down is flagged; deeper trees, feature folders, dot folders, node_modules and helpers are not');
   assert.deepEqual(loose({ 'e2e/ui-list.spec.ts': '', '.cto.json': '{"e2e_folders": false}' }), [], 'the user chose to keep them flat');
   const split = (box: string, text = 'Split the end-to-end tests into feature folders') => ({ 'e2e/ui-list.spec.ts': '', [`${F}/platform/TASKS.md`]: `- [${box}] PLAT-1 ${text} (seq) (files: e2e/, playwright.config.ts)\n` });
   assert.deepEqual(loose(split(' ')), [], 'the user said yes and the split task is open: not asked again');
+  assert.deepEqual(loose(split(' ', '(P2) Split the end-to-end tests into feature folders')), [], 'a priority tag before the title still counts');
   assert.equal(loose(split('x')).length, 1, 'a done split task that left tests in the root is flagged again');
   assert.equal(loose(split(' ', '(P2) Review finding (wave UI-1): tidy the tree card')).length, 1, 'another open task owning e2e/ does not silence it');
   assert.equal(loose(split(' ', '(P2) Review finding (wave PLAT-1): Split the end-to-end tests into feature folders left smoke in the root')).length, 1, 'a finding that only quotes the title does not silence it');
