@@ -176,6 +176,18 @@ test('MOD-5: a P1 still open after three rounds is written into REVIEW.md as esc
   assert.ok(FLOW_SKILL_TEXT.includes('If P1s remain after round three, stop fixing: write each one into the REVIEW.md entry marked as escalated to the user (the commit gate accepts that)'));
 });
 
+test('fewer re-reviews: code waiting for review blocks dispatch, conversation fixes are committed, a P1-free review is committed with no code change', () => {
+  const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
+  assert.ok(work.includes('or from fixes made in conversation (add a task line for those, with an acceptance command like any task, and tick it once that passes, in the TASKS.md of the feature whose files they change'), 'conversation fixes are reviewed before new dispatch');
+  assert.ok(work.includes("Never dispatch a task of a new wave while a wave's code waits for its review or commit (that wave's own remaining tasks, its reviewer and the P1 fixes of step 5 still run)"), 'no new wave while a review is pending; the wave itself and its review still run');
+  assert.ok(work.includes('Only when `cto check` or a git hook blocks the commit and its fix changes code is the whole change reviewed again.'), 'a blocked commit has a way out');
+  assert.ok(work.includes("or `platform`'s when they span several features or none"), 'a conversation fix has a TASKS.md home');
+  assert.ok(work.includes('A P2 or P3 is a task (in a cleanup wave, a line under `Left for the user:`), never a fix made now.'), 'cleanup waves keep Left for the user');
+  assert.ok(FLOW_SKILL_TEXT.includes('if the tree holds uncommitted code from ticked tasks or from fixes made in conversation (step 1 of `cto-jev work`)'), 'work all checks conversation fixes too');
+  assert.ok(work.includes('A review with no P1 is committed as it stands: change no code between it and the commit'), 'no edits between a clean review and its commit');
+  assert.ok(work.includes('review and commit them before the user moves on to other work'), 'conversation fixes are committed promptly');
+});
+
 test('MOD-5: a dispatch prompt names what to review and the verify command; it never dictates the verdict or drops changed paths', () => {
   const work = FLOW_SKILL_TEXT.slice(FLOW_SKILL_TEXT.indexOf('## cto-jev work'), FLOW_SKILL_TEXT.indexOf('### cto-jev work all'));
   assert.ok(work.includes('the verify command from `cto brief`'), 'names the verify command');
@@ -186,7 +198,7 @@ test('without sub-agents, a self-review cannot pass the commit gate where Claude
   assert.ok((FLOW_SKILL_TEXT.match(/a self-review cannot pass the commit gate/g) ?? []).length >= 2, 'the work step and the work all step');
   assert.ok(FLOW_SKILL_TEXT.includes("keep the wave's tasks ticked, leave the tree uncommitted, stop the run, and say in the final report that the wave is waiting for a cto-reviewer review in a Claude Code session"));
   assert.ok(FLOW_SKILL_TEXT.includes('if the tree holds uncommitted code from ticked tasks'), 'the first step in work');
-  assert.ok(FLOW_SKILL_TEXT.includes('first, if the tree holds uncommitted code from ticked tasks, a Claude Code session reviews it with `cto-reviewer` and commits it before dispatching anything new; any other agent stops there'), 'the first step in work all');
+  assert.ok(FLOW_SKILL_TEXT.includes('first, if the tree holds uncommitted code from ticked tasks or from fixes made in conversation (step 1 of `cto-jev work`), a Claude Code session reviews it with `cto-reviewer` and commits it before dispatching anything new; any other agent stops there'), 'the first step in work all');
   assert.ok(FLOW_SKILL_TEXT.includes('Any other agent stops here, reports that the wave is still waiting for a Claude Code session, and dispatches nothing new'), 'the first step in work: other agents stop');
   assert.ok(FLOW_SKILL_TEXT.includes("run the project's formatter, if any, so the review sees the final tree"), 'the formatter before the reviewer');
   assert.ok(FLOW_SKILL_TEXT.includes('only a Claude Code session can satisfy the gate, so other agents (with or without sub-agents) hand the wave over'), 'step 5 says who can pass the gate');
